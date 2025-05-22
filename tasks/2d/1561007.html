@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a1a;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #444;
+            box-shadow: 0 0 15px #000;
+        }
+
+        .overlay {
+            position: absolute;
+            top: 10px;
+            left: 20px;
+            color: #00ff00;
+            font-family: 'Roboto Mono', monospace;
+            pointer-events: none;
+        }
+
+        .overlay h1 {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .overlay p {
+            margin: 0;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            color: #00ff00;
+            font-family: 'Roboto Mono', monospace;
+            text-align: right;
+        }
+
+        #info div {
+            margin-bottom: 5px;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        #info span {
+            margin-right: 5px;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="canvas-container">
+        <div class="overlay">
+            <h1>2D RADAR SIMULATION</h1>
+        </div>
+        <div id="info">
+            <div>Distance T1: <span id="1"></span>KM</div>
+            <div>Distance T2: <span id="2"></span>KM</div>
+            <div>Distance T3: <span id="3"></span>KM</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            const canvasSize = 600;
+            const radarRadius = canvasSize * 0.4;
+            let sweepAngle = 0;
+            const sweepSpeed = 0.025;
+            const unitKM = radarRadius / 4 * 5
+
+            // Add new visual constants
+            const colors = {
+                sweepLine: [50, 255, 100, 220],
+                sweepTrail: [0, 255, 100, 30],
+                text: [0, 200, 100],
+                targetBlip: [255, 60, 60],
+                targetCore: [255, 150, 150]
+            };
+
+            // Add glow effect parameters
+            const effects = {
+                glowStrength: 15,
+                glowSpread: 3,
+                ringBlur: 2
+            };
+
+
+            // Multiple targets with velocity and signal strength
+            const targets = [
+                {
+                    id: 1,
+                    distance: unitKM * 3.5,
+                    angle: p.PI / 4,
+                    velocity: { r: 0.5, theta: p.PI / 6 }, // Polar velocity (r = speed, theta = direction)
+                    strength: 25,                          // Stronger signal
+                    visibility: 0,
+                    lastDetection: null,
+                    text: 'T1'
+                },
+                {
+                    id: 2,
+                    distance: unitKM * 2,
+                    angle: p.PI * 1.2,
+                    velocity: { r: 0.8, theta: -p.PI / 3 },
+                    strength: 15,                          // Medium signal
+                    visibility: 0,
+                    lastDetection: null,
+                    text: 'T2'
+                },
+                {
+                    id: 3,
+                    distance: unitKM * 1.2,
+                    angle: p.PI * 1.7,
+                    velocity: { r: 0.3, theta: p.PI },
+                    strength: 10,                          // Weaker signal
+                    visibility: 0,
+                    lastDetection: null,
+                    text: 'T3'
+                }
+            ];
+
+            function updateDistanceIndicator(distance, targetId) {
+                const distanceElement = document.getElementById(`${targetId}`);
+                if (distanceElement) {
+                    distanceElement.textContent = (distance).toFixed(1); // Convert to km
+                }
+            }
+
+            function updateTargets() {
+                targets.forEach(target => {
+                    // Update position based on velocity
+                    const dx = target.velocity.r * p.cos(target.velocity.theta);
+                    const dy = target.velocity.r * p.sin(target.velocity.theta);
+
+                    // Convert current position to Cartesian
+                    const x = target.distance * p.cos(target.angle);
+                    const y = target.distance * p.sin(target.angle);
+
+                    // Update position
+                    const newX = x + dx;
+                    const newY = y + dy;
+
+                    // Convert back to polar coordinates
+                    target.distance = p.sqrt(newX * newX + newY * newY);
+                    target.angle = p.atan2(newY, newX);
+
+                    // Bounce off radar boundaries
+                    if (target.distance > radarRadius * 0.9) {
+                        target.velocity.theta += p.PI;
+                        target.distance = radarRadius * 0.9;
+                    }
+
+                    updateDistanceIndicator(target.distance, target.id);
+                });
+            }
+
+            function drawTargetBlip(p_instance, tgt) {
+                const targetX = tgt.distance * p_instance.cos(tgt.angle);
+                const targetY = tgt.distance * p_instance.sin(tgt.angle);
+
+                // Detection logic remains the same
+                const angleToTarget = p.atan2(targetY, targetX);
+                const normalizedSweepAngle = (sweepAngle + p.TWO_PI) % p.TWO_PI;
+                const normalizedTargetAngle = (angleToTarget + p.TWO_PI) % p.TWO_PI;
+                const detectionThreshold = p.PI / 30;
+
+                if (Math.abs(normalizedSweepAngle - normalizedTargetAngle) < detectionThreshold) {
+                    tgt.visibility = 1;
+                    tgt.lastDetection = p.millis();
+                }
+
+
+                if (tgt.lastDetection === null) {
+                    tgt.visibility = 0
+                } else {
+
+                    // Fade calculation remains the same
+                    const fadeTime = 1000;
+                    const timeSinceDetection = p.millis() - tgt.lastDetection;
+                    if (timeSinceDetection < fadeTime) {
+                        tgt.visibility = p.map(timeSinceDetection, 0, fadeTime, 1, 0);
+                    } else {
+                        tgt.visibility = 0;
+                    }
+                }
+
+
+                if (tgt.visibility > 0) {
+                    // Draw blip with size based on signal strength
+                    p_instance.fill(255, 0, 0, 230 * tgt.visibility);
+                    p_instance.noStroke();
+                    p_instance.ellipse(targetX, targetY, tgt.strength, tgt.strength);
+
+                    // Brighter center proportional to strength
+                    p_instance.fill(255, 120, 120, 255 * tgt.visibility);
+                    p_instance.ellipse(targetX, targetY, tgt.strength * 0.4, tgt.strength * 0.4);
+
+                    // Add glow effect to target
+                    p_instance.drawingContext.shadowBlur = effects.glowStrength;
+                    p_instance.drawingContext.shadowColor = `rgba(255, 60, 60, ${tgt.visibility * 0.5})`;
+
+                    // Enhanced target visualization
+                    // Outer ring
+                    p_instance.stroke(colors.targetBlip[0],
+                        colors.targetBlip[1],
+                        colors.targetBlip[2],
+                        100 * tgt.visibility);
+                    p_instance.strokeWeight(1);
+                    p_instance.noFill();
+                    p_instance.ellipse(targetX, targetY,
+                        tgt.strength * 1.5,
+                        tgt.strength * 1.5);
+
+                    // Main blip
+                    p_instance.noStroke();
+                    p_instance.fill(colors.targetBlip[0],
+                        colors.targetBlip[1],
+                        colors.targetBlip[2],
+                        230 * tgt.visibility);
+                    p_instance.ellipse(targetX, targetY,
+                        tgt.strength,
+                        tgt.strength);
+
+                    // Bright core
+                    p_instance.fill(colors.targetCore[0],
+                        colors.targetCore[1],
+                        colors.targetCore[2],
+                        255 * tgt.visibility);
+                    p_instance.ellipse(targetX, targetY,
+                        tgt.strength * 0.4,
+                        tgt.strength * 0.4)
+
+                    // Add target label text
+                    p_instance.push();
+                    p_instance.translate(targetX, targetY);
+                    p_instance.rotate(p_instance.PI / 2); // Adjust rotation to keep text upright
+                    p_instance.fill(255, 200, 200, 255 * tgt.visibility);
+                    p_instance.noStroke();
+                    p_instance.textAlign(p_instance.RIGHT, p_instance.BOTTOM);
+                    p_instance.textSize(14);
+                    p_instance.text(tgt.text, -5, -5); // Position text above and to the left of the blip
+                    p_instance.pop();
+
+
+                    // Draw velocity vector
+                    p_instance.stroke(255, 200, 200, 200 * tgt.visibility);
+                    p_instance.strokeWeight(2);
+                    const vectorLength = tgt.velocity.r * 40; // Scale vector length
+                    const endX = targetX + vectorLength * p.cos(tgt.velocity.theta);
+                    const endY = targetY + vectorLength * p.sin(tgt.velocity.theta);
+                    p_instance.line(targetX, targetY, endX, endY);
+
+                    // Arrow head for velocity vector
+                    const arrowSize = 8;
+                    const angle = p.atan2(endY - targetY, endX - targetX);
+                    p_instance.push();
+                    p_instance.translate(endX, endY);
+                    p_instance.rotate(angle);
+                    p_instance.noStroke();
+                    p_instance.fill(255, 200, 200, 200 * tgt.visibility);
+                    p_instance.triangle(0, 0, -arrowSize, -arrowSize / 2, -arrowSize, arrowSize / 2);
+                    p_instance.pop();
+                }
+            }
+
+            /**
+       * Draws the static radar grid including concentric circles,
+       * radial lines, and bearing text.
+       * @param {p5} p_instance - The p5 instance.
+       * @param {number} radius - The maximum radius of the radar display.
+       */
+            function drawRadarGrid(p_instance, radius) {
+                // Add subtle background gradient
+                for (let i = radius; i > 0; i -= 2) {
+                    p_instance.noStroke();
+                    p_instance.fill(0, 15, 8, 2);
+                    p_instance.ellipse(0, 0, i * 2, i * 2);
+                }
+
+                // Enhanced range rings with glow
+                p_instance.drawingContext.shadowBlur = effects.ringBlur;
+                p_instance.drawingContext.shadowColor = `rgba(0, 150, 70, 0.5)`;
+
+                // Style for grid lines
+                p_instance.stroke(0, 100, 0, 150); // Dim green for grid lines
+                p_instance.noFill();
+                p_instance.strokeWeight(1);
+
+                // Draw concentric circles
+                const numCircles = 4; // Number of range rings
+                for (let i = 1; i <= numCircles; i++) {
+                    const r = (radius / numCircles) * i;
+                    p_instance.ellipse(0, 0, r * 2, r * 2); // Circles are drawn from center (0,0)
+                }
+
+                // Draw radial lines (e.g., every 30 degrees)
+                const numLines = 12; // 12 lines for 30-degree intervals (360/12 = 30)
+                for (let i = 0; i < numLines; i++) {
+                    const angle = (p_instance.TWO_PI / numLines) * i;
+                    const x = radius * p_instance.cos(angle);
+                    const y = radius * p_instance.sin(angle);
+                    p_instance.line(0, 0, x, y); // Lines from center to edge
+                }
+
+                // Style for bearing text
+                p_instance.fill(0, 180, 0); // Brighter green for text
+                p_instance.noStroke();
+                p_instance.textAlign(p_instance.CENTER, p_instance.CENTER);
+                p_instance.textSize(canvasSize * 0.025); // Text size relative to canvas
+
+                // Offset for text from the main radar circle
+                const textRadiusOffset = canvasSize * 0.03;
+
+                // Draw bearing text (0°, 90°, 180°, 270°)
+                // Helper function 'drawOrientedText' ensures text is upright
+                drawOrientedText(p_instance, "0°", 0, -radius - textRadiusOffset);    // North
+                drawOrientedText(p_instance, "90°", radius + textRadiusOffset, 0);   // East
+                drawOrientedText(p_instance, "180°", 0, radius + textRadiusOffset);  // South
+                drawOrientedText(p_instance, "270°", -radius - textRadiusOffset, 0); // West
+            }
+
+            /**
+             * Helper function to draw text that remains upright despite global rotations.
+             * @param {p5} p_instance - The p5 instance.
+             * @param {string} str - The text string to draw.
+             * @param {number} x - The x-coordinate for the text (in the current transformed space).
+             * @param {number} y - The y-coordinate for the text (in the current transformed space).
+             */
+            function drawOrientedText(p_instance, str, x, y) {
+                p_instance.push(); // Save current drawing state
+                p_instance.translate(x, y); // Move to the desired text position
+                p_instance.rotate(p_instance.PI / 2); // Counter-rotate to make text upright (compensates for initial -PI/2 global rotation)
+                p_instance.text(str, 0, 0); // Draw text at the new (0,0) of this translated/rotated context
+                p_instance.pop();  // Restore previous drawing state
+            }
+
+            /**
+             * Draws the sweeping radar beam and its trail.
+             * @param {p5} p_instance - The p5 instance.
+             * @param {number} angle - The current angle of the sweep beam.
+             * @param {number} radius - The maximum radius of the radar display.
+             */
+            function drawSweepBeam(p_instance, angle, radius) {
+                // Enhanced sweep line
+                p_instance.stroke(colors.sweepLine[0],
+                    colors.sweepLine[1],
+                    colors.sweepLine[2],
+                    colors.sweepLine[3]);
+                p_instance.strokeWeight(2);
+                // Add double line effect for depth
+                p_instance.line(0, 0, radius * p_instance.cos(angle),
+                    radius * p_instance.sin(angle));
+                p_instance.strokeWeight(1);
+                p_instance.stroke(255, 255, 255, 100);
+                p_instance.line(0, 0, radius * p_instance.cos(angle),
+                    radius * p_instance.sin(angle));
+
+                // Add glow effect to sweep
+                p_instance.drawingContext.shadowBlur = effects.glowStrength;
+                p_instance.drawingContext.shadowColor = `rgba(50, 255, 100, 0.3)`;
+
+                // Enhanced sweep trail
+                p_instance.noFill();
+                for (let i = 0; i < 20; i++) {
+                    let trailAngle = sweepAngle - (i * 0.02);
+                    let alpha = p.map(i, 0, 30, 200, 0);
+
+                    p_instance.stroke(
+                        colors.sweepTrail[0],
+                        colors.sweepTrail[1],
+                        colors.sweepTrail[2],
+                        alpha
+                    );
+                    p_instance.strokeWeight(1);
+
+                    // Draw multiple close lines for sweep effect
+                    p_instance.line(
+                        0,
+                        0,
+                        radius * p_instance.cos(trailAngle),
+                        radius * p_instance.sin(trailAngle)
+                    );
+                }
+            }
+
+
+
+            p.setup = () => {
+                p.createCanvas(canvasSize, canvasSize);
+
+            };
+
+
+
+            // Update draw function to handle multiple targets
+            p.draw = () => {
+                p.background(0, 15, 0);
+                p.translate(p.width / 2, p.height / 2);
+                p.rotate(-p.PI / 2);
+
+                drawRadarGrid(p, radarRadius);
+
+                // Update and draw all targets
+                updateTargets();
+                targets.forEach(target => drawTargetBlip(p, target));
+
+                drawSweepBeam(p, sweepAngle, radarRadius);
+                sweepAngle = (sweepAngle + sweepSpeed) % p.TWO_PI;
+            }
+        };
+
+
+        const container = window.document.getElementById('canvas-container');
+
+        new p5(sketch, container)
+
+    </script>
+</body>
+
+</html>

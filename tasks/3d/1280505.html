@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tornado Physics Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+
+    <!-- Import map for module resolution -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.159.0/three.module.min.js",
+        "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/+esm"
+      }
+    }
+  </script>
+</head>
+
+<body>
+    <script type="module">
+        import * as CANNON from 'cannon-es';
+        import * as THREE from 'three';
+        // Configuration constants
+        const CONFIG = {
+            BASE_GRAVITY: 0.5,
+            PARTICLE: {
+                COUNT: 1500,
+                SIZE: 0.15,
+                OPACITY: 0.8,
+                INITIAL_SPEED: { MIN: 0.1, MAX: 0.3 },
+                LIFT_SPEED: { MIN: 0.01, MAX: 0.03 },
+                LIFT_ACCELERATION: { MIN: 0.0005, MAX: 0.0015 },
+                ACTIVATION_TIME: { MAX: 2 },
+                MASS: { MIN: 0.01, MAX: 0.1 }, // Mass range for particles
+            },
+            GROUND: {
+                SIZE: 50,
+                COLOR: 0x336633,
+                OPACITY: 0.3,
+                Y_POSITION: 0,
+            },
+            TORNADO: {
+                INITIAL_RADIUS: { MIN: 1, MAX: 30 },
+                RADIUS_FACTOR: { BASE: 0.1, RANGE: 0.7 },
+                HEIGHT: 20, // Single height parameter for both tornado height and particle reset
+                INWARD_PULL: {
+                    BASE: 0.2,
+                    MIN_FACTOR: 0.6, // Minimum inward pull factor (90% of base value at max height)
+                },
+                SPIRAL: {
+                    FORCE: { MIN: 0.4, MAX: 0.6 }, // Spiral force range
+                    VARIANCE: { MIN: 0.07, MAX: 0.09 }, // Variance in spiral motion
+                },
+                UPWARD_FORCE: {
+                    BASE: 0.5, // Base upward force
+                    HEIGHT_FACTOR_MULTIPLIER: 2.0, // Multiplier for height-based force increase
+                },
+                RADIUS_SPEED: { MIN: -0.01, MAX: 0.01 }, // Radius speed configuration
+            },
+            COLORS: {
+                INITIAL: { R: 0.8, G: 0.3, B: 0.5 },
+                GRADIENT: { R: -0.5, G: 0.5, B: 0.5 },
+            },
+            CAMERA: {
+                FOV: 75,
+                POSITION: { X: 0, Y: 25, Z: 25 },
+            },
+        };
+
+        // Scene setup
+        function createScene() {
+            const scene = new THREE.Scene();
+
+            // Add ambient light
+            scene.add(new THREE.AmbientLight(0x404040));
+
+            // Add directional light for better visibility
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 20, 10);
+            scene.add(directionalLight);
+
+            return scene;
+        }
+
+        // Camera setup
+        function createCamera() {
+            const camera = new THREE.PerspectiveCamera(CONFIG.CAMERA.FOV, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(CONFIG.CAMERA.POSITION.X, CONFIG.CAMERA.POSITION.Y, CONFIG.CAMERA.POSITION.Z);
+            camera.lookAt(0, 0, 0);
+            return camera;
+        }
+
+        // Renderer setup
+        function createRenderer() {
+            const renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                canvas: document.getElementById('canvas') || undefined,
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            // Only append the renderer's canvas if we didn't find an existing canvas
+            if (!document.getElementById('canvas')) {
+                renderer.domElement.style.display = 'block';
+                renderer.domElement.style.width = '100%';
+                renderer.domElement.style.height = '100%';
+                document.body.appendChild(renderer.domElement);
+            }
+
+            return renderer;
+        }
+
+        // Create ground plane
+        function createGround(world, scene) {
+            // Add ground plane to physics world
+            const groundShape = new CANNON.Plane();
+            const groundBody = new CANNON.Body({
+                mass: 0, // Static body
+                shape: groundShape,
+            });
+            groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0); // Rotate to be horizontal
+            groundBody.position.set(0, CONFIG.GROUND.Y_POSITION, 0);
+            world.addBody(groundBody);
+
+            const groundGeometry = new THREE.PlaneGeometry(CONFIG.GROUND.SIZE, CONFIG.GROUND.SIZE);
+            const groundMaterial = new THREE.MeshBasicMaterial({
+                color: CONFIG.GROUND.COLOR,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: CONFIG.GROUND.OPACITY,
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.quaternion.copy(groundBody.quaternion);
+            ground.position.copy(groundBody.position);
+            scene.add(ground);
+            return ground;
+        }
+
+        // Create physics world
+        function createPhysicsWorld() {
+            const world = new CANNON.World({
+                gravity: new CANNON.Vec3(0, -CONFIG.BASE_GRAVITY, 0),
+            });
+
+            // Improve solver settings for better stability
+            world.solver.iterations = 10;
+            world.solver.tolerance = 0.01;
+
+            return world;
+        }
+
+        // Initialize a single particle with physics
+        function initializeParticle(index, positions, colors, particleData, world) {
+            // Calculate particle placement in concentric circles
+            const particleSize = CONFIG.PARTICLE.SIZE;
+            const minSpacing = particleSize + 0.1; // Ensure enough space between particles
+
+            // Calculate how many particles fit in each ring
+            const calculateRingCapacity = (ringRadius) => {
+                // Circumference divided by minimum spacing
+                return Math.floor((2 * Math.PI * ringRadius) / minSpacing);
+            };
+
+            // Determine which ring this particle belongs to
+            let currentRing = 0;
+            let particlesPlaced = 0;
+            let ringCapacity = 0;
+
+            // Find which ring this particle belongs to
+            while (particlesPlaced + ringCapacity <= index) {
+                particlesPlaced += ringCapacity;
+                currentRing++;
+                // Calculate radius of this ring (start from a minimum radius)
+                const ringRadius = CONFIG.TORNADO.INITIAL_RADIUS.MIN + currentRing * minSpacing;
+                ringCapacity = calculateRingCapacity(ringRadius);
+            }
+
+            // Calculate position within the ring
+            const positionInRing = index - particlesPlaced;
+            const ringRadius = CONFIG.TORNADO.INITIAL_RADIUS.MIN + currentRing * minSpacing;
+            const angleStep = (2 * Math.PI) / ringCapacity;
+            const theta = positionInRing * angleStep;
+
+            // Calculate height with slight variation to prevent exact overlap in z-axis
+            const height = CONFIG.GROUND.Y_POSITION + particleSize;
+
+            // Convert to Cartesian coordinates
+            const x = ringRadius * Math.cos(theta);
+            const y = height;
+            const z = ringRadius * Math.sin(theta);
+
+            // Set positions
+            positions[index * 3] = x;
+            positions[index * 3 + 1] = y;
+            positions[index * 3 + 2] = z;
+
+            // Set colors
+            colors[index * 3] = CONFIG.COLORS.INITIAL.R;
+            colors[index * 3 + 1] = CONFIG.COLORS.INITIAL.G;
+            colors[index * 3 + 2] = CONFIG.COLORS.INITIAL.B;
+
+            // Create physics body for particle
+            const particleShape = new CANNON.Sphere(particleSize * 0.8);
+            const particleMass = CONFIG.PARTICLE.MASS.MIN + Math.random() * (CONFIG.PARTICLE.MASS.MAX - CONFIG.PARTICLE.MASS.MIN);
+
+            const particleBody = new CANNON.Body({
+                mass: particleMass,
+                position: new CANNON.Vec3(x, y, z),
+                shape: particleShape,
+                linearDamping: 0.2,
+            });
+
+            // Add to physics world
+            world.addBody(particleBody);
+
+            // Store particle data for animation
+            particleData.push({
+                radius: ringRadius,
+                height,
+                theta,
+                speed:
+                    CONFIG.PARTICLE.INITIAL_SPEED.MIN +
+                    Math.random() * (CONFIG.PARTICLE.INITIAL_SPEED.MAX - CONFIG.PARTICLE.INITIAL_SPEED.MIN),
+                radiusSpeed:
+                    CONFIG.TORNADO.RADIUS_SPEED.MIN +
+                    Math.random() * (CONFIG.TORNADO.RADIUS_SPEED.MAX - CONFIG.TORNADO.RADIUS_SPEED.MIN),
+                liftSpeed:
+                    CONFIG.PARTICLE.LIFT_SPEED.MIN +
+                    Math.random() * (CONFIG.PARTICLE.LIFT_SPEED.MAX - CONFIG.PARTICLE.LIFT_SPEED.MIN),
+                liftAcceleration:
+                    CONFIG.PARTICLE.LIFT_ACCELERATION.MIN +
+                    Math.random() * (CONFIG.PARTICLE.LIFT_ACCELERATION.MAX - CONFIG.PARTICLE.LIFT_ACCELERATION.MIN),
+                active: false,
+                activationTime: Math.random() * CONFIG.PARTICLE.ACTIVATION_TIME.MAX,
+                physicsBody: particleBody,
+                mass: particleMass,
+                spiralForce:
+                    CONFIG.TORNADO.SPIRAL.FORCE.MIN +
+                    Math.random() * (CONFIG.TORNADO.SPIRAL.FORCE.MAX - CONFIG.TORNADO.SPIRAL.FORCE.MIN),
+                spiralVariance:
+                    CONFIG.TORNADO.SPIRAL.VARIANCE.MIN +
+                    Math.random() * (CONFIG.TORNADO.SPIRAL.VARIANCE.MAX - CONFIG.TORNADO.SPIRAL.VARIANCE.MIN),
+            });
+        }
+
+        // Create particle system with physics
+        function createParticleSystem(scene, world) {
+            const particles = new THREE.BufferGeometry();
+            const positions = new Float32Array(CONFIG.PARTICLE.COUNT * 3);
+            const colors = new Float32Array(CONFIG.PARTICLE.COUNT * 3);
+            const particleData = [];
+
+            // Initialize particles
+            for (let i = 0; i < CONFIG.PARTICLE.COUNT; i++) {
+                initializeParticle(i, positions, colors, particleData, world);
+            }
+
+            // Add attributes to the geometry
+            particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // Create material
+            const particleMaterial = new THREE.PointsMaterial({
+                size: CONFIG.PARTICLE.SIZE,
+                vertexColors: true, // Enable vertex colors
+                transparent: true,
+                opacity: CONFIG.PARTICLE.OPACITY,
+            });
+
+            // Create the particle system
+            const particleSystem = new THREE.Points(particles, particleMaterial);
+            scene.add(particleSystem);
+
+            return { particleSystem, particleData, positions, colors };
+        }
+
+        // Update a single particle with physics
+        function updateParticle(index, particle, positions, colors, deltaTime, elapsedTime) {
+            // Activate particles gradually over time
+            if (!particle.active && elapsedTime > particle.activationTime) {
+                particle.active = true;
+
+                // When particle becomes active, give it its initial color
+                const colorFactor = 0.2; // Start with ground colors
+                colors[index * 3] = CONFIG.COLORS.INITIAL.R + colorFactor * CONFIG.COLORS.GRADIENT.R;
+                colors[index * 3 + 1] = CONFIG.COLORS.INITIAL.G + colorFactor * CONFIG.COLORS.GRADIENT.G;
+                colors[index * 3 + 2] = CONFIG.COLORS.INITIAL.B + colorFactor * CONFIG.COLORS.GRADIENT.B;
+            }
+
+            if (particle.active) {
+                // Apply spiral force to create tornado effect
+                const currentHeight = particle.physicsBody.position.y;
+                const heightFactor = (currentHeight - CONFIG.GROUND.Y_POSITION) / CONFIG.TORNADO.HEIGHT;
+
+                // Calculate center point of tornado at current height
+                const centerX = 0;
+                const centerZ = 0;
+
+                // Get current position
+                const posX = particle.physicsBody.position.x;
+                const posZ = particle.physicsBody.position.z;
+
+                // Calculate vector from particle to center
+                const dirX = centerX - posX;
+                const dirZ = centerZ - posZ;
+
+                // Normalize direction vector
+                const length = Math.sqrt(dirX * dirX + dirZ * dirZ);
+                const normX = length > 0 ? dirX / length : 0;
+                const normZ = length > 0 ? dirZ / length : 0;
+
+                // Calculate perpendicular vector for circular motion
+                const perpX = -normZ;
+                const perpZ = normX;
+
+                // Adjust spiral strength based on distance from center
+                // Reduce spiral force for particles far from center to prevent excessive outward movement
+                const distanceFromCenter = Math.sqrt(posX * posX + posZ * posZ);
+                const distanceFactor = Math.min(1, 5 / (distanceFromCenter + 1));
+
+                // Apply spiral force (perpendicular for rotation + inward pull)
+                const spiralStrength = particle.spiralForce * particle.spiralVariance * (1 + heightFactor) * distanceFactor;
+
+                // Calculate inward pull with minimum factor to ensure it's never less than MIN_FACTOR of base value
+                const inwardPullFactor = 1 - heightFactor * (1 - CONFIG.TORNADO.INWARD_PULL.MIN_FACTOR);
+                // Increase inward pull for particles that are far from center
+                const distanceInwardBoost = Math.max(1, distanceFromCenter / 10);
+                const inwardPull = CONFIG.TORNADO.INWARD_PULL.BASE * inwardPullFactor * distanceInwardBoost;
+
+                // Calculate upward force with height factor for stronger lift as particles rise
+                const upwardForce =
+                    CONFIG.TORNADO.UPWARD_FORCE.BASE *
+                    particle.mass *
+                    (1 + heightFactor * CONFIG.TORNADO.UPWARD_FORCE.HEIGHT_FACTOR_MULTIPLIER);
+
+                particle.physicsBody.applyForce(
+                    new CANNON.Vec3(
+                        perpX * spiralStrength + normX * inwardPull,
+                        upwardForce,
+                        perpZ * spiralStrength + normZ * inwardPull,
+                    ),
+                    particle.physicsBody.position,
+                );
+
+                // Update visual position from physics body
+                positions[index * 3] = particle.physicsBody.position.x;
+                positions[index * 3 + 1] = particle.physicsBody.position.y;
+                positions[index * 3 + 2] = particle.physicsBody.position.z;
+
+                // Update particle data
+                particle.height = particle.physicsBody.position.y;
+
+                // Update colors based on height - particles change color as they rise
+                const colorFactor = Math.max(0, Math.min(1, (particle.height - CONFIG.GROUND.Y_POSITION) / CONFIG.TORNADO.HEIGHT));
+                colors[index * 3] = CONFIG.COLORS.INITIAL.R + colorFactor * CONFIG.COLORS.GRADIENT.R;
+                colors[index * 3 + 1] = CONFIG.COLORS.INITIAL.G + colorFactor * CONFIG.COLORS.GRADIENT.G;
+                colors[index * 3 + 2] = CONFIG.COLORS.INITIAL.B + colorFactor * CONFIG.COLORS.GRADIENT.B;
+
+                // Reset particles that reach their maximum height
+                if (particle.height > CONFIG.GROUND.Y_POSITION + CONFIG.TORNADO.HEIGHT) {
+                    resetParticle(particle);
+
+                    particle.active = false;
+                }
+            }
+        }
+
+        // Reset a particle when it reaches max height
+        function resetParticle(particle) {
+            // Reset position to ground level with random radius
+            const radius =
+                Math.random() * (CONFIG.TORNADO.INITIAL_RADIUS.MAX - CONFIG.TORNADO.INITIAL_RADIUS.MIN) +
+                CONFIG.TORNADO.INITIAL_RADIUS.MIN;
+            const theta = Math.random() * Math.PI * 2;
+            const radiusFactor = CONFIG.TORNADO.RADIUS_FACTOR.BASE;
+            const adjustedRadius = radius * radiusFactor;
+
+            // Reset physics body position
+            particle.physicsBody.position.set(
+                adjustedRadius * Math.cos(theta),
+                CONFIG.GROUND.Y_POSITION,
+                adjustedRadius * Math.sin(theta),
+            );
+
+            // Reset velocity
+            particle.physicsBody.velocity.set(0, 0, 0);
+            particle.physicsBody.angularVelocity.set(0, 0, 0);
+
+            // Reset particle data
+            particle.height = CONFIG.GROUND.Y_POSITION;
+            particle.radius = radius;
+            particle.theta = theta;
+            particle.liftSpeed =
+                CONFIG.PARTICLE.LIFT_SPEED.MIN + Math.random() * (CONFIG.PARTICLE.LIFT_SPEED.MAX - CONFIG.PARTICLE.LIFT_SPEED.MIN);
+            particle.speed =
+                CONFIG.PARTICLE.INITIAL_SPEED.MIN +
+                Math.random() * (CONFIG.PARTICLE.INITIAL_SPEED.MAX - CONFIG.PARTICLE.INITIAL_SPEED.MIN);
+            particle.activationTime = Math.random() * CONFIG.PARTICLE.ACTIVATION_TIME.MAX;
+            particle.spiralForce =
+                CONFIG.TORNADO.SPIRAL.FORCE.MIN +
+                Math.random() * (CONFIG.TORNADO.SPIRAL.FORCE.MAX - CONFIG.TORNADO.SPIRAL.FORCE.MIN);
+            particle.spiralVariance =
+                CONFIG.TORNADO.SPIRAL.VARIANCE.MIN +
+                Math.random() * (CONFIG.TORNADO.SPIRAL.VARIANCE.MAX - CONFIG.TORNADO.SPIRAL.VARIANCE.MIN);
+            particle.active = false;
+        }
+
+        // Main application
+        function initTornadoSimulation() {
+            // Create scene, camera, and renderer
+            const scene = createScene();
+            const camera = createCamera();
+            const renderer = createRenderer();
+
+
+
+            // Create physics world
+            const world = createPhysicsWorld();
+
+
+            // Create ground
+            createGround(world, scene);
+
+            // Create particle system with physics
+            const { particleSystem, particleData, positions, colors } = createParticleSystem(scene, world);
+
+            // Animation time tracking
+            const clock = new THREE.Clock();
+            let elapsedTime = 0;
+
+            // Animation function
+            function animate() {
+                requestAnimationFrame(animate);
+
+                // Update time
+                const deltaTime = Math.min(clock.getDelta(), 0.1); // Cap delta time to prevent large jumps
+                elapsedTime += deltaTime;
+
+                // Step the physics world
+                world.step(deltaTime);
+
+                // Update particle positions for the tornado effect
+                for (let i = 0; i < CONFIG.PARTICLE.COUNT; i++) {
+                    updateParticle(i, particleData[i], positions, colors, deltaTime, elapsedTime);
+                }
+
+                // Update the Cannon.js debugger
+
+                // Update geometry attributes
+                particleSystem.geometry.attributes.position.needsUpdate = true;
+                particleSystem.geometry.attributes.color.needsUpdate = true;
+
+
+                renderer.render(scene, camera);
+            }
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight, true);
+            });
+
+            // Start animation
+            animate();
+        }
+
+        // Initialize the simulation
+        initTornadoSimulation();
+
+    </script>
+</body>

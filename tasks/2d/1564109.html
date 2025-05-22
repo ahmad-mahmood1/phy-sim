@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            /* Lighter background for better contrast */
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #555;
+            /* Slightly softer border */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            /* Softer shadow */
+            background-color: #ffffff;
+            /* Explicit white background for canvas area */
+        }
+
+        #reset-button {
+            margin-top: 15px;
+            padding: 8px 16px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        #reset-button:hover {
+            background-color: #3367d6;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <h2 id="info">
+        Automatic fitting of Hexagons and Triangles in Rectangular Grid
+    </h2>
+    <div id="canvas-container">
+    </div>
+    <button id="reset-button">Reset Animation</button>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            const CANVAS_WIDTH = 750;
+            const CANVAS_HEIGHT = 450;
+            // --- Shape Configuration ---
+            // Increased side length for a larger, more focused pattern
+            const SHAPE_SIDE_LENGTH = 120;
+            const RECTANGLE_BORDER_THICKNESS = 10;
+
+            // --- Calculated Dimensions (will be set in setup or drawing function) ---
+            let hexFullHeight;    // Full height of a pointy-top hexagon
+            let hexWidth;         // Full width of a hexagon (actually 2*s, but s is radius here)
+            let triSingleHeight;  // Height of a single equilateral triangle
+            let hexInradius;      // Inradius of the hexagon
+
+            // Add these variables at the top of your sketch
+            let animationComplete = false;
+            let animationProgress = 0;
+            const ANIMATION_DURATION = 120; // frames (at 60fps = 2 seconds)
+            let resetButton;
+
+            // Starting positions hexagons (outside rectangle)
+            let h1_start_cx, h1_start_cy;
+            let h2_start_cx, h2_start_cy;
+
+            // Target positions hexagons (current positions)
+            let h1_target_cx, h1_target_cy;
+            let h2_target_cx, h2_target_cy;
+
+            // Starting Positions Upper and Lower Triangles
+            // Upper triangle vertices (starting positions)
+            let ut_v1_start, ut_v2_start, ut_v3_start;
+            // Lower triangle vertices (starting positions)
+            let lt_v1_start, lt_v2_start, lt_v3_start;
+
+            // Target Positions Upper and Lower Triangles
+            // Upper triangle vertices (target positions)
+            let ut_v1_target, ut_v2_target, ut_v3_target;
+            // Lower triangle vertices (target positions)
+            let lt_v1_target, lt_v2_target, lt_v3_target;
+
+            // Starting Positions of Right Angled Triangles (4, one for each corner)
+            // Top-left corner triangle vertices (starting positions)
+            let tl_v1_start, tl_v2_start, tl_v3_start;
+            // Top-right corner triangle vertices (starting positions)
+            let tr_v1_start, tr_v2_start, tr_v3_start;
+            // Bottom-right corner triangle vertices (starting positions)
+            let br_v1_start, br_v2_start, br_v3_start;
+            // Bottom-left corner triangle vertices (starting positions)
+            let bl_v1_start, bl_v2_start, bl_v3_start;
+
+            // Target Positions of Right Angled Triangles
+            // Top-left corner triangle vertices (target positions)
+            let tl_v1_target, tl_v2_target, tl_v3_target;
+            // Top-right corner triangle vertices (target positions)
+            let tr_v1_target, tr_v2_target, tr_v3_target;
+            // Bottom-right corner triangle vertices (target positions)
+            let br_v1_target, br_v2_target, br_v3_target;
+            // Bottom-left corner triangle vertices (target positions)
+            let bl_v1_target, bl_v2_target, bl_v3_target;
+
+            p.setup = () => {
+                const canvas = p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+                canvas.parent('canvas-container');
+
+                function resetAnimation() {
+                    animationProgress = 0;
+                    animationComplete = false;
+                    p.loop(); // Restart the animation loop
+                }
+
+                resetButton = document.getElementById('reset-button');
+                resetButton.addEventListener('click', resetAnimation);
+
+                p.background(255);
+
+                // Calculate dimensions based on SHAPE_SIDE_LENGTH
+                hexFullHeight = p.sqrt(3) * SHAPE_SIDE_LENGTH;
+                hexWidth = 2 * SHAPE_SIDE_LENGTH;
+                triSingleHeight = (p.sqrt(3) / 2) * SHAPE_SIDE_LENGTH;
+                hexInradius = SHAPE_SIDE_LENGTH * p.cos(p.PI / 6);
+
+                // Define target positions (same as your current positions)
+                h1_target_cx = CANVAS_WIDTH / 2 - hexInradius;
+                h1_target_cy = CANVAS_HEIGHT / 2;
+                h2_target_cx = CANVAS_WIDTH / 2 + hexInradius;
+                h2_target_cy = CANVAS_HEIGHT / 2;
+
+                // Define starting positions (outside the rectangle)
+                h1_start_cx = CANVAS_WIDTH * 0.1; // Left side
+                h1_start_cy = CANVAS_HEIGHT / 2; // Top area
+                h2_start_cx = CANVAS_WIDTH * 0.9; // Right side
+                h2_start_cy = CANVAS_HEIGHT / 2; // Bottom area
+
+                // Calculate target vertices for upper triangle
+                ut_v1_target = getHexagonVertex(h1_target_cx, h1_target_cy, 1);
+                ut_v2_target = getHexagonVertex(h1_target_cx, h1_target_cy, 2);
+                ut_v3_target = getHexagonVertex(h2_target_cx, h2_target_cy, 2);
+
+                // Calculate target vertices for lower triangle
+                lt_v1_target = getHexagonVertex(h1_target_cx, h1_target_cy, 5);
+                lt_v2_target = getHexagonVertex(h1_target_cx, h1_target_cy, 6);
+                lt_v3_target = getHexagonVertex(h2_target_cx, h2_target_cy, 5);
+
+                // Define starting positions for upper triangle vertices
+                // Move them above the canvas
+                ut_v1_start = { x: ut_v1_target.x, y: -50 };
+                ut_v2_start = { x: ut_v2_target.x, y: -100 };
+                ut_v3_start = { x: ut_v3_target.x, y: -150 };
+
+                // Define starting positions for lower triangle vertices
+                // Move them below the canvas
+                lt_v1_start = { x: lt_v1_target.x, y: CANVAS_HEIGHT + 50 };
+                lt_v2_start = { x: lt_v2_target.x, y: CANVAS_HEIGHT + 100 };
+                lt_v3_start = { x: lt_v3_target.x, y: CANVAS_HEIGHT + 150 };
+
+
+                let dx, dy
+                // Calculate target vertices for top-left right-angle triangle
+                // First two vertices from hexagon
+                tl_v1_target = getHexagonVertex(h1_target_cx, h1_target_cy, 2);
+                tl_v2_target = getHexagonVertex(h1_target_cx, h1_target_cy, 3);
+                // Third vertex forms a right angle with the first two
+                dx = tl_v1_target.x - tl_v2_target.x
+                dy = tl_v1_target.y - tl_v2_target.y
+                tl_v3_target = { x: tl_v1_target.x - dx, y: tl_v1_target.y }
+
+                // Calculate target vertices for top-right right-angle triangle
+                // First two vertices from hexagon
+                tr_v1_target = getHexagonVertex(h2_target_cx, h2_target_cy, 1);
+                tr_v2_target = getHexagonVertex(h2_target_cx, h2_target_cy, 2);
+                // Third vertex forms a right angle with the first two
+                tr_v3_target = { x: tr_v1_target.x, y: tr_v2_target.y }
+
+
+                // Define starting positions for top-left right-angle triangle
+                // Move them to the left of the canvas
+                tl_v1_start = { x: -50, y: tl_v1_target.y - 50 };
+                tl_v2_start = { x: -100, y: tl_v2_target.y + 50 };
+                tl_v3_start = { x: -150, y: tl_v3_target.y };
+
+                // Define starting positions for top-right right-angle triangle
+                // Move them to the right of the canvas
+                tr_v1_start = { x: CANVAS_WIDTH + 50, y: tr_v1_target.y - 50 };
+                tr_v2_start = { x: CANVAS_WIDTH + 100, y: tr_v2_target.y };
+                tr_v3_start = { x: CANVAS_WIDTH + 150, y: tr_v3_target.y };
+
+
+                // Calculate target vertices for bottom-left right-angle triangle
+                // First two vertices from hexagon
+                bl_v1_target = getHexagonVertex(h1_target_cx, h1_target_cy, 4);
+                bl_v2_target = getHexagonVertex(h1_target_cx, h1_target_cy, 5);
+                // Third vertex forms a right angle with the first two
+                dx = bl_v1_target.x - bl_v2_target.x;
+                dy = bl_v1_target.y - bl_v2_target.y;
+                bl_v3_target = { x: bl_v1_target.x, y: bl_v1_target.y - dy };
+
+                // Calculate target vertices for bottom-right right-angle triangle
+                // First two vertices from hexagon
+                br_v1_target = getHexagonVertex(h2_target_cx, h2_target_cy, 6);
+                br_v2_target = getHexagonVertex(h2_target_cx, h2_target_cy, 5);
+                // Third vertex forms a right angle with the first two
+                dx = br_v1_target.x - br_v2_target.x;
+                dy = br_v1_target.y - br_v2_target.y;
+                br_v3_target = { x: br_v1_target.x, y: br_v1_target.y - dy };
+
+                // Define starting positions for bottom-left right-angle triangle
+                // Move them to the left of the canvas
+                bl_v1_start = { x: -50, y: bl_v1_target.y + 50 };
+                bl_v2_start = { x: -100, y: bl_v2_target.y - 50 };
+                bl_v3_start = { x: -150, y: bl_v3_target.y };
+
+                // Define starting positions for bottom-right right-angle triangle
+                // Move them to the right of the canvas
+                br_v1_start = { x: CANVAS_WIDTH + 50, y: br_v1_target.y + 50 };
+                br_v2_start = { x: CANVAS_WIDTH + 100, y: br_v2_target.y };
+                br_v3_start = { x: CANVAS_WIDTH + 150, y: br_v3_target.y };
+
+                // Enable animation loop
+                p.loop();
+            };
+
+
+            /**
+            * Gets the coordinates of a specific vertex of a pointy-top hexagon.
+            * @param {number} cx - Center x-coordinate of the hexagon.
+            * @param {number} cy - Center y-coordinate of the hexagon.
+            * @param {number} s - Side length (distance from center to vertex).
+            * @param {number} vertexNumber - The vertex number (1-6), where 1 is the top vertex.
+            * @returns {Object} An object with x and y coordinates of the vertex.
+            */
+            function getHexagonVertex(cx, cy, vertexNumber) {
+                // Ensure vertex number is between 1 and 6
+                vertexNumber = ((vertexNumber - 1) % 6) + 1;
+
+                // Convert to 0-based index for calculation
+                const i = vertexNumber - 1;
+
+                // Calculate angle - start at top vertex (PI/2 for vertex 1)
+                const angle = -p.PI / 6 - (p.PI / 3) * i;
+
+                // Calculate coordinates
+                const vx = cx + SHAPE_SIDE_LENGTH * p.cos(angle);
+                const vy = cy + SHAPE_SIDE_LENGTH * p.sin(angle);
+
+                return { x: vx, y: vy };
+            }
+
+
+            /**
+            * Draws a rectangle centered at the specified coordinates.
+            * @param {number} cx - Center x-coordinate of the rectangle.
+            * @param {number} cy - Center y-coordinate of the rectangle.
+            * @param {number} width - Width of the rectangle.
+            * @param {number} height - Height of the rectangle.
+            */
+            function drawRectangle(cx, cy, width, height) {
+                const x = cx - width / 2
+                const y = cy - height / 2
+                p.rect(x, y, width, height);
+            }
+
+            /**
+             * Draws a pointy-top regular hexagon.
+             * @param {number} cx - Center x-coordinate of the hexagon.
+             * @param {number} cy - Center y-coordinate of the hexagon.
+             * @param {number} s - Side length (distance from center to vertex).
+             */
+            function drawHexagon(cx, cy, s) {
+                p.beginShape();
+                for (let i = 0; i < 6; i++) {
+                    const angle = -p.PI / 6 - (p.PI / 3) * i; // Start at 30 deg for pointy top
+                    const vx = cx + s * p.cos(angle);
+                    const vy = cy + s * p.sin(angle);
+                    p.vertex(vx, vy);
+                }
+                p.endShape(p.CLOSE);
+            }
+
+            /**
+             * Draws an equilateral triangle.
+             * @param {number} v1 - First vertex with x and y coordinates
+             * @param {number} v2 - Second vertex with x and y coordinates
+             * @param {number} v3 - Third vertex with x and y coordinates
+             * @param {'up' | 'down'} orientation - Specifies if the triangle points up or down.
+             */
+            function drawTriangle(v1, v2, v3) {
+                p.triangle(v1.x, v1.y, v2.x, v2.y, v3.x, v3.y);
+            }
+
+
+
+            /**
+             * Main function to draw the specific pattern of two hexagons,
+             * two equilateral triangles, and four right-angle triangles.
+             */
+            function drawPattern(h1_cx, h1_cy, h2_cx, h2_cy, progress) {
+                p.strokeWeight(1.5);
+                p.stroke(50);
+
+                // Draw the target rectangle (always in final position)
+                p.push();
+                p.strokeWeight(RECTANGLE_BORDER_THICKNESS);
+                const rec_cx = CANVAS_WIDTH / 2;
+                const rec_cy = CANVAS_HEIGHT / 2;
+                drawRectangle(rec_cx, rec_cy, (hexInradius * 4) + RECTANGLE_BORDER_THICKNESS * 1.4, (SHAPE_SIDE_LENGTH * 2) + RECTANGLE_BORDER_THICKNESS * 1.4);
+                p.pop();
+
+                p.push()
+                p.strokeWeight(2);
+                p.noFill();
+
+                // Draw the target grid pattern with thin strokes
+                p.push();
+                p.stroke(180, 180, 180, 250);
+                // Draw target hexagons outline
+                drawHexagon(h1_target_cx, h1_target_cy, SHAPE_SIDE_LENGTH);
+                drawHexagon(h2_target_cx, h2_target_cy, SHAPE_SIDE_LENGTH);
+                p.pop()
+
+
+                p.push()
+                p.stroke(255, 180, 180, 250);
+                // Draw target upper triangle outline
+                drawTriangle(ut_v1_target, ut_v2_target, ut_v3_target);
+                // Draw target lower triangle outline
+                drawTriangle(lt_v1_target, lt_v2_target, lt_v3_target);
+                p.pop()
+
+                p.push()
+                p.stroke(255, 120, 180, 250);
+
+                // Draw target right-angle triangles outline
+                drawTriangle(tl_v1_target, tl_v2_target, tl_v3_target);
+                drawTriangle(tr_v1_target, tr_v2_target, tr_v3_target);
+                drawTriangle(bl_v1_target, bl_v2_target, bl_v3_target);
+                drawTriangle(br_v1_target, br_v2_target, br_v3_target);
+                p.pop();
+
+                p.pop()
+
+                // --- 1. Central Hexagons ---
+                p.push()
+                p.fill(180, 180, 255, 230);
+                drawHexagon(h1_cx, h1_cy, SHAPE_SIDE_LENGTH);
+                drawHexagon(h2_cx, h2_cy, SHAPE_SIDE_LENGTH);
+                p.pop()
+
+                // Only draw triangles after hexagons have moved a bit
+                if (progress > 0.3) {
+                    const triangleProgress = (progress - 0.3) / 0.7; // Rescale progress for triangles
+
+                    // --- 2. Upper and Lower Triangles ---
+                    // Calculate current positions for upper triangle vertices
+                    const ut_v1_current = {
+                        x: p.lerp(ut_v1_start.x, ut_v1_target.x, triangleProgress),
+                        y: p.lerp(ut_v1_start.y, ut_v1_target.y, triangleProgress)
+                    };
+                    const ut_v2_current = {
+                        x: p.lerp(ut_v2_start.x, ut_v2_target.x, triangleProgress),
+                        y: p.lerp(ut_v2_start.y, ut_v2_target.y, triangleProgress)
+                    };
+                    const ut_v3_current = {
+                        x: p.lerp(ut_v3_start.x, ut_v3_target.x, triangleProgress),
+                        y: p.lerp(ut_v3_start.y, ut_v3_target.y, triangleProgress)
+                    };
+
+                    // Draw upper triangle
+                    p.push()
+                    p.fill(150, 255, 150, 230 * triangleProgress); // Fade in green triangles
+                    drawTriangle(ut_v1_current, ut_v2_current, ut_v3_current);
+                    p.pop()
+                    // Calculate current positions for lower triangle vertices
+                    const lt_v1_current = {
+                        x: p.lerp(lt_v1_start.x, lt_v1_target.x, triangleProgress),
+                        y: p.lerp(lt_v1_start.y, lt_v1_target.y, triangleProgress)
+                    };
+                    const lt_v2_current = {
+                        x: p.lerp(lt_v2_start.x, lt_v2_target.x, triangleProgress),
+                        y: p.lerp(lt_v2_start.y, lt_v2_target.y, triangleProgress)
+                    };
+                    const lt_v3_current = {
+                        x: p.lerp(lt_v3_start.x, lt_v3_target.x, triangleProgress),
+                        y: p.lerp(lt_v3_start.y, lt_v3_target.y, triangleProgress)
+                    };
+
+                    // Draw lower triangle
+                    p.push()
+                    p.fill(255, 150, 150, 230 * triangleProgress); // Fade in red triangles
+                    drawTriangle(lt_v1_current, lt_v2_current, lt_v3_current);
+                    p.pop()
+
+
+                    // --- 3. Right Angled Triangles ---
+                    if (progress > 0.5) {
+                        const cornerProgress = (progress - 0.5) / 0.5; // Rescale for corner triangles
+
+                        // Calculate current positions for top-left right-angle triangle
+                        const tl_v1_current = {
+                            x: p.lerp(tl_v1_start.x, tl_v1_target.x, cornerProgress),
+                            y: p.lerp(tl_v1_start.y, tl_v1_target.y, cornerProgress)
+                        };
+                        const tl_v2_current = {
+                            x: p.lerp(tl_v2_start.x, tl_v2_target.x, cornerProgress),
+                            y: p.lerp(tl_v2_start.y, tl_v2_target.y, cornerProgress)
+                        };
+                        const tl_v3_current = {
+                            x: p.lerp(tl_v3_start.x, tl_v3_target.x, cornerProgress),
+                            y: p.lerp(tl_v3_start.y, tl_v3_target.y, cornerProgress)
+                        };
+
+                        // Draw top-left right-angle triangle
+                        p.push();
+                        p.fill(255, 255, 150, 200 * cornerProgress); // Fade in yellow corner triangles
+                        drawTriangle(tl_v1_current, tl_v2_current, tl_v3_current);
+                        p.pop();
+
+                        // Calculate current positions for top-right right-angle triangle
+                        const tr_v1_current = {
+                            x: p.lerp(tr_v1_start.x, tr_v1_target.x, cornerProgress),
+                            y: p.lerp(tr_v1_start.y, tr_v1_target.y, cornerProgress)
+                        };
+                        const tr_v2_current = {
+                            x: p.lerp(tr_v2_start.x, tr_v2_target.x, cornerProgress),
+                            y: p.lerp(tr_v2_start.y, tr_v2_target.y, cornerProgress)
+                        };
+                        const tr_v3_current = {
+                            x: p.lerp(tr_v3_start.x, tr_v3_target.x, cornerProgress),
+                            y: p.lerp(tr_v3_start.y, tr_v3_target.y, cornerProgress)
+                        };
+
+                        // Draw top-right right-angle triangle
+                        p.push();
+                        p.fill(255, 255, 150, 200 * cornerProgress); // Fade in yellow corner triangles
+                        drawTriangle(tr_v1_current, tr_v2_current, tr_v3_current);
+                        p.pop();
+
+                        // Calculate current positions for bottom-left right-angle triangle
+                        const bl_v1_current = {
+                            x: p.lerp(bl_v1_start.x, bl_v1_target.x, cornerProgress),
+                            y: p.lerp(bl_v1_start.y, bl_v1_target.y, cornerProgress)
+                        };
+                        const bl_v2_current = {
+                            x: p.lerp(bl_v2_start.x, bl_v2_target.x, cornerProgress),
+                            y: p.lerp(bl_v2_start.y, bl_v2_target.y, cornerProgress)
+                        };
+                        const bl_v3_current = {
+                            x: p.lerp(bl_v3_start.x, bl_v3_target.x, cornerProgress),
+                            y: p.lerp(bl_v3_start.y, bl_v3_target.y, cornerProgress)
+                        };
+
+                        // Draw bottom-left right-angle triangle
+                        p.push();
+                        p.fill(255, 255, 150, 200 * cornerProgress); // Fade in yellow corner triangles
+                        drawTriangle(bl_v1_current, bl_v2_current, bl_v3_current);
+                        p.pop();
+
+                        // Calculate current positions for bottom-right right-angle triangle
+                        const br_v1_current = {
+                            x: p.lerp(br_v1_start.x, br_v1_target.x, cornerProgress),
+                            y: p.lerp(br_v1_start.y, br_v1_target.y, cornerProgress)
+                        };
+                        const br_v2_current = {
+                            x: p.lerp(br_v2_start.x, br_v2_target.x, cornerProgress),
+                            y: p.lerp(br_v2_start.y, br_v2_target.y, cornerProgress)
+                        };
+                        const br_v3_current = {
+                            x: p.lerp(br_v3_start.x, br_v3_target.x, cornerProgress),
+                            y: p.lerp(br_v3_start.y, br_v3_target.y, cornerProgress)
+                        };
+
+                        // Draw bottom-right right-angle triangle
+                        p.push();
+                        p.fill(255, 255, 150, 200 * cornerProgress); // Fade in yellow corner triangles
+                        drawTriangle(br_v1_current, br_v2_current, br_v3_current);
+                        p.pop();
+                    }
+                }
+            }
+
+
+            p.draw = () => {
+                p.background(255);
+
+                if (animationProgress < ANIMATION_DURATION) {
+                    animationProgress++;
+                } else {
+                    animationComplete = true;
+                }
+
+                // Calculate current positions based on animation progress
+                const progress = animationComplete ? 1 : p.ease(animationProgress / ANIMATION_DURATION);
+
+                const h1_cx = p.lerp(h1_start_cx, h1_target_cx, progress);
+                const h1_cy = p.lerp(h1_start_cy, h1_target_cy, progress);
+                const h2_cx = p.lerp(h2_start_cx, h2_target_cx, progress);
+                const h2_cy = p.lerp(h2_start_cy, h2_target_cy, progress);
+
+                drawPattern(h1_cx, h1_cy, h2_cx, h2_cy, progress);
+
+                if (animationComplete) {
+                    p.noLoop(); // Stop animation when complete
+                }
+            };
+
+            // Easing function for smoother animation
+            p.ease = (t) => {
+                // Cubic easing in/out
+                return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            };
+
+        };
+
+        window.addEventListener('DOMContentLoaded', (event) => {
+            const container = window.document.getElementById('canvas-container');
+            if (container) {
+                new p5(sketch, container);
+            } else {
+                console.error("Canvas container not found!");
+            }
+        });
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            /* Allow button below canvas */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #2c3e50;
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+            text-align: center;
+            overflow: hidden;
+            /* Prevent scrollbars if canvas is slightly too big for a very small screen */
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 3px solid #1a252f;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+            /* overflow: hidden; */
+            line-height: 0;
+            margin-bottom: 20px;
+            /* Space for the button */
+        }
+
+        #control-container {
+            height: 120px;
+        }
+
+        #resetButton {
+            padding: 12px 25px;
+            font-size: 16px;
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+            background-color: #3498db;
+            /* Blue color to differentiate from jump button */
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            user-select: none;
+            display: none;
+            /* Hidden by default */
+        }
+
+        #resetButton:hover {
+            background-color: #2980b9;
+        }
+
+        #resetButton:active {
+            background-color: #1c6ea4;
+            transform: translateY(2px);
+        }
+
+        #jumpButton {
+            padding: 12px 25px;
+            font-size: 16px;
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+            background-color: #c0392b;
+            /* Red to match a piece */
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            user-select: none;
+            /* Prevent text selection on hold */
+        }
+
+        #jumpButton:hover {
+            background-color: #e74c3c;
+        }
+
+        #jumpButton:active {
+            background-color: #a52a20;
+            transform: translateY(2px);
+        }
+
+        #energyBarContainer {
+            width: 200px;
+            height: 20px;
+            background-color: #4a535d;
+            border-radius: 5px;
+            margin: 10px auto;
+            overflow: hidden;
+            border: 1px solid #1a252f;
+        }
+
+        #energyBar {
+            width: 0%;
+            /* Initial width */
+            height: 100%;
+            background-color: #27ae60;
+            /* Green for energy */
+            border-radius: 4px;
+            transition: width 0.1s linear;
+            /* Smooth transition for energy build-up */
+        }
+
+        p.instructions {
+            font-size: 0.9em;
+            color: #bdc3c7;
+            max-width: 90vw;
+            /* Ensure instructions don't overflow on small screens */
+            padding: 0 10px;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <p class="instructions">Click an empty square to move the black piece.
+        <br>To jump: position black piece adjacent to red, HOLD "Charge Jump", Release.
+        <br>Low energy = undershoot. ~70-95% = perfect. High energy = overshoot.
+    </p>
+    <div id="canvas-container">
+    </div>
+    <div id="control-container">
+        <button id="jumpButton">Charge Jump</button>
+        <button id="resetButton"> Reset</button>
+        <div id="energyBarContainer">
+            <div id="energyBar"></div>
+        </div>
+    </div>
+
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            const boardSize = 3;
+            let cellSize;
+            let canvasDimension;
+            let boardDimension;
+            let platformPadding = 30;
+
+            // Colors
+            const colorLight = '#e0e0e0';
+            const colorDark = '#6a737d';
+            const boardBorderColor = '#1a252f';
+            const cellBorderColor = '#4a535d';
+            const pieceRedColor = '#c0392b';
+            const pieceRedBorderColor = '#7f231a';
+            const pieceBlackColor = '#343a40';
+            const pieceBlackBorderColor = '#1a1d20';
+            const woodColor1 = '#8B4513';
+            const woodColor2 = '#A0522D';
+            const woodGrainColor = '#704214';
+
+            let blackPiece = { row: 2, col: 0, x: 0, y: 0, size: 0, targetRow: 2, targetCol: 0 };
+            const redPiece = { row: 1, col: 1, x: 0, y: 0, size: 0 };
+
+            let isCharging = false;
+            let potentialEnergy = 0;
+            const maxEnergy = 100;
+            const chargeRate = 2;
+            const minJumpEnergy = 20;
+
+            let isJumping = false;
+            let jumpProgress = 0;
+            let jumpStartX, jumpStartY, jumpTargetX, jumpTargetY;
+            let currentJumpSize;
+            const jumpDuration = 60;
+            const peakSizeIncreaseFactor = 0.5;
+
+            const undershootMaxEnergy = 69;
+            const perfectMinEnergy = 70;
+            const perfectMaxEnergy = 95;
+
+            // For stable wooden platform
+            let woodKnots = [];
+            let woodPlankOffsets = [];
+            const numPlanks = 5; // Approximate number of planks
+
+            p.setup = () => {
+                boardDimension = 360;
+                canvasDimension = boardDimension + (platformPadding * 2);
+                cellSize = boardDimension / boardSize;
+                blackPiece.size = cellSize * 0.35 * 2;
+                redPiece.size = cellSize * 0.35 * 2;
+
+                const container = document.getElementById('canvas-container');
+                p.createCanvas(canvasDimension, canvasDimension).parent(container);
+
+                updatePiecePixelCoords(blackPiece);
+                updatePiecePixelCoords(redPiece);
+
+                // Initialize stable wooden platform features
+                p.noiseSeed(Date.now()); // Seed noise for unique grain per load, but stable during session
+
+                // Knots
+                for (let i = 0; i < 8; i++) {
+                    let knotX = p.random(canvasDimension);
+                    let knotY = p.random(canvasDimension);
+                    // Ensure knots are mostly on the padding area
+                    if (knotX > platformPadding - 15 && knotX < canvasDimension - platformPadding + 15 &&
+                        knotY > platformPadding - 15 && knotY < canvasDimension - platformPadding + 15) {
+                        // If in board area, try to place it near edges or retry for outer area
+                        if (p.random() < 0.7) { // 70% chance to retry if it lands in the middle
+                            knotX = p.random() < 0.5 ? p.random(platformPadding - 10) : p.random(canvasDimension - platformPadding + 10, canvasDimension);
+                            knotY = p.random() < 0.5 ? p.random(platformPadding - 10) : p.random(canvasDimension - platformPadding + 10, canvasDimension);
+                        }
+                    }
+                    woodKnots.push({
+                        x: knotX,
+                        y: knotY,
+                        r1: p.random(15, 25),
+                        r2: p.random(10, 20),
+                        r3: p.random(8, 15),
+                        r4: p.random(5, 10),
+                        offsetX: p.random(-2, 2),
+                        offsetY: p.random(-2, 2)
+                    });
+                }
+
+                // Planks (more deterministic spacing)
+                let currentY = 0;
+                while (currentY < canvasDimension) {
+                    let plankHeight = p.random(25, 50);
+                    woodPlankOffsets.push({ y: currentY, height: plankHeight });
+                    currentY += plankHeight + p.random(5, 15); // Add small random gap
+                }
+
+
+                const jumpButton = document.getElementById('jumpButton');
+                jumpButton.addEventListener('mousedown', () => {
+                    if (!isJumping && canBlackPieceJump()) {
+                        isCharging = true;
+                        potentialEnergy = 0;
+                        updateEnergyBar();
+                    }
+                });
+                jumpButton.addEventListener('mouseup', () => {
+                    if (isCharging) {
+                        isCharging = false;
+                        if (potentialEnergy >= minJumpEnergy) {
+                            initiateJump();
+                        } else {
+                            potentialEnergy = 0;
+                            updateEnergyBar();
+                        }
+                    }
+                });
+                jumpButton.addEventListener('mouseleave', () => {
+                    if (isCharging) {
+                        isCharging = false;
+                        if (potentialEnergy >= minJumpEnergy) {
+                            initiateJump();
+                        } else {
+                            potentialEnergy = 0;
+                            updateEnergyBar();
+                        }
+                    }
+                });
+
+                const resetButton = document.getElementById('resetButton');
+
+
+                // Add reset button functionality
+                resetButton.addEventListener('click', () => {
+                    // Reset black piece to target position
+                    blackPiece.row = blackPiece.targetRow;
+                    blackPiece.col = blackPiece.targetCol;
+                    updatePiecePixelCoords(blackPiece);
+
+                    // Reset jump state
+                    isJumping = false;
+                    jumpProgress = 0;
+
+                    // Toggle button visibility
+                    resetButton.style.display = 'none';
+                    jumpButton.style.display = 'inline-block';
+                    energyBarContainer.style.display = 'block';
+                });
+            };
+
+            function updatePiecePixelCoords(piece) {
+                piece.x = piece.col * cellSize + cellSize / 2 + platformPadding;
+                piece.y = piece.row * cellSize + cellSize / 2 + platformPadding;
+            }
+
+            function drawWoodenPlatform() {
+                p.push();
+                p.fill(woodColor1); // Base wood color
+                p.noStroke();
+                p.rect(0, 0, canvasDimension, canvasDimension);
+
+                // Draw darker wood planks (pre-calculated)
+                p.noStroke();
+                p.fill(woodColor2); // Darker plank color
+                for (const plank of woodPlankOffsets) {
+                    p.rect(0, plank.y, canvasDimension, plank.height);
+                }
+
+                // Draw wood grain using Perlin noise (more stable)
+                p.stroke(woodGrainColor);
+                p.strokeWeight(0.5);
+                for (let i = 0; i < canvasDimension; i += 15) {
+                    // Wavy lines for wood grain
+                    p.beginShape();
+                    for (let x = 0; x < canvasDimension; x += 10) {
+                        let y = i + p.sin(x * 0.03) * 3;
+                        p.vertex(x, y);
+                    }
+                    p.endShape();
+                }
+
+                // Draw pre-calculated knots
+                for (const knot of woodKnots) {
+                    p.fill(woodGrainColor);
+                    p.ellipse(knot.x, knot.y, knot.r1, knot.r2);
+                    p.fill(woodColor2);
+                    p.ellipse(knot.x + knot.offsetX, knot.y + knot.offsetY, knot.r3, knot.r4);
+                }
+                p.pop();
+            }
+
+            function drawBoard() {
+                p.push();
+                drawWoodenPlatform();
+
+                p.translate(platformPadding, platformPadding);
+
+                p.fill(boardBorderColor);
+                p.noStroke();
+                p.rect(0, 0, boardDimension, boardDimension);
+
+                for (let r = 0; r < boardSize; r++) {
+                    for (let c = 0; c < boardSize; c++) {
+                        if ((r + c) % 2 === 0) p.fill(colorLight);
+                        else p.fill(colorDark);
+                        p.stroke(cellBorderColor);
+                        p.strokeWeight(1);
+                        p.rect(c * cellSize, r * cellSize, cellSize, cellSize);
+                    }
+                }
+
+                p.noFill();
+                p.stroke(boardBorderColor);
+                p.strokeWeight(4);
+                p.rect(0, 0, boardDimension, boardDimension);
+                p.pop();
+            }
+
+            function drawPiece(px, py, pieceColor, borderColor, currentDisplaySize) {
+                p.push();
+                p.fill(pieceColor);
+                p.stroke(borderColor);
+                p.strokeWeight(3);
+                p.ellipse(px, py, currentDisplaySize, currentDisplaySize);
+
+                p.noStroke();
+                p.fill(255, 255, 255, pieceColor === pieceBlackColor ? 60 : 80);
+                p.ellipse(
+                    px - currentDisplaySize * 0.1,
+                    py - currentDisplaySize * 0.1,
+                    currentDisplaySize * 0.4,
+                    currentDisplaySize * 0.4
+                );
+                p.pop();
+            }
+
+            function updateEnergyBar() {
+                const energyBar = document.getElementById('energyBar');
+                if (energyBar) {
+                    energyBar.style.width = potentialEnergy + '%';
+                }
+            }
+
+            function canBlackPieceJump() {
+                const dr = Math.abs(blackPiece.row - redPiece.row);
+                const dc = Math.abs(blackPiece.col - redPiece.col);
+                return (dr <= 1 && dc <= 1) && !(dr === 0 && dc === 0);
+            }
+
+            function calculateIdealJumpTargetCell() {
+                const idealTargetRow = redPiece.row + (redPiece.row - blackPiece.row);
+                const idealTargetCol = redPiece.col + (redPiece.col - blackPiece.col);
+
+                if (idealTargetRow >= 0 && idealTargetRow < boardSize &&
+                    idealTargetCol >= 0 && idealTargetCol < boardSize &&
+                    (idealTargetRow !== redPiece.row || idealTargetCol !== redPiece.col)) {
+                    return { row: idealTargetRow, col: idealTargetCol };
+                }
+                return null;
+            }
+
+
+            function updateButtonVisibility() {
+                const jumpButton = document.getElementById('jumpButton');
+                const resetButton = document.getElementById('resetButton');
+                const energyBarContainer = document.getElementById('energyBarContainer');
+
+                if (jumpProgress > 0) {
+                    // Hide jump button and energy bar during/after jump
+                    jumpButton.style.display = 'none';
+                    energyBarContainer.style.display = 'none';
+                    // Show reset button
+                    resetButton.style.display = 'inline-block';
+                } else {
+                    // Show jump button and energy bar when not jumping
+                    jumpButton.style.display = 'inline-block';
+                    energyBarContainer.style.display = 'block';
+                    // Hide reset button
+                    resetButton.style.display = 'none';
+                }
+            }
+
+
+            function initiateJump() {
+                const idealTargetCell = calculateIdealJumpTargetCell();
+                if (!idealTargetCell) {
+                    potentialEnergy = 0;
+                    updateEnergyBar();
+                    return;
+                }
+                updateButtonVisibility();
+
+                blackPiece.targetRow = idealTargetCell.row;
+                blackPiece.targetCol = idealTargetCell.col;
+
+                isJumping = true;
+                jumpProgress = 0;
+                jumpStartX = blackPiece.x;
+                jumpStartY = blackPiece.y;
+
+                const idealTargetCanvasX = idealTargetCell.col * cellSize + cellSize / 2 + platformPadding;
+                const idealTargetCanvasY = idealTargetCell.row * cellSize + cellSize / 2 + platformPadding;
+
+                const idealJumpVectorX = idealTargetCanvasX - jumpStartX;
+                const idealJumpVectorY = idealTargetCanvasY - jumpStartY;
+
+                let jumpScaleFactor = 1.0;
+
+                if (potentialEnergy <= undershootMaxEnergy) {
+                    jumpScaleFactor = p.map(potentialEnergy, minJumpEnergy, undershootMaxEnergy, 0.3, 0.8);
+                } else if (potentialEnergy <= perfectMaxEnergy) {
+                    jumpScaleFactor = 1.0;
+                } else {
+                    jumpScaleFactor = p.map(potentialEnergy, perfectMaxEnergy + 1, maxEnergy, 1.05, 1.2);
+                }
+
+                jumpScaleFactor = p.constrain(jumpScaleFactor, 0.1, 1.25);
+
+                jumpTargetX = jumpStartX + idealJumpVectorX * jumpScaleFactor;
+                jumpTargetY = jumpStartY + idealJumpVectorY * jumpScaleFactor;
+            }
+
+            p.draw = () => {
+                drawBoard();
+
+                drawPiece(redPiece.x, redPiece.y, pieceRedColor, pieceRedBorderColor, redPiece.size);
+
+                if (isCharging) {
+                    potentialEnergy = Math.min(potentialEnergy + chargeRate, maxEnergy);
+                    updateEnergyBar();
+                }
+
+                let displayX = blackPiece.x;
+                let displayY = blackPiece.y;
+                let displaySize = blackPiece.size;
+
+                if (isJumping) {
+                    jumpProgress += 1 / jumpDuration;
+                    updateButtonVisibility();
+
+                    if (jumpProgress >= 1) {
+                        isJumping = false;
+                        jumpProgress = 1;
+
+                        blackPiece.x = jumpTargetX;
+                        blackPiece.y = jumpTargetY;
+                        displayX = blackPiece.x;
+                        displayY = blackPiece.y;
+                        displaySize = blackPiece.size;
+
+                        if (potentialEnergy >= perfectMinEnergy && potentialEnergy <= perfectMaxEnergy) {
+                            blackPiece.row = blackPiece.targetRow;
+                            blackPiece.col = blackPiece.targetCol;
+                            updatePiecePixelCoords(blackPiece);
+                            displayX = blackPiece.x;
+                            displayY = blackPiece.y;
+                        }
+
+                        potentialEnergy = 0;
+                        updateEnergyBar();
+
+                    } else {
+                        displayX = p.lerp(jumpStartX, jumpTargetX, jumpProgress);
+                        displayY = p.lerp(jumpStartY, jumpTargetY, jumpProgress);
+
+                        const heightFactor = p.sin(p.PI * jumpProgress);
+                        displaySize = blackPiece.size * (1 + heightFactor * peakSizeIncreaseFactor);
+                    }
+                }
+                drawPiece(displayX, displayY, pieceBlackColor, pieceBlackBorderColor, displaySize);
+            };
+
+            p.mousePressed = (event) => {
+                if (event.target.id === 'jumpButton') return;
+
+                if (p.mouseX < 0 || p.mouseX > canvasDimension || p.mouseY < 0 || p.mouseY > canvasDimension) {
+                    return;
+                }
+                if (isJumping || isCharging) return;
+
+                const clickXonBoard = p.mouseX - platformPadding;
+                const clickYonBoard = p.mouseY - platformPadding;
+
+                const col = Math.floor(clickXonBoard / cellSize);
+                const row = Math.floor(clickYonBoard / cellSize);
+
+                if (col >= 0 && col < boardSize && row >= 0 && row < boardSize) {
+                    if (!(row === redPiece.row && col === redPiece.col)) {
+                        blackPiece.row = row;
+                        blackPiece.col = col;
+                        jumpProgress = 0
+                        updatePiecePixelCoords(blackPiece);
+                        updateButtonVisibility();
+                    }
+                }
+            };
+        };
+
+        new p5(sketch, document.getElementById('canvas-container'));
+    </script>
+</body>
+
+</html>

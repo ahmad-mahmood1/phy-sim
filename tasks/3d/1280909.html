@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Physics Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: white;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+
+    <script type="importmap">
+            {
+            "imports": {
+                "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.157.0/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/",
+                "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+                "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js",
+                "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+              }
+        }
+        </script>
+</head>
+
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        // Configuration constants
+        const CONFIG = {
+            CAMERA: {
+                FOV: 100,
+                NEAR: 0.1,
+                FAR: 1000,
+                POSITION: { X: 0, Y: 70, Z: 15 },
+            },
+            LIGHTS: {
+                AMBIENT: {
+                    COLOR: 0xffffff,
+                    INTENSITY: 0.7,
+                },
+                DIRECTIONAL: {
+                    COLOR: 0xffff,
+                    INTENSITY: 1,
+                    POSITION: { X: 0, Y: 30, Z: 20 },
+                },
+            },
+            PHYSICS: {
+                GRAVITY: { X: 0, Y: -9.82, Z: 0 },
+            },
+            RENDERER: {
+                ANTIALIAS: true,
+                SHADOWS: true,
+                EXPOSURE: 1.2,
+            },
+            PLANE: {
+                SIZE: 100,
+                COLOR: 0x444444,
+                ROUGHNESS: 0.8,
+                METALNESS: 0.2,
+                POSITION: { X: 0, Y: 0, Z: 0 },
+            },
+            POLE: {
+                RADIUS: 3,
+                HEIGHT: 40,
+                SEGMENTS: 32,
+                COLOR: 0x11fca3,
+                ROUGHNESS: 0.2,
+                METALNESS: 0.3,
+                POSITION: { X: 0, Y: 20, Z: 0 },
+                MASS: 0, // Static object
+            },
+            // Add new configuration for the tapered cylinder
+            TAPERED_CYLINDER: {
+                RADIUS_TOP: 2,
+                RADIUS_BOTTOM: 1,
+                HEIGHT: 20,
+                RADIAL_SEGMENTS: 4,
+                HEIGHT_SEGMENTS: 1,
+                COLOR: 0xcabf1e,
+                ROUGHNESS: 0.3,
+                METALNESS: 0.1,
+                POSITION_OFFSET: { X: 0, Y: 0, Z: 0 }, // Offset from pole top
+                MASS: 0, // Static object
+            },
+            // Add configuration for steps animation
+            STEPS: {
+                HEIGHT_INCREMENT: 0.1, // Height increase per frame
+                ROTATION_AMOUNT: 0.008, // Rotation amount per frame
+            },
+        };
+
+        // Global variables
+        let scene, camera, renderer, world;
+        let pole, poleBody;
+
+        let stepArray = [];
+
+        // Lighting setup
+        function setupLights() {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(CONFIG.LIGHTS.AMBIENT.COLOR, CONFIG.LIGHTS.AMBIENT.INTENSITY);
+            scene.add(ambientLight);
+
+            // Directional light with shadows
+            const directionalLight = new THREE.DirectionalLight(
+                CONFIG.LIGHTS.DIRECTIONAL.COLOR,
+                CONFIG.LIGHTS.DIRECTIONAL.INTENSITY,
+            );
+            directionalLight.position.set(
+                CONFIG.LIGHTS.DIRECTIONAL.POSITION.X,
+                CONFIG.LIGHTS.DIRECTIONAL.POSITION.Y,
+                CONFIG.LIGHTS.DIRECTIONAL.POSITION.Z,
+            );
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+        }
+
+        // Create plane
+        function createPlane(planeBody) {
+            const planeGeometry = new THREE.PlaneGeometry(CONFIG.PLANE.SIZE, CONFIG.PLANE.SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({
+                color: CONFIG.PLANE.COLOR,
+                roughness: CONFIG.PLANE.ROUGHNESS,
+                metalness: CONFIG.PLANE.METALNESS,
+            });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.copy(planeBody.position);
+            plane.receiveShadow = true;
+
+            scene.add(plane);
+            return plane;
+        }
+
+        // Create plane physics body
+        function createPlaneBody(world) {
+            const planeBody = new CANNON.Body({
+                type: CANNON.Body.STATIC,
+                shape: new CANNON.Plane(),
+                position: new CANNON.Vec3(CONFIG.PLANE.POSITION.X, CONFIG.PLANE.POSITION.Y, CONFIG.PLANE.POSITION.Z),
+            });
+
+            // Rotate the plane to match the Three.js plane
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+
+            world.addBody(planeBody);
+            return planeBody;
+        }
+
+        // Create pole
+        function createPole(poleBody) {
+            // Create a cylinder geometry for the pole
+            const geometry = new THREE.CylinderGeometry(
+                CONFIG.POLE.RADIUS,
+                CONFIG.POLE.RADIUS,
+                CONFIG.POLE.HEIGHT,
+                CONFIG.POLE.SEGMENTS,
+            );
+
+            // Create a physically-based material for better visuals
+            const material = new THREE.MeshStandardMaterial({
+                color: CONFIG.POLE.COLOR,
+                roughness: CONFIG.POLE.ROUGHNESS,
+                metalness: CONFIG.POLE.METALNESS,
+            });
+
+            const pole = new THREE.Mesh(geometry, material);
+            pole.position.copy(poleBody.position);
+            pole.castShadow = true;
+            pole.receiveShadow = true;
+
+            scene.add(pole);
+            return pole;
+        }
+
+        // Create pole physics body
+        function createPoleBody(world) {
+            const poleShape = new CANNON.Cylinder(
+                CONFIG.POLE.RADIUS,
+                CONFIG.POLE.RADIUS,
+                CONFIG.POLE.HEIGHT,
+                CONFIG.POLE.SEGMENTS,
+            );
+
+            const poleBody = new CANNON.Body({
+                mass: CONFIG.POLE.MASS, // 0 mass makes it static
+                position: new CANNON.Vec3(CONFIG.POLE.POSITION.X, CONFIG.POLE.POSITION.Y, CONFIG.POLE.POSITION.Z),
+                shape: poleShape,
+            });
+
+            world.addBody(poleBody);
+            return poleBody;
+        }
+
+        // Create tapered cylinder
+        function createTaperedCylinder(taperedCylinderBody) {
+            // Create a cylinder geometry with different top and bottom radii
+            const geometry = new THREE.CylinderGeometry(
+                CONFIG.TAPERED_CYLINDER.RADIUS_TOP,
+                CONFIG.TAPERED_CYLINDER.RADIUS_BOTTOM,
+                CONFIG.TAPERED_CYLINDER.HEIGHT,
+                CONFIG.TAPERED_CYLINDER.RADIAL_SEGMENTS,
+                CONFIG.TAPERED_CYLINDER.HEIGHT_SEGMENTS,
+            );
+
+            // Create a physically-based material for better visuals
+            const material = new THREE.MeshStandardMaterial({
+                color: CONFIG.TAPERED_CYLINDER.COLOR,
+                roughness: CONFIG.TAPERED_CYLINDER.ROUGHNESS,
+                metalness: CONFIG.TAPERED_CYLINDER.METALNESS,
+            });
+
+            const cylinder = new THREE.Mesh(geometry, material);
+            cylinder.position.copy(taperedCylinderBody.position);
+            cylinder.quaternion.copy(taperedCylinderBody.quaternion);
+
+            scene.add(cylinder);
+            return cylinder;
+        }
+
+        // Create tapered cylinder physics body
+        function createTaperedCylinderBody(world, stepIndex) {
+            // We'll place it initially along the x-axis with one end at the pole
+            const poleRadius = CONFIG.POLE.RADIUS;
+            const cylinderLength = CONFIG.TAPERED_CYLINDER.HEIGHT;
+
+            // // Initial position - place cylinder along x-axis with one end at origin
+
+            const stepCount = getStepCount();
+            const stepAngle = ((stepIndex + 1) / stepCount) * Math.PI;
+
+            // Calculate height based on step index
+            const initialY = CONFIG.TAPERED_CYLINDER.RADIUS_TOP * (stepIndex + 1);
+
+            // Calculate position based on angle around the pole
+            // Position the cylinder so its inner end connects with the pole surface
+            const initialX = CONFIG.POLE.POSITION.X;
+            const initialZ = CONFIG.POLE.POSITION.Z;
+
+            // Create the physics shape
+            const taperedCylinderShape = new CANNON.Cylinder(
+                CONFIG.TAPERED_CYLINDER.RADIUS_TOP,
+                CONFIG.TAPERED_CYLINDER.RADIUS_BOTTOM,
+                CONFIG.TAPERED_CYLINDER.HEIGHT,
+                CONFIG.TAPERED_CYLINDER.RADIAL_SEGMENTS,
+            );
+
+            const taperedCylinderBody = new CANNON.Body({
+                mass: CONFIG.TAPERED_CYLINDER.MASS,
+                position: new CANNON.Vec3(
+                    initialX + CONFIG.TAPERED_CYLINDER.POSITION_OFFSET.X,
+                    initialY + CONFIG.TAPERED_CYLINDER.POSITION_OFFSET.Y,
+                    initialZ + CONFIG.TAPERED_CYLINDER.POSITION_OFFSET.Z,
+                ),
+                shape: taperedCylinderShape,
+            });
+
+            // Create quaternions for each rotation
+            const xRotation = new CANNON.Quaternion();
+            const yRotation2 = new CANNON.Quaternion();
+            const zRotation1 = new CANNON.Quaternion();
+
+            zRotation1.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), -Math.PI / 2); // -90°
+
+            xRotation.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 4); // 45°
+
+            yRotation2.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), stepAngle);
+
+            taperedCylinderBody.quaternion.copy(yRotation2.mult(xRotation.mult(zRotation1)));
+
+            const magnitude = cylinderLength / 2 + poleRadius;
+
+            const moveStepInDir = new THREE.Vector3(0 + Math.cos(stepAngle) * magnitude, 0, 0 - Math.sin(stepAngle) * magnitude);
+
+            taperedCylinderBody.position.vadd(moveStepInDir, taperedCylinderBody.position);
+
+            world.addBody(taperedCylinderBody);
+            return taperedCylinderBody;
+        }
+
+        function getStepCount() {
+            return Math.floor(CONFIG.POLE.HEIGHT / CONFIG.TAPERED_CYLINDER.RADIUS_TOP);
+        }
+
+        // Create steps and store references to them
+        function createSteps() {
+            const stepCount = getStepCount();
+
+            for (let i = 0; i < stepCount; i++) {
+                // Create tapered cylinder
+                const stepBody = createTaperedCylinderBody(world, i);
+                const stepMesh = createTaperedCylinder(stepBody);
+
+                // Store both the body and mesh for animation
+                stepArray.push({
+                    body: stepBody,
+                    mesh: stepMesh,
+                });
+            }
+        }
+
+        // Update steps position and rotation
+        function updateSteps(time) {
+            const poleRadius = CONFIG.POLE.RADIUS;
+            const poleHeight = CONFIG.POLE.HEIGHT;
+
+            // Apply sine pulse to cylinder height
+            const pulseFrequency = 2; // Frequency of the pulse
+            const pulseAmplitude = 0.1; // Amplitude of the pulse
+
+            // Calculate scale factor based on sine wave
+            const scaleFactor = 1 + pulseAmplitude * Math.sin(time * pulseFrequency);
+            const cylinderLength = CONFIG.TAPERED_CYLINDER.HEIGHT * scaleFactor;
+
+            stepArray.forEach(({ body, mesh }, i) => {
+                // Calculate new height with constant rate
+                const baseHeight = CONFIG.TAPERED_CYLINDER.RADIUS_TOP;
+                const prevHeight = body.position.y;
+                const newHeight = prevHeight + CONFIG.STEPS.HEIGHT_INCREMENT;
+                const shouldReset = newHeight > poleHeight - CONFIG.TAPERED_CYLINDER.RADIUS_BOTTOM / 2;
+
+                // Update position
+                body.position.set(body.position.x, shouldReset ? baseHeight : newHeight, body.position.z);
+
+                // Extract current angle from body's position relative to pole center
+                const dx = body.position.x - CONFIG.POLE.POSITION.X;
+                const dz = body.position.z - CONFIG.POLE.POSITION.Z;
+                const currentAngle = Math.atan2(-dz, dx); // Get current angle in radians
+
+                // Calculate new angle with continuous rotation
+                const rotationAmount = CONFIG.STEPS.ROTATION_AMOUNT;
+                const newAngle = currentAngle + rotationAmount;
+
+                // Create quaternions for each rotation
+                const xRotation = new CANNON.Quaternion();
+                const yRotation = new CANNON.Quaternion();
+                const zRotation = new CANNON.Quaternion();
+
+                zRotation.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), -Math.PI / 2); // -90°
+                xRotation.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 4); // 45°
+                yRotation.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), newAngle);
+
+                // Apply rotations
+                body.quaternion.copy(yRotation.mult(xRotation.mult(zRotation)));
+
+                // Calculate new position based on new angle
+                const magnitude = cylinderLength / 2 + poleRadius;
+                const newX = CONFIG.POLE.POSITION.X + Math.cos(newAngle) * magnitude;
+                const newZ = CONFIG.POLE.POSITION.Z - Math.sin(newAngle) * magnitude;
+
+                body.shapes.pop();
+
+                const taperedCylinderShape = new CANNON.Cylinder(
+                    CONFIG.TAPERED_CYLINDER.RADIUS_TOP,
+                    CONFIG.TAPERED_CYLINDER.RADIUS_BOTTOM,
+                    cylinderLength,
+                    CONFIG.TAPERED_CYLINDER.RADIAL_SEGMENTS,
+                );
+
+                body.addShape(taperedCylinderShape);
+
+                const geometry = new THREE.CylinderGeometry(
+                    CONFIG.TAPERED_CYLINDER.RADIUS_TOP,
+                    CONFIG.TAPERED_CYLINDER.RADIUS_BOTTOM,
+                    cylinderLength,
+                    CONFIG.TAPERED_CYLINDER.RADIAL_SEGMENTS,
+                    CONFIG.TAPERED_CYLINDER.HEIGHT_SEGMENTS,
+                );
+
+                mesh.geometry = geometry;
+
+                // Update position while maintaining height
+                body.position.set(newX, body.position.y, newZ);
+
+                // Update visual mesh to match physics body
+                mesh.position.copy(body.position);
+                mesh.quaternion.copy(body.quaternion);
+            });
+        }
+
+        // Physics world setup
+        function setupPhysics() {
+            const world = new CANNON.World();
+            world.gravity.set(CONFIG.PHYSICS.GRAVITY.X, CONFIG.PHYSICS.GRAVITY.Y, CONFIG.PHYSICS.GRAVITY.Z);
+            return world;
+        }
+
+
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Get current time for animations
+            const time = performance.now() * 0.001; // Convert to seconds
+
+            // Update steps animation
+            updateSteps(time);
+
+            // Step the physics world
+            world.step(1 / 60);
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize the scene
+        function init() {
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(
+                CONFIG.CAMERA.FOV,
+                window.innerWidth / window.innerHeight,
+                CONFIG.CAMERA.NEAR,
+                CONFIG.CAMERA.FAR,
+            );
+            camera.position.set(CONFIG.CAMERA.POSITION.X, CONFIG.CAMERA.POSITION.Y, CONFIG.CAMERA.POSITION.Z);
+            camera.lookAt(0, 0, 0);
+
+
+            // Setup lights
+            setupLights();
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({
+                antialias: CONFIG.RENDERER.ANTIALIAS,
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = CONFIG.RENDERER.SHADOWS;
+            document.body.appendChild(renderer.domElement);
+
+
+            const orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+
+
+
+            // Setup physics world
+            world = setupPhysics();
+
+            // Create plane
+            const planeBody = createPlaneBody(world);
+            createPlane(planeBody);
+
+            // Create pole
+            poleBody = createPoleBody(world);
+            pole = createPole(poleBody);
+
+            // Update visual objects to match physics bodies
+            if (pole && poleBody) {
+                pole.position.copy(poleBody.position);
+                pole.quaternion.copy(poleBody.quaternion);
+            }
+
+            createSteps();
+
+
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+
+            // Start animation loop
+            animate();
+        }
+
+        init();
+
+    </script>
+</body>
+
+</html>

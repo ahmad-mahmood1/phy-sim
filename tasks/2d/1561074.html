@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            /* Allow for potential controls later */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #333;
+            /* Darker background for better contrast */
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #555;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
+            line-height: 0;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 15px 10px;
+            border-radius: 5px;
+            font-size: 0.8em;
+        }
+
+        /* Controls container */
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        #controls label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        #controls input {
+            margin-left: 10px;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // Water animation variables
+            let waterTime = 0;
+            let waterColorDark, waterColorLight;
+            let waterNoiseScale = 0.035; // Slightly larger scale for broader water patterns
+            let waterSpeed = 0.015;
+
+            // Hurricane simulation variables
+            let particles = [];
+            const numParticles = 700; // Number of wind particles
+            let hurricaneCenterX, hurricaneCenterY;
+            const eyeRadius = 20;         // Radius of the calm eye
+            const eyewallInnerRadius = eyeRadius + 5; // Where strong winds start
+            const eyewallOuterRadius = 90;  // Radius of maximum wind intensity band
+            let maxWindSpeed = 3.5;       // Max speed of particles
+            const inflowAngle = p.radians(20); // Angle of inward spiral (20-30 degrees is typical)
+            const particleColor = [255, 255, 255, 150]; // Semi-transparent white for particles
+            const particleLength = 5; // Length of particle trails
+
+            // Canvas dimensions
+            let canvasWidth = 500;
+            let canvasHeight = 500;
+
+            class Particle {
+                constructor(x, y) {
+                    this.pos = p.createVector(x, y);
+                    this.prevPos = this.pos.copy(); // For drawing trails
+                    this.vel = p.createVector(0, 0);
+
+                    this.maxSpeed = maxWindSpeed * p.random(1.2, 1.8); // Vary particle max speed slightly
+                }
+
+                update() {
+                    // Get wind vector at current particle position
+                    let wind = getWindAt(this.pos.x, this.pos.y);
+
+                    // Apply wind force (simplified: directly set velocity)
+                    this.vel.set(wind.x, wind.y);
+                    this.vel.limit(this.maxSpeed);
+
+                    // Update max speed based on current global setting
+                    this.maxSpeed = maxWindSpeed * p.random(1.2, 1.8);
+
+                    // Store previous position
+                    this.prevPos.set(this.pos);
+
+                    // Update position
+                    this.pos.add(this.vel);
+
+                    // Boundary conditions / Resetting particles
+                    this.checkEdges();
+                }
+
+                display() {
+                    p.stroke(particleColor);
+                    p.strokeWeight(1.5);
+                    // Draw a line from previous to current position to show movement trail
+                    p.line(this.prevPos.x, this.prevPos.y, this.pos.x, this.pos.y);
+
+                }
+
+                checkEdges() {
+                    // If particle is too far from center or too deep in the eye and slow, reset it
+                    let distToCenter = p.dist(this.pos.x, this.pos.y, hurricaneCenterX, hurricaneCenterY);
+                    if (distToCenter > p.width / 1.5 || // Too far out
+                        (distToCenter < eyeRadius * 0.7 && this.vel.magSq() < 0.2) || // Stuck in eye
+                        this.pos.x < 0 || this.pos.x > p.width || this.pos.y < 0 || this.pos.y > p.height // Off canvas
+                    ) {
+                        this.reset();
+                    }
+                }
+
+                reset() {
+                    // Reset particle to a random position, typically further out
+                    const angle = p.random(p.TWO_PI);
+                    const r = p.random(eyewallOuterRadius * 1.5, p.width / 2.2);
+                    this.pos.x = hurricaneCenterX + r * p.cos(angle);
+                    this.pos.y = hurricaneCenterY + r * p.sin(angle);
+                    this.prevPos.set(this.pos);
+                    this.vel.set(0, 0);
+                }
+            }
+
+            function getWindAt(x, y) {
+                let dx = x - hurricaneCenterX;
+                let dy = y - hurricaneCenterY;
+                let dist = p.sqrt(dx * dx + dy * dy);
+                let angleToCenter = p.atan2(dy, dx);
+
+                let windSpeed = 0;
+                let windDirectionAngle;
+
+                // Determine wind speed based on distance from center
+                if (dist <= eyeRadius) {
+                    // Inside the eye: very low wind, or slight outward drift if complex
+                    windSpeed = maxWindSpeed * 0.05 * (dist / eyeRadius); // Very gentle swirl in eye
+                } else if (dist <= eyewallInnerRadius) {
+                    // Transition from eye to eyewall
+                    windSpeed = p.map(dist, eyeRadius, eyewallInnerRadius, maxWindSpeed * 0.05, maxWindSpeed * 0.5);
+                } else if (dist <= eyewallOuterRadius) {
+                    // Approaching and at the eyewall: winds increase to maximum
+                    windSpeed = p.map(dist, eyewallInnerRadius, eyewallOuterRadius, maxWindSpeed * 0.5, maxWindSpeed);
+                } else {
+                    // Outside the eyewall: winds decrease with distance (1/sqrt(r) or 1/r falloff)
+                    // This ensures winds don't abruptly stop
+                    windSpeed = maxWindSpeed * p.pow(eyewallOuterRadius / dist, 0.7);
+                }
+
+                // Ensure wind speed doesn't go negative or excessively high if logic is off
+                windSpeed = p.constrain(windSpeed, 0, maxWindSpeed * 1.1);
+
+                // For clockwise rotation (Southern Hemisphere)
+                windDirectionAngle = angleToCenter - p.HALF_PI - inflowAngle;
+
+                let windVector = p5.Vector.fromAngle(windDirectionAngle);
+                windVector.mult(windSpeed);
+                return windVector;
+            }
+
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                p.createCanvas(canvasWidth, canvasHeight).parent(container);
+
+                // Water setup
+                waterColorDark = p.color(30, 80, 150, 200);
+                waterColorLight = p.color(80, 130, 220, 200);
+                p.pixelDensity(1); // For performance with water pixels
+
+                // Hurricane setup
+                hurricaneCenterX = p.width / 2;
+                hurricaneCenterY = p.height / 2;
+
+                // Initialize particles
+                for (let i = 0; i < numParticles; i++) {
+                    // Start particles randomly around the hurricane structure
+                    const angle = p.random(p.TWO_PI);
+                    const r = p.random(eyeRadius, p.width / 2); // Distribute them widely initially
+                    const startX = hurricaneCenterX + r * p.cos(angle);
+                    const startY = hurricaneCenterY + r * p.sin(angle);
+                    particles.push(new Particle(startX, startY));
+                }
+
+                // Optional: Add an info div
+                let infoDiv = p.createDiv('Hurricane Simulation');
+                infoDiv.id('info');
+                infoDiv.parent(container);
+
+                // Create controls container
+                let controlsDiv = p.createDiv();
+                controlsDiv.id('controls');
+                controlsDiv.parent(container);
+
+                // Create wind speed slider
+                let sliderLabel = p.createDiv();
+                sliderLabel.parent(controlsDiv);
+                sliderLabel.html('<label>Wind Speed: <span id="speed-value">3.5</span><input type="range" id="wind-speed" min="0.5" max="10" step="0.1" value="3.5"></label>');
+
+                // Add event listener to slider
+                document.getElementById('wind-speed').addEventListener('input', function () {
+                    maxWindSpeed = parseFloat(this.value);
+                    document.getElementById('speed-value').textContent = maxWindSpeed.toFixed(1);
+                });
+            };
+
+            function drawWater() {
+                // First draw a solid blue background for the ocean
+                p.fill(20, 60, 120); // Deep blue base color
+                p.rect(0, 0, p.width, p.height);
+
+                // Clear the area first
+                p.noStroke();
+
+                // Define the number of angle steps and radius steps
+                const angleSteps = 330; // Number of "spokes" in the spiral
+                const radiusSteps = 120; // Number of points along each spoke
+                const angleIncrement = p.TWO_PI / angleSteps;
+                const maxRadius = p.width * 0.9; // Maximum radius to draw
+                const radiusIncrement = maxRadius / radiusSteps;
+
+                // For each angle
+                for (let a = p.TWO_PI; a >= 0; a -= angleIncrement) {
+                    // For each radius along this angle
+                    for (let r = 0; r < maxRadius; r += radiusIncrement) {
+                        // Calculate position
+                        let x = hurricaneCenterX + r * p.cos(a);
+                        let y = hurricaneCenterY + r * p.sin(a);
+
+                        // Skip if outside canvas
+                        if (x < 0 || x >= p.width || y < 0 || y >= p.height) continue;
+
+                        // Calculate spiral factor - add rotation based on radius
+                        let spiralOffset = r * 0.002; // Controls how much the spiral twists
+                        let spiralAngle = a + spiralOffset * waterTime;
+
+                        // Calculate noise value
+                        let noiseVal = p.noise(
+                            spiralAngle * 2, // Use angle directly in noise
+                            r * 0.01, // Scale radius for noise input
+                            waterTime * 0.3  // Time dimension
+                        );
+
+                        // Add more spiral influence near the center
+                        let centerInfluence = p.map(r, 0, maxRadius, 0.8, 0.2);
+                        let spiralNoise = p.noise(
+                            spiralAngle * 3 + waterTime * 0.4,
+                            r * 0.02 - waterTime * 0.1,
+                            waterTime * 0.5
+                        );
+
+                        // Blend noises
+                        noiseVal = noiseVal * (1 - centerInfluence) + spiralNoise
+
+                        // Color based on noise
+                        let c = p.lerpColor(waterColorDark, waterColorLight, noiseVal);
+
+                        // Size of cell varies with distance from center
+                        let cellSize = p.map(r, 0, maxRadius, 4, 8);
+
+                        // Draw the cell
+                        p.fill(c);
+                        p.ellipse(x, y, cellSize, cellSize);
+                    }
+                }
+
+                waterTime += waterSpeed;
+            }
+
+            p.draw = () => {
+                p.background(51); // Dark background
+
+                // 1. Draw the animated water background
+                drawWater();
+
+                // 2. Update and display hurricane wind particles
+                for (let particle of particles) {
+                    particle.update();
+                    particle.display();
+                }
+
+                p.noFill();
+                p.stroke(255, 255, 255, 50); // Faint white circles
+                p.strokeWeight(1);
+                p.ellipse(hurricaneCenterX, hurricaneCenterY, eyeRadius * 2);
+                p.ellipse(hurricaneCenterX, hurricaneCenterY, eyewallOuterRadius * 2);
+            };
+
+        };
+
+        new p5(sketch, document.getElementById('canvas-container'));
+
+    </script>
+</body>
+
+</html>

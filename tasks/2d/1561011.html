@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #e0e0e0;
+            /* Light gray background */
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #simulation-container {
+            display: flex;
+            /* Allow text above/below canvas */
+            justify-content: center;
+            align-items: start;
+            gap: 10px;
+            background-color: #444;
+            padding: 5px;
+            /* Light gray background */
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #444;
+            box-shadow: 0 0 15px #000;
+        }
+
+        .info-text {
+            margin-top: 15px;
+            font-size: 1em;
+            color: #555;
+        }
+
+        .title-text {
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #222;
+        }
+
+        .legend-container {
+            padding: 10px 15px;
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            max-width: 500px;
+        }
+
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 1px solid rgba(0, 0, 0, 0.2);
+        }
+
+        .legend-line {
+            width: 30px;
+            height: 4px;
+            margin-right: 10px;
+            border-radius: 2px;
+        }
+
+        .legend-text {
+            font-size: 0.9em;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div class="title-text">2D Topspin Tennis Simulation</div>
+
+    <div id='simulation-container'>
+        <div id="canvas-container">
+        </div>
+
+        <div class="legend-container">
+            <div class="legend-title">Legend</div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 235, 59);"></div>
+                <div class="legend-text">Ball in flight (before bounce)</div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(124, 252, 0);"></div>
+                <div class="legend-text">Ball after bounce (in bounds)</div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 69, 0);"></div>
+                <div class="legend-text">Ball out of bounds or hit net</div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line" style="background-color: rgb(255, 235, 59);"></div>
+                <div class="legend-text">Trajectory before bounce</div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line" style="background-color: rgb(255, 140, 0);"></div>
+                <div class="legend-text">Trajectory after bounce</div>
+            </div>
+            <div class="legend-item">
+                <div style="display: flex; align-items: center;">
+                    <div class="legend-line" style="background-color: rgb(255, 235, 59);"></div>
+                    <div class="legend-line" style="background-color: rgb(255, 140, 0);"></div>
+                </div>
+                <div class="legend-text">Ball bounce point</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        // --- Sketch Code --- //
+
+        // Court dimensions and layout constants
+        const CANVAS_WIDTH = 500;
+        const CANVAS_HEIGHT = 600; // Adjusted for better court proportion viewing
+
+        const COURT_MARGIN_X = 50;
+        const COURT_MARGIN_Y = 50;
+
+        const COURT_SINGLES_WIDTH = CANVAS_WIDTH - 2 * COURT_MARGIN_X;
+        const COURT_TOTAL_LENGTH = CANVAS_HEIGHT - 2 * COURT_MARGIN_Y;
+
+        const NET_POSITION_Y = COURT_MARGIN_Y + COURT_TOTAL_LENGTH / 2;
+        const PLAYER_BASELINE_Y = COURT_MARGIN_Y + COURT_TOTAL_LENGTH;
+        const OPPONENT_BASELINE_Y = COURT_MARGIN_Y;
+
+        // Service line is 21ft from net, baseline is 39ft from net. Proportion: 21/39
+        const SERVICE_LINE_OFFSET_FROM_NET = (21 / 39) * (COURT_TOTAL_LENGTH / 2);
+
+        // Ball properties
+        const BALL_RADIUS = 7;
+
+        const MAX_TOPSPIN_MAGNITUDE = 0.015; // Maximum topspin magnitude in radians
+        const MIN_INCREMENT = 0.001
+        const MAX_INCREMENT = 0.002
+
+        const Y_MIN_SPEED = -12
+        const Y_MAX_SPEED = -16
+
+        const X_MIN_SPEED = -3.8 // more to left, creating more realistic topspin
+        const X_MAX_SPEED = 0.5 // slightly to right
+
+        const DAMP_FACTOR = -0.01
+
+        let topspinMagnitude; // Magnitude of the topspin effect
+
+        // Simulation variables
+        let ball = {}
+        let trajectory = [];
+        let gameState = "idle"; // Possible states: "idle", "playing", "result"
+
+        const sketch = (p) => {
+
+            // Resets the ball and game state for a new shot
+            function resetSimulation() {
+                // Initial velocity for the hit: upwards and slightly angled, with some randomness
+                let initialSpeedY = p.random(Y_MIN_SPEED, Y_MAX_SPEED)
+                let initialSpeedX = p.random(X_MIN_SPEED, X_MAX_SPEED);
+
+                ball = {
+                    pos: p.createVector(COURT_MARGIN_X + COURT_SINGLES_WIDTH / 1.5, PLAYER_BASELINE_Y - 20), // Start behind player's baseline
+                    vel: p.createVector(initialSpeedX, initialSpeedY),
+                    acc: p.createVector(0, 0),
+                    radius: BALL_RADIUS,
+                    height: 80, // Initial height (at player's racket)
+                    heightVel: -0.5, // Initial upward velocity for height (positive = going up)
+                    bounced: false, // True if the ball has bounced on the opponent's side
+                    isOut: false,    // True if the ball lands out of bounds
+                    hitNet: false,   // True if the ball hits the net
+                    stopped: false   // True if the ball has stopped moving
+                };
+
+                trajectory = [[ball.pos.copy(), false]]; // Initialize trajectory with starting position
+                gameState = "idle";
+                // Randomize topspin slightly for variety in each shot
+                topspinMagnitude = MAX_TOPSPIN_MAGNITUDE + p.random(MIN_INCREMENT, MAX_INCREMENT);
+            }
+
+            // Handle bounce physics
+            function handleBounce() {
+                ball.bounced = true; // Ball has "bounced"
+
+                // Bounce physics - convert downward velocity to upward with energy loss
+                // For topspin, we want a higher bounce than a flat shot
+                ball.heightVel = Math.abs(ball.heightVel) * 0.7; // 70% of incoming velocity, but upward
+
+                // Topspin adds extra height to the bounce
+                ball.heightVel += 1.0; // Additional upward velocity due to topspin
+
+                // Add forward acceleration due to topspin "bite"
+                ball.vel.y += 1.5; // Additional forward speed after bounce
+
+                // The spin effect in applyBallPhysics is already stronger due to ball.bounced
+            }
+
+            // Manages the simulation logic based on the current game state
+            function handleGameState() {
+                if (gameState === "playing") {
+                    applyBallPhysics(); // Apply forces like spin and drag
+                    ball.vel.add(ball.acc);   // Update velocity with acceleration
+                    ball.pos.add(ball.vel);   // Update position with velocity
+
+                    ball.acc.mult(0);         // Reset acceleration for the next frame
+
+                    trajectory.push([ball.pos.copy(), ball.bounced ? true : false]); // Record current position for trajectory path
+                    if (trajectory.length > 250) trajectory.shift(); // Limit trajectory length
+
+                    checkBallStatus(); // Check for collisions, out of bounds, etc.
+                } else if (gameState === "result") {
+                    displayResult(); // Show the outcome of the shot
+                    p.fill(0);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.textSize(16);
+                    p.text("Click to play again", CANVAS_WIDTH / 2, PLAYER_BASELINE_Y + 35);
+                } else if (gameState === "idle") {
+                    p.fill(0);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.textSize(16);
+                    p.text("Click to hit the ball with topspin", CANVAS_WIDTH / 2, PLAYER_BASELINE_Y + 35);
+                }
+            }
+
+            // Applies physics to the ball (drag, topspin)
+            function applyBallPhysics() {
+                if (ball.stopped) return;
+
+                // 1. Air Resistance (damping force)
+                let dragForce = ball.vel.copy();
+                dragForce.mult(DAMP_FACTOR); // Damping factor (adjust for desired effect)
+                ball.acc.add(dragForce);
+
+                // 2. Topspin effect (simplified Magnus force for 2D top-down view)
+                // This force is perpendicular to velocity, causing the curve.
+                // Its strength depends on forward speed and spin magnitude.
+                if (ball.vel.magSq() > 0.1) { // Only apply if the ball is moving
+                    // Check if ball has hit the ground
+                    if (ball.height === 0) {
+                        ball.bounced = true
+                        handleBounce();
+                    }
+
+                    // Update height using parabolic motion (projectile physics)
+                    ball.height = Math.max(0, ball.height + ball.heightVel);
+                    ball.heightVel -= 0.2; // Gravity effect - constant downward acceleration
+
+                    // If ball.vel.y is negative (moving "up" the court),
+                    // a positive topspinMagnitude will cause a curve to the player's left (negative X).
+                    let spinForceX = ball.vel.y * topspinMagnitude;
+                    ball.acc.x += spinForceX;
+
+                    // "Altered bounce" simulation: If the ball has bounced,
+                    // the topspin effect "bites" more, potentially increasing the curve.
+                    if (ball.bounced) {
+                        // Enhanced curve after bounce - topspin causes more pronounced curve
+                        ball.acc.x += spinForceX * 0.9; // Increased from 0.7 to 0.9 for more curve
+
+                        // Forward acceleration due to topspin "bite" on the court surface
+                        // This is a small continuous acceleration in the direction of travel
+                        ball.acc.y += -0.05; // Small continuous forward acceleration
+
+                        // Gradual loss of forward momentum due to friction
+                        ball.vel.y *= 0.985; // Simulate friction/loss of forward momentum on bounce
+                    }
+                }
+            }
+
+            // Checks the ball's status (net, bounce, out of bounds)
+            function checkBallStatus() {
+                if (ball.stopped) return;
+
+                // --- Check if ball bounced on player's side after crossing net ---
+                if (ball.height <= 0 && ball.pos.y < NET_POSITION_Y && ball.pos.x > COURT_MARGIN_X + COURT_SINGLES_WIDTH / 2 &&
+                    !ball.bounced && !ball.hitNet) {
+                    console.log("Ball crossed net but bounced on player's side - fault");
+                    ball.stopped = true;
+                }
+
+
+                // --- Net Check ---
+                // Check if the ball is about to cross the net line from the player's side
+                if (!ball.bounced && !ball.hitNet && ball.pos.y <= NET_POSITION_Y && (ball.pos.y - ball.vel.y) > NET_POSITION_Y) {
+                    // Check if ball height is too low to clear the net
+                    if (ball.height < 10) { // Assuming net height is 10 units
+                        ball.hitNet = true;
+                    }
+                }
+
+                // --- Out of Bounds Checks ---
+                // 1. Went past opponent's baseline
+                if (ball.pos.y < OPPONENT_BASELINE_Y - ball.radius) {
+                    console.log("Went past opponent's baseline:")
+
+                    if (!ball.bounced && !ball.hitNet) ball.isOut = true; // Flew long without bouncing in opponent's court
+                    // If it bounced in and then rolled out past baseline, it's still considered "in" up to that point.
+                    // The game result will be based on the first significant event (net, out, or in).
+                    ball.stopped = true;
+                }
+
+                // 2. Went out sideways
+                if (ball.pos.x < COURT_MARGIN_X - ball.radius || ball.pos.x > COURT_MARGIN_X + COURT_SINGLES_WIDTH + ball.radius) {
+                    console.log("Went out sideways:")
+                    if (!ball.hitNet) ball.isOut = true; // Don't mark as out if it already hit net structure wide
+                    ball.stopped = true;
+                }
+
+                // 3. Ball stopped moving significantly
+                if ((ball.vel.magSq() < 0.05) && !ball.stopped) {
+                    console.log("Ball stopped moving significantly:")
+                    if (ball.pos.y > NET_POSITION_Y && !ball.hitNet && !ball.bounced) { // Stopped on player's side (didn't make it over)
+                        ball.isOut = true; // Treat as an error / out
+                    }
+                    ball.stopped = true;
+                }
+
+                // 4. Finalize if hit net
+                if (ball.hitNet) {
+                    console.log("Hit net:")
+                    ball.stopped = true;
+                }
+
+                // Transition to result state if ball has stopped
+                if (ball.stopped && gameState === "playing") {
+                    gameState = "result";
+                }
+            }
+
+            // Displays the result of the shot (IN, OUT, NET)
+            function displayResult() {
+                p.fill(20, 20, 20, 200); // Semi-transparent dark overlay for text background
+                p.noStroke();
+                p.rect(CANVAS_WIDTH / 2 - 60, NET_POSITION_Y - 20, 120, 40, 5); // Rounded rect for text
+
+                p.fill(255); // White text
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(22);
+                let message = "";
+                if (ball.hitNet) {
+                    message = "NET!";
+                } else if (ball.isOut) {
+                    message = "OUT!";
+                } else if (ball.bounced) { // Implies it landed in and wasn't subsequently out before stopping
+                    message = "IN!";
+                } else { // Should be covered by other states, but as a fallback
+                    message = "FAULT";
+                }
+                p.text(message, CANVAS_WIDTH / 2, NET_POSITION_Y);
+            }
+
+            // Draws the tennis court
+            function drawCourt() {
+                p.stroke(255); // White lines for the court
+                p.strokeWeight(2);
+
+                // Court playing surface color
+                p.fill(50, 168, 82); // Green court color
+                p.rect(COURT_MARGIN_X, COURT_MARGIN_Y, COURT_SINGLES_WIDTH, COURT_TOTAL_LENGTH);
+
+                // Net line
+                p.strokeWeight(4); // Thicker net line
+                p.stroke(245, 245, 245, 200); // Slightly off-white, semi-transparent net
+                p.line(COURT_MARGIN_X, NET_POSITION_Y, COURT_MARGIN_X + COURT_SINGLES_WIDTH, NET_POSITION_Y);
+                p.strokeWeight(2); // Reset stroke weight
+
+                // Center Service Line (Player's Side)
+                p.line(COURT_MARGIN_X + COURT_SINGLES_WIDTH / 2, PLAYER_BASELINE_Y,
+                    COURT_MARGIN_X + COURT_SINGLES_WIDTH / 2, NET_POSITION_Y);
+                // Center Service Line (Opponent's Side)
+                p.line(COURT_MARGIN_X + COURT_SINGLES_WIDTH / 2, OPPONENT_BASELINE_Y,
+                    COURT_MARGIN_X + COURT_SINGLES_WIDTH / 2, NET_POSITION_Y);
+
+                // Service Lines (marking the service boxes)
+                // Player's Side Service Line
+                p.line(COURT_MARGIN_X, NET_POSITION_Y + SERVICE_LINE_OFFSET_FROM_NET,
+                    COURT_MARGIN_X + COURT_SINGLES_WIDTH, NET_POSITION_Y + SERVICE_LINE_OFFSET_FROM_NET);
+                // Opponent's Side Service Line
+                p.line(COURT_MARGIN_X, NET_POSITION_Y - SERVICE_LINE_OFFSET_FROM_NET,
+                    COURT_MARGIN_X + COURT_SINGLES_WIDTH, NET_POSITION_Y - SERVICE_LINE_OFFSET_FROM_NET);
+            }
+
+            // Draws the tennis ball
+            function drawBall() {
+                p.noStroke();
+                // Change ball color based on its status
+                if (ball.isOut || ball.hitNet) {
+                    p.fill(255, 69, 0, 220);   // Red-Orange for out/net
+                } else if (ball.bounced) {
+                    p.fill(124, 252, 0, 230); // Bright Green for bounced in
+                } else {
+                    p.fill(255, 235, 59);     // Bright Yellow for in-flight
+                }
+                p.ellipse(ball.pos.x, ball.pos.y, ball.radius * 2, ball.radius * 2);
+
+            }
+
+            // Draws the ball's trajectory path
+            function drawTrajectory() {
+                p.noFill();
+
+                p.strokeWeight(3);
+                const preBounceTrajectory = trajectory.filter(t => t[1] === false)
+                const postBounceTrajectory = trajectory.filter(t => t[1] === true)
+                p.stroke(255, 235, 59, 200); // Bright Yellow, semi-transparent for trajectory
+                p.beginShape();
+                for (let t of preBounceTrajectory) {
+                    const [v, bounced] = t
+                    p.vertex(v.x, v.y);
+                }
+                p.endShape();
+
+
+                p.stroke(255, 140, 0, 180); // Dark Orange, semi-transparent for trajectory
+                p.beginShape();
+                for (let t of postBounceTrajectory) {
+                    const [v, bounced] = t
+                    p.vertex(v.x, v.y);
+                }
+                p.endShape();
+
+                p.strokeWeight(1); // Reset stroke weight
+            }
+
+
+
+            // p5.js setup function: initializes canvas and simulation state
+            p.setup = () => {
+                p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+                p.textFont('Roboto Mono', 'monospace'); // Added monospace fallback
+                resetSimulation();
+            }
+
+
+            // p5.js draw function: called repeatedly to update and render the simulation
+            p.draw = () => {
+                p.background(173, 216, 230); // Light blue background (sky-ish)
+                drawCourt();
+                drawTrajectory();
+                drawBall();
+                handleGameState();
+            }
+
+            // Handles mouse press events to initiate a shot
+            p.mousePressed = () => {
+                if (gameState === "idle" || gameState === "result") {
+                    resetSimulation();
+                    gameState = "playing";
+                }
+            }
+
+
+        }
+
+        const container = window.document.getElementById('canvas-container');
+
+        // Ensure p5 runs in instance mode by creating a new p5 object
+        new p5(sketch, container);
+
+    </script>
+    <div class="info-text">Player serves from the bottom. Topspin curves the ball to the player's left.</div>
+</body>
+
+</html>

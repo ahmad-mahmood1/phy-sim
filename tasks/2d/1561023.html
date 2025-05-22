@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Third-Class Lever: Tweezers</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            /* Allow items to stack vertically */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            /* Lighter background */
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            /* Darker border for contrast */
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            /* Softer shadow */
+            margin-bottom: 20px;
+            /* Space between canvas and controls */
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .controls label {
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .controls input[type="range"] {
+            width: 200px;
+            margin-bottom: 10px;
+        }
+
+        .info {
+            font-size: 0.9em;
+            text-align: left;
+            width: 500px;
+            /* Consistent width for info text */
+        }
+
+        .info p {
+            margin: 5px 0;
+        }
+
+        .title {
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div class="title">Third-Class Lever: Tweezers Simulation</div>
+    <div id="canvas-container">
+    </div>
+    <div class="controls">
+        <label for="effortSlider">Effort (Squeeze)</label>
+        <input type="range" id="effortSlider" min="0" max="100" value="10">
+
+        <label for="effortDistanceSlider">Effort Position (Distance from Fulcrum)</label>
+        <input type="range" id="effortDistanceSlider" min="30" max="80" value="40">
+
+        <div class="info">
+            <p id="effortDistanceInfo">Effort Distance (d<sub>e</sub>): 0 px</p>
+            <p id="loadDistanceInfo">Load Distance (d<sub>l</sub>): 0 px</p>
+            <p id="effortForceInfo">Effort Force (F<sub>e</sub>): Proportional</p>
+            <p id="loadForceInfo">Load Force (F<sub>l</sub>): Proportional</p>
+            <p id="maInfo">Mechanical Advantage (MA = d<sub>e</sub>/d<sub>l</sub>): 0</p>
+            <p>Note: In a third-class lever, MA is always < 1. This means F<sub>e</sub> > F<sub>l</sub>.</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let canvasWidth = 500;
+            let canvasHeight = 300;
+
+            // Tweezer properties
+            let tweezerLength = 200;
+            let pivotX, pivotY; // Fulcrum
+            let armThickness = 8;
+            let initialAngleSeparation = p.radians(30); // Initial small opening
+            let currentAngleSeparation;
+
+            // Add handle properties for more aesthetic tweezers
+            let handleLength = 40; // Length of the handle part
+            let handleWidth = 15;  // Width of the handle part
+
+            // Effort and Load
+            let effortDistanceRatio = 0.7; // Effort applied at 70% of the tweezer length from pivot
+            let loadDistance; // Always at the tip, so equal to tweezerLength
+            let effortPoint1, effortPoint2;
+            let loadPoint1, loadPoint2;
+
+            let effortSlider;
+            let effortDistanceSlider;
+
+            // Colors
+            const bgColor = p.color(240, 240, 240);
+            const tweezerColor = p.color(100, 100, 110);
+            const fulcrumColor = p.color(200, 0, 0); // Red
+            const effortColor = p.color(0, 150, 0);   // Green
+            const loadColor = p.color(0, 0, 200);     // Blue
+
+            // Physics related (conceptual)
+            let effortMagnitude = 0; // From slider
+            let loadMagnitude = 0;   // To be calculated conceptually
+
+            p.setup = () => {
+                p.createCanvas(canvasWidth, canvasHeight);
+                pivotX = canvasWidth * 0.3; // Position fulcrum to the left
+                pivotY = canvasHeight / 2;
+
+                loadDistance = tweezerLength; // Load is at the tip
+
+                effortSlider = p.select('#effortSlider');
+                effortDistanceSlider = p.select('#effortDistanceSlider');
+
+                // Initialize text content
+                updatePhysicsInfo();
+            };
+
+            p.draw = () => {
+                p.background(bgColor);
+
+                // Get effort from slider (0 to 100)
+                effortMagnitude = p.float(effortSlider.value());
+
+                // Get effort distance ratio from slider (30% to 90%)
+                effortDistanceRatio = p.float(effortDistanceSlider.value()) / 100;
+
+                // Update physics info on every frame to ensure values update with slider
+                updatePhysicsInfo();
+
+                // Calculate the required effort based on mechanical advantage
+                // In a third-class lever: MA = effort distance / load distance
+                // Force multiplier = 1/MA (inverse of mechanical advantage)
+                let ma = 1 - effortDistanceRatio; // inverse of de/dl (since dl is normalized to 1.0)
+                let forceMultiplier = 1 / ma;
+
+                // Apply the mechanical advantage to calculate effective effort
+                // As MA increases (effort point moves closer to load), less force is needed
+                let effectiveEffort = effortMagnitude * forceMultiplier;
+
+                // Max effort closes the tweezers, min effort opens them to initialAngleSeparation
+                let maxSqueezeAngleReduction = initialAngleSeparation * 0.95;
+                currentAngleSeparation = initialAngleSeparation - (effectiveEffort / 100) * maxSqueezeAngleReduction;
+                currentAngleSeparation = p.max(0.045, currentAngleSeparation); // Prevent arms from overlapping completely
+
+                // Calculate positions for the two arms of the tweezers
+                let angle1 = -currentAngleSeparation / 2;
+                let angle2 = currentAngleSeparation / 2;
+
+                // Arm 1
+                let tip1X = pivotX + tweezerLength * p.cos(angle1);
+                let tip1Y = pivotY + tweezerLength * p.sin(angle1);
+
+                // Arm 2
+                let tip2X = pivotX + tweezerLength * p.cos(angle2);
+                let tip2Y = pivotY + tweezerLength * p.sin(angle2);
+
+                // Effort points
+                effortPoint1 = {
+                    x: pivotX + tweezerLength * effortDistanceRatio * p.cos(angle1),
+                    y: pivotY + tweezerLength * effortDistanceRatio * p.sin(angle1)
+                };
+                effortPoint2 = {
+                    x: pivotX + tweezerLength * effortDistanceRatio * p.cos(angle2),
+                    y: pivotY + tweezerLength * effortDistanceRatio * p.sin(angle2)
+                };
+
+                // Load points (tips of the tweezers)
+                loadPoint1 = { x: tip1X, y: tip1Y };
+                loadPoint2 = { x: tip2X, y: tip2Y };
+
+
+                // Draw Tweezer Arms with improved aesthetics
+                // Draw handles first
+                p.fill(tweezerColor);
+                p.stroke(p.color(70, 70, 80));
+                p.strokeWeight(1);
+
+                // Handle for arm 1
+                p.push();
+                p.translate(pivotX, pivotY);
+                p.rotate(angle1);
+                p.rect(-handleLength, -handleWidth / 2, handleLength, handleWidth, 3);
+                p.pop();
+
+                // Handle for arm 2
+                p.push();
+                p.translate(pivotX, pivotY);
+                p.rotate(angle2);
+                p.rect(-handleLength, -handleWidth / 2, handleLength, handleWidth, 3);
+                p.pop();
+
+                // Draw the arm parts
+                p.stroke(tweezerColor);
+                p.strokeWeight(armThickness);
+                p.line(pivotX, pivotY, tip1X, tip1Y);
+                p.line(pivotX, pivotY, tip2X, tip2Y);
+
+                // Add grip texture to the arms
+                let gripSpacing = 15;
+                p.stroke(p.color(70, 70, 80));
+                p.strokeWeight(1);
+
+                // Grip marks on arm 1
+                for (let i = 0.2; i < 0.9; i += 0.1) {
+                    let x1 = pivotX + tweezerLength * i * p.cos(angle1);
+                    let y1 = pivotY + tweezerLength * i * p.sin(angle1);
+                    let perpX = -5 * p.sin(angle1);
+                    let perpY = 5 * p.cos(angle1);
+                    p.line(x1 - perpX, y1 - perpY, x1 + perpX, y1 + perpY);
+                }
+
+                // Grip marks on arm 2
+                for (let i = 0.2; i < 0.9; i += 0.1) {
+                    let x2 = pivotX + tweezerLength * i * p.cos(angle2);
+                    let y2 = pivotY + tweezerLength * i * p.sin(angle2);
+                    let perpX = -5 * p.sin(angle2);
+                    let perpY = 5 * p.cos(angle2);
+                    p.line(x2 - perpX, y2 - perpY, x2 + perpX, y2 + perpY);
+                }
+
+                // Draw Fulcrum
+                p.fill(fulcrumColor);
+                p.ellipse(pivotX, pivotY, 15, 15);
+                p.fill(fulcrumColor);
+                p.textAlign(p.CENTER, p.BOTTOM);
+                p.textSize(14);
+                p.text("Fulcrum (F)", pivotX, pivotY - 20);
+
+
+                // Draw Load Arrows
+                p.fill(loadColor);
+                p.stroke(loadColor);
+                drawArrow(loadPoint1.x, loadPoint1.y - 10, loadPoint1.x, loadPoint1.y - 50, 'up');
+                // Arrow for lower arm tip pushing up on load
+                drawArrow(loadPoint2.x, loadPoint2.y + 10, loadPoint2.x, loadPoint2.y + 50, 'down');
+                p.text("Load (L)", tip1X + 40, pivotY); // General position for load label
+
+
+                // Draw Effort Points & Arrows (if effort is applied)
+                if (effortMagnitude > 0) {
+
+                    // Draw finger press indicators
+                    p.push()
+                    p.noStroke()
+                    p.fill(p.color(0, 150, 0, 100)); // Semi-transparent green
+                    p.ellipse(effortPoint1.x, effortPoint1.y, 20 + effortMagnitude * 0.2, 15 + effortMagnitude * 0.15);
+                    p.ellipse(effortPoint2.x, effortPoint2.y, 20 + effortMagnitude * 0.2, 15 + effortMagnitude * 0.15);
+                    p.pop()
+
+                    // Draw effort points
+                    p.push()
+                    p.fill(effortColor);
+                    p.ellipse(effortPoint1.x, effortPoint1.y, 10, 10);
+                    p.ellipse(effortPoint2.x, effortPoint2.y, 10, 10);
+                    p.textAlign(p.CENTER, p.BOTTOM);
+                    p.text("Effort (E)", effortPoint1.x, (effortPoint1.y - 36) - 5 * effortMagnitude * 0.15);
+
+                    // Draw effort arrows (conceptual inward force)
+                    p.stroke(effortColor);
+                    // Arrow for upper arm - make length proportional to effort
+                    drawArrow(effortPoint1.x, (effortPoint1.y - 30) - 4 * effortMagnitude * 0.18, effortPoint1.x, effortPoint1.y - 16, 'down');
+                    // Arrow for lower arm - make length proportional to effort
+                    drawArrow(effortPoint2.x, (effortPoint2.y + 30) + 4 * effortMagnitude * 0.18, effortPoint2.x, effortPoint2.y + 16, 'up');
+                    p.pop()
+                }
+
+
+
+
+            };
+
+            function drawArrow(x1, y1, x2, y2, direction) {
+                p.line(x1, y1, x2, y2);
+                let arrowSize = 5;
+                p.push();
+                p.translate(x2, y2);
+                if (direction === 'up') {
+                    p.triangle(0, 0, -arrowSize, arrowSize, arrowSize, arrowSize);
+                } else if (direction === 'down') {
+                    p.triangle(0, 0, -arrowSize, -arrowSize, arrowSize, -arrowSize);
+                } else if (direction === 'left') {
+                    p.triangle(0, 0, arrowSize, -arrowSize, arrowSize, arrowSize);
+                } else if (direction === 'right') {
+                    p.triangle(0, 0, -arrowSize, -arrowSize, -arrowSize, arrowSize);
+                }
+                p.pop();
+            }
+
+            function updatePhysicsInfo() {
+                let de = tweezerLength * effortDistanceRatio;
+                let dl = loadDistance; // which is tweezerLength
+
+                // Mechanical Advantage (MA) for a lever is Effort Arm / Load Arm
+                let ma = de / dl;
+
+                // Update the HTML elements with current values
+                p.select('#effortDistanceInfo').html(`Effort Distance (d<sub>e</sub>): ${de.toFixed(1)} px (${(effortDistanceRatio * 100).toFixed(0)}%)`);
+                p.select('#loadDistanceInfo').html(`Load Distance (d<sub>l</sub>): ${dl.toFixed(1)} px (100%)`);
+                p.select('#maInfo').html(`Mechanical Advantage (MA = d<sub>e</sub>/d<sub>l</sub>): ${ma.toFixed(2)}`);
+
+                // We show that Effort Force is proportionally larger than Load Force (lifted)
+                if (effortMagnitude > 0) {
+                    // As MA approaches 1 (effort closer to load), less force multiplication is needed
+                    p.select('#effortForceInfo').html(`Effort Force (F<sub>e</sub>): ${effortMagnitude.toFixed(0)} (x${(1 / ma).toFixed(2)} Load)`);
+                    p.select('#loadForceInfo').html(`Load Force (F<sub>l</sub>): ${(effortMagnitude * ma).toFixed(0)} (x${ma.toFixed(2)} Effort)`);
+                } else {
+                    p.select('#effortForceInfo').html(`Effort Force (F<sub>e</sub>): 0`);
+                    p.select('#loadForceInfo').html(`Load Force (F<sub>l</sub>): 0`);
+                }
+            }
+
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>

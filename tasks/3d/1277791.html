@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Carousel Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            font-size: 14px;
+            color: #333;
+            z-index: 100;
+        }
+
+        #info h3 {
+            margin: 0 0 10px 0;
+        }
+
+        #info p {
+            margin: 5px 0;
+        }
+
+        #container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        button {
+            padding: 8px 15px;
+            background-color: #3366cc;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            min-width: 80px;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #254e99;
+        }
+
+        button.active {
+            background-color: #cc0000;
+        }
+
+        input[type="range"] {
+            width: 150px;
+        }
+
+        .value-display {
+            font-size: 12px;
+            margin-top: 5px;
+            color: #666;
+        }
+    </style>
+    <script type="importmap">
+            {
+            "imports": {
+                "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.157.0/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/",
+                "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+                "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js",
+                "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+              }
+        }
+        </script>
+</head>
+
+<body>
+    <div id="container"></div>
+    <div id="info">
+        <h3>Controls</h3>
+        <p>🖱️ Left Click + Drag: Orbit camera</p>
+        <p>🖱️ Right Click + Drag: Pan camera</p>
+        <p>🖱️ Scroll: Zoom in/out</p>
+        <p>🖱️ Speed: Bottom slider</p>
+        <p>🖱️ Play/Pause: Motion button</p>
+        <p>Carosuel Speed: <span id="current-speed">0.5x</span></p>
+    </div>
+
+    <div id="controls">
+        <div class="control-group">
+            <label for="speed-control">Speed</label>
+            <input type="range" id="speed-control" min="0" max="100" value="50" />
+            <div class="value-display" id="speed-value">0.5x</div>
+        </div>
+
+
+        <div class="control-group">
+            <label>Motion</label>
+            <div>
+                <button id="play-pause">Pause</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+        // Optional
+        import CannonDebugger from 'cannon-es-debugger';
+
+        /**
+         * Physics-related constants for the simulation
+         * These values control the behavior of the carousel and horses
+         */
+        const PHYSICS = {
+            GRAVITY: -9.82,                    // Earth's gravity
+            SOLVER_ITERATIONS: 10,             // Number of physics solver iterations
+            FRICTION: 0.3,                     // Ground friction coefficient
+            POLE_MASS: 1,                       // Mass of pole connecting horse and top base
+            HORSE_MASS: 15,                    // Mass of each horse
+            CAROUSEL_MASS: 100,                 // Mass of the carousel
+            ANGULAR_DAMPING: 0.2,              // Angular damping for carousel
+            LINEAR_DAMPING: 0.2,               // Linear damping for carousel
+            HORSE_ANGULAR_DAMPING: 0.9,        // Angular damping for horses
+            HORSE_LINEAR_DAMPING: 0.4,         // Linear damping for horses
+            PIVOT_LINK_BUFFER: 1             // Distance between physical bodies of pole and top base
+        };
+
+        /**
+         * Dimensions for all 3D objects in the scene
+         * These values define the size and position of each component
+         */
+        const DIMENSIONS = {
+            GROUND_SIZE: 50,                    // Size of the ground plane
+            GROUND_HEIGHT: 0,                  // Height of the ground
+            CAROUSEL_BASE_RADIUS: 2.5,              // Radius of the carousel base
+            CAROUSEL_BASE_HEIGHT: 0.5,          // Height of the carousel base height
+            COLUMN_RADIUS: 0.6,                // Radius of the central column
+            COLUMN_HEIGHT: 5,                  // Height of the central column
+            ROOF_CONE_RADIUS: 5.2,                  // Radius of the roof
+            ROOF_CONE_HEIGHT: 1.5,                  // Height of the roof
+            ROOF_TOP_RADIUS: 0.3,              // Radius of the roof top
+            CONNECTOR_RADIUS: 0.1,             // Radius of the connector
+            CONNECTOR_HEIGHT: 0.8,             // Height of the connector
+            CONNECTOR_Y_POSITION: 4.3,         // Y position of the connector
+            TOP_BASE_RADIUS: 5.5,           // Radius of the top pattern
+            TOP_BASE_HEIGHT: 0.4,           // Height of the top pattern
+            HORSE_RADIUS: 5,                 // Radius of horse placement
+            HORSE_COUNT: 8                     // Number of horses
+        };
+
+        // Y position of the carousel base
+        const CAROUSEL_BASE_Y_POSITION = DIMENSIONS.GROUND_HEIGHT + DIMENSIONS.CAROUSEL_BASE_HEIGHT / 2
+
+        // Y Position of top layer start of carousel base
+        const CAROUSEL_BASE_START_Y_POSITION = DIMENSIONS.GROUND_HEIGHT + DIMENSIONS.CAROUSEL_BASE_HEIGHT
+
+        // Y position of the column
+        const COLUMN_Y_POSITION = CAROUSEL_BASE_Y_POSITION + DIMENSIONS.CAROUSEL_BASE_HEIGHT / 2 + DIMENSIONS.COLUMN_HEIGHT / 2
+
+
+        // Y position of the top base
+        const TOP_BASE_Y_POSITION = CAROUSEL_BASE_START_Y_POSITION + DIMENSIONS.COLUMN_HEIGHT + DIMENSIONS.TOP_BASE_HEIGHT / 2
+
+        // Y position of the top base start
+        const TOP_BASE_START_Y_POSITION = TOP_BASE_Y_POSITION + DIMENSIONS.TOP_BASE_HEIGHT / 2
+
+        // Y position of the top base end
+        const TOP_BASE_END_Y_POSITION = TOP_BASE_Y_POSITION - DIMENSIONS.TOP_BASE_HEIGHT / 2
+
+        // Y position of the roof
+        const ROOF_Y_POSITION = TOP_BASE_START_Y_POSITION + DIMENSIONS.ROOF_CONE_HEIGHT / 2
+
+
+
+        /**
+         * Color definitions for all 3D objects
+         * These values define the visual appearance of each component
+         */
+        const COLORS = {
+            BACKGROUND: 0xf0f0f0,              // Background color
+            GROUND: 0x999999,                  // Ground color
+            BASE: 0xaf0f,                    // Base color
+            COLUMN: 0x3366cc,                  // Column color
+            ROOF: 0xffcc00,                    // Roof color
+            TOP_BASE: 0xcc0000,             // Top base pattern color
+            HORSE_COLORS: [0xff3366, 0x3366ff, 0xff9900, 0x66cc33], // Horse colors
+            HORSE_BODY: 0xffffff,              // Horse body color
+            SADDLE: 0x3366cc,                  // Saddle color
+            RIDER_BODY: 0x000000,              // Rider body color
+            RIDER_HEAD: 0xffcc99,              // Rider head color
+            POLE: 0xcccccc                     // Pole color
+        };
+
+        /**
+         * Animation and interaction-related constants
+         * These values control the behavior of animations and user interactions
+         */
+        const ANIMATION = {
+            BASE_ROTATION_SPEED: 3000,            // Base rotation speed for carousel
+            VELOCITY_THRESHOLD: 0.01           // Velocity threshold for torque
+        };
+
+        // Initialize Three.js scene and camera
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(COLORS.BACKGROUND);
+
+        const camera = new THREE.PerspectiveCamera(
+            75,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            1000
+        );
+        camera.position.set(2, 6, 13);
+        camera.lookAt(0, 0, 0);
+
+
+
+        // Initialize renderer with antialiasing and shadows
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        document.getElementById("container").appendChild(renderer.domElement);
+
+        // --- Camera Controls ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.update();
+
+        // Initialize Cannon.js physics world
+        const world = new CANNON.World();
+        world.gravity.set(0, PHYSICS.GRAVITY, 0);
+        world.broadphase = new CANNON.NaiveBroadphase();
+        world.solver.iterations = PHYSICS.SOLVER_ITERATIONS;
+        world.defaultContactMaterial.friction = PHYSICS.FRICTION;
+
+        // Optional: Enable Cannon.js debugger
+        let cannonDebugger = null;
+        function setupDebugger() {
+            if (typeof CannonDebugger !== 'undefined') {
+                cannonDebugger = new CannonDebugger(scene, world, { color: 0x00ff00 });
+            }
+        }
+
+        // Create ground plane
+        const groundShape = new CANNON.Plane();
+        const groundBody = new CANNON.Body({
+            mass: 0,
+            shape: groundShape,
+        });
+        groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+        groundBody.position.set(0, DIMENSIONS.GROUND_HEIGHT, 0);
+        world.addBody(groundBody);
+
+        // Create ground mesh for visualization
+        const groundGeometry = new THREE.PlaneGeometry(DIMENSIONS.GROUND_SIZE, DIMENSIONS.GROUND_SIZE);
+        const groundMaterial = new THREE.MeshPhongMaterial({
+            color: COLORS.GROUND,
+            side: THREE.DoubleSide,
+        });
+        const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+        groundMesh.rotation.x = -Math.PI / 2;
+        groundMesh.position.y = DIMENSIONS.GROUND_HEIGHT;
+        groundMesh.receiveShadow = true;
+        scene.add(groundMesh);
+
+        // Add lighting to the scene
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 7);
+        dirLight.castShadow = true;
+        dirLight.shadow.camera.near = 0.1;
+        dirLight.shadow.camera.far = 50;
+        dirLight.shadow.camera.right = 15;
+        dirLight.shadow.camera.left = -15;
+        dirLight.shadow.camera.top = 15;
+        dirLight.shadow.camera.bottom = -15;
+        scene.add(dirLight);
+
+        // Create carousel group and physics body
+        const carousel = new THREE.Group();
+        scene.add(carousel);
+
+        const carouselShape = new CANNON.Cylinder(
+            DIMENSIONS.TOP_BASE_RADIUS,
+            DIMENSIONS.TOP_BASE_RADIUS,
+            DIMENSIONS.TOP_BASE_HEIGHT,
+            32
+        );
+
+
+
+        const baseGeometry = new THREE.CylinderGeometry(DIMENSIONS.CAROUSEL_BASE_RADIUS, DIMENSIONS.CAROUSEL_BASE_RADIUS, DIMENSIONS.CAROUSEL_BASE_HEIGHT, 32);
+        const baseMaterial = new THREE.MeshPhongMaterial({ color: COLORS.BASE });
+        const base = new THREE.Mesh(baseGeometry, baseMaterial);
+        base.position.y = CAROUSEL_BASE_Y_POSITION
+        base.receiveShadow = true;
+        carousel.add(base);
+
+        const columnGeometry = new THREE.CylinderGeometry(DIMENSIONS.COLUMN_RADIUS, DIMENSIONS.COLUMN_RADIUS, DIMENSIONS.COLUMN_HEIGHT, 16);
+        const columnMaterial = new THREE.MeshPhongMaterial({ color: COLORS.COLUMN });
+        const column = new THREE.Mesh(columnGeometry, columnMaterial);
+        column.position.y = COLUMN_Y_POSITION;
+        column.castShadow = true;
+        carousel.add(column);
+
+
+        const roofConeGeometry = new THREE.ConeGeometry(DIMENSIONS.ROOF_CONE_RADIUS, DIMENSIONS.ROOF_CONE_HEIGHT, 32);
+        const roofConeMaterial = new THREE.MeshPhongMaterial({ color: COLORS.ROOF });
+        const roofCone = new THREE.Mesh(roofConeGeometry, roofConeMaterial);
+        roofCone.position.y = ROOF_Y_POSITION;
+        roofCone.castShadow = true;
+        carousel.add(roofCone);
+
+        const topPatternGeometry = new THREE.CylinderGeometry(DIMENSIONS.TOP_BASE_RADIUS, DIMENSIONS.TOP_BASE_RADIUS, DIMENSIONS.TOP_BASE_HEIGHT, 32);
+        const topPatternMaterial = new THREE.MeshPhongMaterial({ color: COLORS.TOP_BASE });
+        const topPattern = new THREE.Mesh(topPatternGeometry, topPatternMaterial);
+        topPattern.position.y = TOP_BASE_Y_POSITION
+        carousel.add(topPattern);
+
+        const carouselTopBaseBody = new CANNON.Body({
+            mass: PHYSICS.CAROUSEL_MASS,
+            shape: carouselShape,
+            angularDamping: PHYSICS.ANGULAR_DAMPING,
+            linearDamping: PHYSICS.LINEAR_DAMPING,
+        });
+        carouselTopBaseBody.position.set(0, TOP_BASE_Y_POSITION, 0);
+        carouselTopBaseBody.linearFactor = new CANNON.Vec3(0, 0, 0);
+        carouselTopBaseBody.angularFactor = new CANNON.Vec3(0, 1, 0);
+        world.addBody(carouselTopBaseBody);
+
+
+        /**
+     * Creates decorative edge pattern around the carousel
+     * @returns {THREE.Group} Group containing the edge pattern
+     */
+        function createEdgePattern() {
+            const patternGroup = new THREE.Group();
+            const edgeCount = 16;
+            const radius = DIMENSIONS.TOP_BASE_RADIUS
+
+            for (let i = 0; i < edgeCount; i++) {
+                const angle = (i / edgeCount) * Math.PI * 2;
+                const x = Math.sin(angle) * radius;
+                const z = Math.cos(angle) * radius;
+
+                const decorGeometry = new THREE.BoxGeometry(0.4, 0.5, 0.1);
+                const decorMaterial = new THREE.MeshPhongMaterial({
+                    color: i % 2 === 0 ? COLORS.COLUMN : 0xffffff,
+                });
+                const decor = new THREE.Mesh(decorGeometry, decorMaterial);
+
+                decor.position.set(x, TOP_BASE_Y_POSITION, z);
+                decor.lookAt(new THREE.Vector3(0, TOP_BASE_Y_POSITION, 0));
+                patternGroup.add(decor);
+            }
+
+            return patternGroup;
+        }
+
+        const edgePattern = createEdgePattern();
+        carousel.add(edgePattern);
+
+        /**
+         * Creates a horse with physics body and visual representation
+         * @param {number} color - Color of the horse's saddle
+         * @param {THREE.Vector3} position - Initial position of the horse
+         * @param {number} rotation - Initial rotation of the horse
+         * @returns {Object} Horse object with mesh, body, and constraints
+         */
+        const bodyHeight = 0.4
+        const legLength = 0.3
+        function createHorse(color, position, rotation) {
+            const horseGroup = new THREE.Group();
+
+            const poleHeight = DIMENSIONS.COLUMN_HEIGHT - DIMENSIONS.CAROUSEL_BASE_HEIGHT * 2
+            const bodyYPosition = TOP_BASE_END_Y_POSITION - poleHeight - bodyHeight / 2 - PHYSICS.PIVOT_LINK_BUFFER * 0.1
+            const bodyStartYPosition = bodyYPosition + bodyHeight / 2
+            const bodyEndYPosition = bodyYPosition - bodyHeight / 2
+            const legYPoistion = bodyEndYPosition - legLength / 2
+
+            const horseBodyDimensions = [0.6, bodyHeight, 0.95]
+
+            const bodyGeometry = new THREE.BoxGeometry(...horseBodyDimensions);
+
+
+            const bodyMaterial = new THREE.MeshPhongMaterial({ color: COLORS.HORSE_BODY });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            horseGroup.add(body);
+
+
+            const headGeometry = new THREE.BoxGeometry(0.3, 0.4, 0.4);
+            const headMaterial = new THREE.MeshPhongMaterial({ color: COLORS.HORSE_BODY });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.set(0, 0.2, -horseBodyDimensions[2] / 2 - 0.2);
+            head.castShadow = true;
+            horseGroup.add(head);
+
+            function createLeg(x, z) {
+                const legGeometry = new THREE.BoxGeometry(0.2, legLength, 0.2);
+                const legMaterial = new THREE.MeshPhongMaterial({ color: COLORS.HORSE_BODY });
+                const leg = new THREE.Mesh(legGeometry, legMaterial);
+                leg.position.set(x, -bodyHeight / 2 - legLength / 2, z);
+                leg.castShadow = true;
+                return leg;
+            }
+
+            horseGroup.add(createLeg(0.2, 0.4));
+            horseGroup.add(createLeg(-0.2, 0.4));
+            horseGroup.add(createLeg(0.2, -0.4));
+            horseGroup.add(createLeg(-0.2, -0.4));
+
+            const saddleGeometry = new THREE.BoxGeometry(0.7, 0.1, 0.6);
+            const saddleMaterial = new THREE.MeshPhongMaterial({ color: color });
+            const saddle = new THREE.Mesh(saddleGeometry, saddleMaterial);
+            saddle.position.y = bodyHeight / 2
+            saddle.position.z = 0.1
+            saddle.castShadow = true;
+            horseGroup.add(saddle);
+
+            const riderGroup = new THREE.Group();
+
+
+            const riderBodyHeight = 0.4
+            const riderYPosition = bodyHeight / 2 + riderBodyHeight / 2
+            const riderStartYPosition = riderYPosition + riderBodyHeight / 2
+
+            const riderBodyGeometry = new THREE.BoxGeometry(0.3, riderBodyHeight, 0.2);
+            const riderBodyMaterial = new THREE.MeshPhongMaterial({ color: COLORS.RIDER_BODY });
+            const riderBody = new THREE.Mesh(riderBodyGeometry, riderBodyMaterial);
+            riderBody.position.y = bodyHeight / 2 + riderBodyHeight / 2;
+            riderBody.castShadow = true;
+            riderGroup.add(riderBody);
+
+            const riderHeadRadius = 0.15
+            const riderHeadGeometry = new THREE.SphereGeometry(riderHeadRadius, 16, 16);
+            const riderHeadMaterial = new THREE.MeshPhongMaterial({ color: COLORS.RIDER_HEAD });
+            const riderHead = new THREE.Mesh(riderHeadGeometry, riderHeadMaterial);
+            riderHead.position.y = riderStartYPosition + riderHeadRadius;
+            riderHead.castShadow = true;
+            riderGroup.add(riderHead);
+
+
+            riderGroup.position.z = 0.25;
+            horseGroup.add(riderGroup);
+            scene.add(horseGroup)
+
+            const poleGeometry = new THREE.CylinderGeometry(0.05, 0.05, poleHeight, 8);
+            const poleMaterial = new THREE.MeshPhongMaterial({ color: COLORS.POLE });
+            const poleMesh = new THREE.Mesh(poleGeometry, poleMaterial);
+            poleMesh.position.set(0, 0, 0);
+            poleMesh.castShadow = true;
+            scene.add(poleMesh)
+
+            const poleBody = new CANNON.Body({
+                mass: PHYSICS.POLE_MASS,
+                shape: new CANNON.Cylinder(0.05, 0.05, poleHeight, 8),
+                position: new CANNON.Vec3(position.x, TOP_BASE_END_Y_POSITION - poleHeight / 2, position.z),
+                linearDamping: PHYSICS.POLE_LINEAR_DAMPING,
+                angularDamping: PHYSICS.POLE_ANGULAR_DAMPING
+            });
+
+            world.addBody(poleBody)
+
+            const horsePhysicsBody = new CANNON.Body({
+                mass: PHYSICS.HORSE_MASS,
+                position: new CANNON.Vec3(position.x, bodyYPosition, position.z),
+                linearDamping: PHYSICS.HORSE_LINEAR_DAMPING,
+                angularDamping: PHYSICS.HORSE_ANGULAR_DAMPING,
+                shape: new CANNON.Box(new CANNON.Vec3(horseBodyDimensions[0] / 2, horseBodyDimensions[1] / 2, horseBodyDimensions[2] / 2))
+            });
+            horsePhysicsBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), rotation);
+            world.addBody(horsePhysicsBody);
+
+            const hingeConstraint = new CANNON.HingeConstraint(
+                poleBody,
+                carouselTopBaseBody,
+                {
+                    pivotA: new CANNON.Vec3(0, poleHeight / 2, 0),
+                    pivotB: new CANNON.Vec3(position.x, -DIMENSIONS.TOP_BASE_HEIGHT / 2, position.z),
+                    axisA: new CANNON.Vec3(0, 0, 1),
+                    maxForce: 1e12
+                }
+            );
+
+            // Add lock constraint between horse body top and pole body end
+            const lockConstraint = new CANNON.LockConstraint(
+                horsePhysicsBody,
+                poleBody,
+            );
+
+            world.addConstraint(lockConstraint);
+            world.addConstraint(hingeConstraint);
+
+            return {
+                mesh: horseGroup,
+                body: horsePhysicsBody,
+                poleMesh: poleMesh,
+                poleBody: poleBody,
+            };
+        }
+
+        const horses = [];
+
+        for (let i = 0; i < DIMENSIONS.HORSE_COUNT; i++) {
+            const angle = (i / DIMENSIONS.HORSE_COUNT) * Math.PI * 2;
+            const x = Math.sin(angle) * DIMENSIONS.HORSE_RADIUS;
+            const z = Math.cos(angle) * DIMENSIONS.HORSE_RADIUS;
+
+            const horse = createHorse(
+                COLORS.HORSE_COLORS[i % COLORS.HORSE_COLORS.length],
+                new THREE.Vector3(x, 0, z),
+                angle
+            );
+
+            horses.push(horse);
+        }
+
+        let isPlaying = true;
+        let rotationDirection = 1;
+        let targetAngularVelocity = ANIMATION.BASE_ROTATION_SPEED;
+
+
+        window.addEventListener("resize", () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        const speedControl = document.getElementById("speed-control");
+        const speedValue = document.getElementById("speed-value");
+        const playPauseButton = document.getElementById("play-pause");
+        const currentSpeedDisplay = document.getElementById("current-speed");
+
+
+        speedControl.addEventListener("input", function () {
+            const value = this.value / 100;
+            targetAngularVelocity = value * ANIMATION.BASE_ROTATION_SPEED;
+            speedValue.textContent = value.toFixed(1) + "x";
+
+            if (isPlaying) {
+                applyTorque();
+            }
+        });
+
+        playPauseButton.addEventListener("click", function () {
+            isPlaying = !isPlaying;
+            updatePlayPauseButton();
+
+            if (isPlaying) {
+                applyTorque();
+            } else {
+                carouselTopBaseBody.angularVelocity.set(0, 0, 0);
+            }
+        });
+
+        function updatePlayPauseButton() {
+            if (isPlaying) {
+                playPauseButton.textContent = "Pause";
+                playPauseButton.classList.remove("active");
+            } else {
+                playPauseButton.textContent = "Play";
+                playPauseButton.classList.add("active");
+            }
+        }
+
+
+        /**
+         * Applies torque to the carousel based on current settings
+         * Controls the rotation speed and direction
+         */
+        function applyTorque() {
+            const targetVelocity = targetAngularVelocity * rotationDirection;
+            const currentVelocity = carouselTopBaseBody.angularVelocity.y;
+            const velocityDiff = targetVelocity - currentVelocity;
+
+            currentSpeedDisplay.textContent = `${Math.abs(currentVelocity).toFixed(2)} rad/s`;
+
+            if (Math.abs(velocityDiff) > ANIMATION.VELOCITY_THRESHOLD) {
+                const torque = new CANNON.Vec3(0, velocityDiff * 1.5, 0);
+                carouselTopBaseBody.applyTorque(torque);
+            }
+        }
+
+
+
+        const clock = new THREE.Clock();
+
+        // Optional: Setup Debugger
+        setupDebugger()
+
+        /**
+         * Main animation loop
+         * Updates physics and renders the scene
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Optionally update debugger
+            cannonDebugger.update()
+
+            const deltaTime = clock.getDelta();
+
+            // Step physics simulation
+            world.step(1 / 60, deltaTime, 3);
+
+            // Apply torque if playing and not dragging
+            if (isPlaying) {
+                applyTorque();
+            }
+
+            // Update visual positions to match physics
+            // carousel.position.copy(carouselTopBaseBody.position);
+            carousel.quaternion.copy(carouselTopBaseBody.quaternion);
+
+            horses.forEach((horse) => {
+                const adjustedMeshPosition = new THREE.Vector3().copy(new CANNON.Vec3().copy(horse.body.position).vsub(new CANNON.Vec3(0, 0, 0)))
+                horse.mesh.position.copy(adjustedMeshPosition);
+                horse.mesh.quaternion.copy(horse.body.quaternion);
+
+                horse.poleMesh.position.copy(horse.poleBody.position);
+                horse.poleMesh.quaternion.copy(horse.poleBody.quaternion);
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize animation
+        if (isPlaying) {
+            applyTorque();
+        }
+
+        animate();
+    </script>
+</body>
+
+</html

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Hexagon Ball Simulation</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.js",
+            "three/examples/jsm/controls/OrbitControls": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/controls/OrbitControls.js",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+            "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js",
+            "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+          }
+    }
+    </script>
+</head>
+
+<body>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+        import * as CANNON from 'cannon-es';
+        import CannonDebugger from 'cannon-es-debugger';
+        import { GUI } from 'dat.gui';
+
+        // Constants
+        const BALL_RADIUS = 2;
+        const GRAVITY = -9.82;
+        const ROTATION_SPEED = 0.1;
+        const PLANE_SIZE = 40;
+        const FRICTION = 0.2;
+        const RESTITUTION = 0.3;
+        const TERRAIN_SEGMENTS_X = 1;
+        const TERRAIN_SEGMENTS_Z = 1500;
+        const TERRAIN_MIN_HEIGHT = 0;
+        const TERRAIN_MAX_HEIGHT = 7;
+        const WHEEL_ANGULAR_DAMPING = 0.2;
+        const WHEEL_START_HEIGHT = 5
+        const WHEEL_START_Z = 18;
+        const WHEEL_MIN_SPEED = 5
+        const WHEEL_MAX_SPEED = 30
+        const INITIAL_WHEEL_VELOCITY = 25;
+
+        const CAMERA_POSITION = { x: 25, y: 10, z: 15 };
+        const LIGHT_POSITION = { x: 10, y: 10, z: 30 };
+        const PHYSICS_TIME_STEP = 1 / 60;
+        const CONTACT_EQUATION_RELAXATION = 4;
+        const CONTACT_EQUATION_RELAXATION_WHEEL = 3;
+
+        // Material properties
+        const WHEEL_MATERIAL_NAME = 'wheel';
+        const TERRAIN_MATERIAL_NAME = 'terrain';
+        const WHEEL_COLOR = 0xffffff;
+        const WHEEL_ROUGHNESS = 0.7;
+        const WHEEL_METALNESS = 0.5;
+
+        // Simulation controls
+        const controls = {
+            wheelVelocity: INITIAL_WHEEL_VELOCITY,
+            resetWheel: function () { },  // Will be defined after wheel creation
+        };
+
+        // Initialize the application
+        initializeApplication();
+
+        // Main application initialization
+        function initializeApplication() {
+            // Scene setup
+            const { scene, camera, renderer, orbitControls } = setupScene();
+
+            // Physics setup
+            const { world, cannonDebugger } = setupPhysics(scene);
+
+            // Create ground plane
+            const { plane, planeBody } = createGroundPlane(scene, world);
+
+            // Create materials
+            const { wheelMaterial, terrainMaterial } = createMaterials(world);
+
+            // Apply terrain material to all terrain bodies
+            applyMaterialToBodies(planeBody, terrainMaterial);
+
+            // Create wheel
+            const { wheelBody, wheelMesh } = createWheel(scene, world, wheelMaterial);
+
+            // Setup GUI controls
+            setupGUI(wheelBody, cannonDebugger);
+
+            // Add lighting
+            addLighting(scene);
+
+            // Set camera position
+            positionCamera(camera);
+
+            // Start animation loop
+            startAnimationLoop(scene, camera, renderer, world, cannonDebugger, orbitControls, wheelBody, wheelMesh);
+
+            // Handle window resize
+            handleWindowResize(camera, renderer);
+        }
+
+        // Function to set up the scene, camera, and renderer
+        function setupScene() {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+
+            return { scene, camera, renderer, orbitControls };
+        }
+
+        // Function to setup GUI controls
+        function setupGUI(wheelBody, cannonDebugger) {
+            const gui = new GUI();
+
+            // Wheel velocity control
+            gui.add(controls, 'wheelVelocity', WHEEL_MIN_SPEED, WHEEL_MAX_SPEED).name('Wheel Velocity').onChange((value) => {
+                // Update wheel velocity when slider changes
+                const currentVel = wheelBody.velocity;
+                const direction = currentVel.z < 0 ? -1 : 1;
+                wheelBody.velocity.set(currentVel.x, currentVel.y, direction * value);
+            });
+
+            // Reset wheel position button
+            controls.resetWheel = function () {
+                wheelBody.position.set(0, WHEEL_START_HEIGHT, WHEEL_START_Z);
+                wheelBody.velocity.set(0, 0, -controls.wheelVelocity);
+                wheelBody.angularVelocity.set(0, 0, 0);
+            };
+            gui.add(controls, 'resetWheel').name('Reset Wheel');
+
+            return gui;
+        }
+
+        // Function to start the animation loop
+        function startAnimationLoop(scene, camera, renderer, world, cannonDebugger, orbitControls, wheelBody, wheelMesh) {
+            const animate = () => {
+                requestAnimationFrame(animate);
+
+                world.step(PHYSICS_TIME_STEP);
+
+                // Only update debugger if enabled
+                if (controls.showDebugger) {
+                    cannonDebugger.update();
+                }
+
+                // Update wheel mesh position and rotation to match physics body
+                updateWheelVisuals(wheelMesh, wheelBody);
+
+                renderer.render(scene, camera);
+                orbitControls.update();
+            };
+
+            animate();
+        }
+
+        // Function to set up the physics world
+        function setupPhysics(scene) {
+            const world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+
+            // Enable contact detection between bodies
+            world.defaultContactMaterial.contactEquationRelaxation = CONTACT_EQUATION_RELAXATION;
+
+            const cannonDebugger = new CannonDebugger(scene, world, {
+                color: 0x00ff00,
+                scale: 1.0
+            });
+
+            return { world, cannonDebugger };
+        }
+
+        // Function to create physics materials
+        function createMaterials(world) {
+            const wheelMaterial = new CANNON.Material(WHEEL_MATERIAL_NAME);
+            const terrainMaterial = new CANNON.Material(TERRAIN_MATERIAL_NAME);
+
+            // Create contact between wheel and terrain
+            const wheelTerrainContact = new CANNON.ContactMaterial(
+                wheelMaterial,
+                terrainMaterial,
+                {
+                    friction: FRICTION,
+                    restitution: RESTITUTION,
+                    contactEquationRelaxation: CONTACT_EQUATION_RELAXATION_WHEEL
+                }
+            );
+            world.addContactMaterial(wheelTerrainContact);
+
+            return { wheelMaterial, terrainMaterial };
+        }
+
+        // Function to apply material to multiple bodies
+        function applyMaterialToBodies(bodies, material) {
+            bodies.forEach(body => {
+                body.material = material;
+            });
+        }
+
+        // Function to create the ground plane as terrain using boxes
+        function createGroundPlane(scene, world) {
+            // Terrain parameters
+            const terrainWidth = PLANE_SIZE;
+            const terrainDepth = PLANE_SIZE;
+            const segmentsX = TERRAIN_SEGMENTS_X;
+            const segmentsZ = TERRAIN_SEGMENTS_Z;
+            const boxWidth = terrainWidth / segmentsX;
+            const boxDepth = terrainDepth / segmentsZ;
+
+            // Generate height data for terrain
+            const heights = generateOscillatingTerrain(
+                segmentsX * segmentsZ,
+                TERRAIN_MIN_HEIGHT,
+                TERRAIN_MAX_HEIGHT
+            );
+
+            // Create container for all terrain pieces
+            const terrainGroup = new THREE.Group();
+            const terrainBodies = [];
+
+            // Create boxes for terrain
+            let index = 0;
+            for (let z = 0; z < segmentsZ; z++) {
+                for (let x = 0; x < segmentsX; x++) {
+                    const height = heights[index];
+                    const boxHeight = height + 0.1; // Add minimum height
+
+                    // Create visual box
+                    const box = createTerrainBox(boxWidth, boxHeight, boxDepth, height);
+
+                    // Position the box
+                    const posX = (x - segmentsX / 2) * boxWidth + boxWidth / 2;
+                    const posZ = (z - segmentsZ / 2) * boxDepth + boxDepth / 2;
+                    const posY = boxHeight / 2;
+                    box.position.set(posX, posY, posZ);
+                    box.receiveShadow = true;
+
+                    // Add to scene
+                    terrainGroup.add(box);
+
+                    // Create physics box
+                    const boxBody = createTerrainPhysicsBox(
+                        boxWidth, boxHeight, boxDepth,
+                        posX, posY, posZ, world
+                    );
+                    terrainBodies.push(boxBody);
+
+                    index++;
+                }
+            }
+
+            scene.add(terrainGroup);
+
+            return { plane: terrainGroup, planeBody: terrainBodies };
+        }
+
+        // Function to create a visual terrain box
+        function createTerrainBox(width, height, depth, terrainHeight) {
+            const boxGeometry = new THREE.BoxGeometry(width, height, depth);
+            const boxMaterial = new THREE.MeshStandardMaterial({
+                color: new THREE.Color(0.2 + terrainHeight / 5, 0.4 + terrainHeight / 10, 0.2),
+                roughness: 0.8
+            });
+            return new THREE.Mesh(boxGeometry, boxMaterial);
+        }
+
+        // Function to create a physics box for terrain
+        function createTerrainPhysicsBox(width, height, depth, x, y, z, world) {
+            const boxShape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2));
+            const boxBody = new CANNON.Body({
+                type: CANNON.Body.STATIC,
+                shape: boxShape
+            });
+            boxBody.position.set(x, y, z);
+            world.addBody(boxBody);
+            return boxBody;
+        }
+
+        // Function to create the wheel
+        function createWheel(scene, world, wheelMaterial) {
+            // Create wheel physics body
+            const wheelBody = createWheelPhysicsBody(world, wheelMaterial);
+
+            // Create wheel visual mesh
+            const wheelMesh = createWheelMesh(scene);
+
+            return { wheelBody, wheelMesh };
+        }
+
+        // Function to create wheel physics body
+        function createWheelPhysicsBody(world, wheelMaterial) {
+            const wheelShape = new CANNON.Sphere(BALL_RADIUS);
+            const wheelBody = new CANNON.Body({
+                mass: 1,
+                material: wheelMaterial
+            });
+            wheelBody.addShape(wheelShape);
+
+            // Position wheel above terrain
+            wheelBody.position.set(0, WHEEL_START_HEIGHT, WHEEL_START_Z);
+            wheelBody.velocity.set(0, 0, -INITIAL_WHEEL_VELOCITY);
+            wheelBody.angularDamping = WHEEL_ANGULAR_DAMPING;
+
+            world.addBody(wheelBody);
+            return wheelBody;
+        }
+
+        // Function to create wheel visual mesh
+        function createWheelMesh(scene) {
+            const wheelGeometry = new THREE.CylinderGeometry(BALL_RADIUS, BALL_RADIUS, BALL_RADIUS * 0.5, 32);
+            wheelGeometry.rotateZ(Math.PI / 2); // Orient the cylinder to roll properly
+
+            const wheelMeshMaterial = new THREE.MeshStandardMaterial({
+                color: WHEEL_COLOR,
+                roughness: WHEEL_ROUGHNESS,
+                metalness: WHEEL_METALNESS,
+                wireframe: true
+            });
+            const wheelMesh = new THREE.Mesh(wheelGeometry, wheelMeshMaterial);
+            wheelMesh.castShadow = true;
+            scene.add(wheelMesh);
+
+            return wheelMesh;
+        }
+
+        // Function to add lighting
+        function addLighting(scene) {
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            scene.add(light);
+        }
+
+        // Function to position the camera
+        function positionCamera(camera) {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, 0, 0);
+        }
+
+
+        // Function to update wheel visuals based on physics
+        function updateWheelVisuals(wheelMesh, wheelBody) {
+            wheelMesh.position.copy(wheelBody.position);
+            wheelMesh.quaternion.copy(wheelBody.quaternion);
+        }
+
+        // Function to handle window resize
+        function handleWindowResize(camera, renderer) {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        // Function to generate terrain-like oscillating magnitudes
+        function generateOscillatingTerrain(length, minMagnitude, maxMagnitude) {
+            const result = [];
+            const range = maxMagnitude - minMagnitude;
+
+            // Base frequency for the main sine wave
+            const baseFrequency = 2 * Math.PI / length;
+
+            // Generate multiple overlapping sine waves with different frequencies
+            for (let i = 0; i < length; i++) {
+                // Start with the base sine wave
+                let value = Math.sin(baseFrequency * i);
+
+                // Add some higher frequency components for detail
+                value += 0.5 * Math.sin(baseFrequency * i * 2);
+                value += 0.25 * Math.sin(baseFrequency * i * 4);
+
+                // Normalize to [-1, 1] range
+                value /= 1.75;
+
+                // Clamp to [-1, 1] range
+                value = Math.max(-1, Math.min(1, value));
+
+                // Scale to desired magnitude range
+                const magnitude = minMagnitude + ((value + 1) / 2) * range;
+
+                result.push(magnitude);
+            }
+
+            return result;
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cannon Ball</title>
+    <style>
+        #canvas {
+            width: 800px;
+            height: 600px;
+            border: 1px solid black;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            max-width: 300px;
+        }
+
+        #info h3 {
+            margin-top: 0;
+            margin-bottom: 8px;
+        }
+
+        #info p {
+            margin: 5px 0;
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.js",
+            "three/examples/jsm/controls/OrbitControls": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/controls/OrbitControls.js",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+            "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js"
+          }
+    }
+    </script>
+</head>
+
+<body>
+    <div id="info">
+        <h3>Physics Simulation Controls</h3>
+        <p><strong>Press 'A'</strong> - Enter/Exit FPS mode</p>
+        <p><strong>Mouse</strong> - Look around in FPS mode</p>
+        <p><strong>Click</strong> - Shoot arrows in FPS mode</p>
+        <p><strong>Mouse drag</strong> - Orbit camera in normal mode</p>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+        import * as CANNON from 'cannon-es';
+        import CannonDebugger from 'cannon-es-debugger';
+
+
+        const DEBUG = false
+        // Constants
+        const COLORS = {
+            SKY: 0x87CEEB,
+            GROUND: 0x999999,
+            SHIELD: 0x1d4413,
+            SHAFT: 0x8B4513,
+            TIP: 0x808080,
+        };
+
+        const PHYSICS = {
+            GRAVITY: -9.82,
+            FIXED_TIMESTEP: 1 / 60
+        };
+
+        const CAMERA = {
+            FOV: 75,
+            NEAR: 0.1,
+            FAR: 1000,
+            POSITION: { x: 0, y: 10, z: 50 }
+        };
+
+        // Add material properties
+        const MATERIALS = {
+            SHIELD: {
+                friction: 0.3,
+                restitution: 0.8  // Higher restitution for more bounce
+            },
+            ARROW: {
+                friction: 0.1,
+                restitution: 0.5
+            },
+            CONTACT: {
+                friction: 0.2,
+                restitution: 0.9,  // High restitution for bouncy collisions
+                contactEquationStiffness: 1e8,
+                contactEquationRelaxation: 3
+            }
+        };
+
+        const SHIELD = {
+            radius: 15,
+            position: { x: 0, y: 15, z: -30 },
+        }
+
+        const ARROW = {
+            mass: 1,
+            position: { x: 0, y: SHIELD.position.y, z: 100 },
+            shaftRadius: 0.5,
+            shaftLength: 10,
+            tipRadius: 1.5,
+            tipLength: 3,
+            speed: 150
+        }
+
+        // Create arrow projectiles
+        const projectiles = [];
+
+        // Scene setup
+        function setupScene() {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(COLORS.SKY);
+            return scene;
+        }
+
+        // Camera setup
+        function setupCamera() {
+            const camera = new THREE.PerspectiveCamera(
+                CAMERA.FOV,
+                window.innerWidth / window.innerHeight,
+                CAMERA.NEAR,
+                CAMERA.FAR
+            );
+            camera.position.set(CAMERA.POSITION.x, CAMERA.POSITION.y, CAMERA.POSITION.z);
+            camera.lookAt(SHIELD.position.x, SHIELD.position.y, SHIELD.position.z)
+            return camera;
+        }
+
+        // Renderer setup
+        function setupRenderer(canvas) {
+            const renderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                antialias: true
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            return renderer;
+        }
+
+        // Physics world setup
+        function setupPhysicsWorld() {
+            const world = new CANNON.World();
+            world.gravity.set(0, PHYSICS.GRAVITY, 0);
+
+            // Create materials
+            const shieldMaterial = new CANNON.Material('shieldMaterial');
+            shieldMaterial.friction = MATERIALS.SHIELD.friction;
+            shieldMaterial.restitution = MATERIALS.SHIELD.restitution;
+
+            const arrowMaterial = new CANNON.Material('arrowMaterial');
+            arrowMaterial.friction = MATERIALS.ARROW.friction;
+            arrowMaterial.restitution = MATERIALS.ARROW.restitution;
+
+            // Create contact material between shield and arrow
+            const shieldArrowContactMaterial = new CANNON.ContactMaterial(
+                shieldMaterial,
+                arrowMaterial,
+                {
+                    friction: MATERIALS.CONTACT.friction,
+                    restitution: MATERIALS.CONTACT.restitution,
+                    contactEquationStiffness: MATERIALS.CONTACT.contactEquationStiffness,
+                    contactEquationRelaxation: MATERIALS.CONTACT.contactEquationRelaxation
+                }
+            );
+
+            // Add the contact material to the world
+            world.addContactMaterial(shieldArrowContactMaterial);
+
+            // Store materials in the world object for later use
+            world.shieldMaterial = shieldMaterial;
+            world.arrowMaterial = arrowMaterial;
+
+            return world;
+        }
+
+        // Setup lights
+        function setupLights(scene) {
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 20, 10);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.camera.left = -20;
+            directionalLight.shadow.camera.right = 20;
+            directionalLight.shadow.camera.top = 20;
+            directionalLight.shadow.camera.bottom = -20;
+            scene.add(directionalLight);
+
+            const pointLight = new THREE.PointLight(0xffccaa, 1, 20);
+            pointLight.position.set(0, 5, 0);
+            scene.add(pointLight);
+
+            return { ambient: ambientLight, directional: directionalLight, point: pointLight };
+        }
+
+        // Create ground
+        function createGround(scene, world) {
+            // Physics
+            const groundShape = new CANNON.Plane();
+            const groundBody = new CANNON.Body({ mass: 0 });
+            groundBody.addShape(groundShape);
+            groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(groundBody);
+
+            // Visual
+            const groundMesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(100, 100),
+                new THREE.MeshStandardMaterial({
+                    color: COLORS.GROUND,
+                    side: THREE.DoubleSide
+                })
+            );
+            groundMesh.rotation.x = -Math.PI / 2;
+            groundMesh.receiveShadow = true;
+            scene.add(groundMesh);
+
+            return { body: groundBody, mesh: groundMesh };
+        }
+
+        // Function to move body toward a target point
+        function moveTowardPoint(body, targetPoint, speed) {
+            // Create target as Vec3 if it's not already
+            const target = targetPoint instanceof CANNON.Vec3
+                ? targetPoint
+                : new CANNON.Vec3(targetPoint.x, targetPoint.y, targetPoint.z);
+
+            // Calculate direction vector (target - current position)
+            const direction = new CANNON.Vec3();
+            target.vsub(body.position, direction);
+
+            // Normalize the direction vector (make it length 1)
+            direction.normalize();
+
+            // Scale by desired speed
+            direction.scale(speed, direction);
+
+            // Set the velocity
+            body.velocity.copy(direction);
+        }
+
+
+        // Create shield
+        function createShield(scene, world, options) {
+            const { radius, position } = options;
+
+            // sane defaults for a shield
+            let topRadius = 1
+            let height = 2.82
+            let segments = 64
+
+            // Physics
+            const sphereShape = new CANNON.Cylinder(topRadius, radius, height, segments)
+            const sphereBody = new CANNON.Body({
+                mass: 0,
+                position: new CANNON.Vec3(position.x, position.y, position.z),
+                shape: sphereShape,
+                material: world.shieldMaterial
+            });
+            sphereBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2);
+            world.addBody(sphereBody);
+
+            // Visual
+            const sphereGeometry = new THREE.CylinderGeometry(topRadius, radius, height, segments);
+
+            // Use MeshPhysicalMaterial for better light interaction
+            const sphereMaterial = new THREE.MeshPhysicalMaterial({
+                color: COLORS.SHIELD,
+                metalness: 0.9,
+                roughness: 0.2,
+                reflectivity: 1.0,
+                clearcoat: 0.5,
+                clearcoatRoughness: 0.1,
+                side: THREE.DoubleSide,
+            });
+
+            const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            sphereMesh.position.copy(sphereBody.position);
+            sphereMesh.quaternion.copy(sphereBody.quaternion);
+            sphereMesh.castShadow = true;
+            sphereMesh.receiveShadow = true;
+            scene.add(sphereMesh);
+
+            // Add spotlight focused on the shield for dramatic highlighting
+            const spotlight = new THREE.SpotLight(0xffffff, 6);
+            spotlight.position.set(position.x, position.y + 20, position.z + 30);
+            spotlight.angle = Math.PI / 6;
+            spotlight.penumbra = 0.2;
+            spotlight.decay = 1;
+            spotlight.distance = 50;
+            spotlight.target = sphereMesh;
+            spotlight.castShadow = true;
+
+            // Configure shadow properties for better quality
+            spotlight.shadow.mapSize.width = 1024;
+            spotlight.shadow.mapSize.height = 1024;
+            spotlight.shadow.camera.near = 1;
+            spotlight.shadow.camera.far = 60;
+
+            scene.add(spotlight);
+
+            return { body: sphereBody, mesh: sphereMesh, spotlight: spotlight };
+        }
+
+
+        // Create arrow
+        function createArrow(scene, world, camera, options) {
+            const { position, shaftRadius, shaftLength, tipRadius, tipLength, mass } = options;
+
+
+
+
+            // Create Cannon.js physics body with compound shape
+            const shaftShape = new CANNON.Cylinder(shaftRadius, shaftRadius, shaftLength, 36);
+            const tipShape = new CANNON.Cylinder(0, tipRadius, tipLength, 12); // Cone approximation
+
+            // Position the arrow in front of the camera
+            const arrowPosition = new THREE.Vector3(0, 0, -5);
+            arrowPosition.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(camera.rotation));
+            arrowPosition.add(camera.position);
+
+            const arrowBody = new CANNON.Body({
+                mass, // Give it mass so it can move
+                position: new CANNON.Vec3(arrowPosition.x, arrowPosition.y, arrowPosition.z),
+                material: world.arrowMaterial,  // Apply arrow material
+                linearDamping: 0.1,  // Add some damping to make movement more realistic
+                angularDamping: 0.1  // Add angular damping to control rotation
+            });
+
+            // Need to rotate shapes because Cannon.js cylinders are oriented differently than Three.js
+            const shaftQuat = new CANNON.Quaternion();
+            shaftQuat.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), Math.PI / 2);
+
+            const tipQuat = new CANNON.Quaternion();
+            tipQuat.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), -Math.PI / 2);
+
+            arrowBody.addShape(shaftShape, new CANNON.Vec3(0, 0, 0), shaftQuat);
+            arrowBody.addShape(tipShape, new CANNON.Vec3(shaftLength / 2 + tipLength / 2, 0, 0), tipQuat);
+
+            // Set arrow rotation to match camera direction
+            const cameraQuaternion = new THREE.Quaternion().setFromEuler(camera.rotation);
+            const cannonQuat = new CANNON.Quaternion(
+                cameraQuaternion.x,
+                cameraQuaternion.y,
+                cameraQuaternion.z,
+                cameraQuaternion.w
+            );
+
+            // Apply additional rotation to align arrow with camera direction
+            const rotationQuat = new CANNON.Quaternion();
+            rotationQuat.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI / 2);
+            cannonQuat.mult(rotationQuat, cannonQuat);
+
+            arrowBody.quaternion.copy(cannonQuat);
+
+            // Calculate target point in the direction the camera is facing
+            const targetPoint = new THREE.Vector3(0, 0, -1000);
+            targetPoint.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(camera.rotation));
+            targetPoint.add(camera.position);
+
+            // Set velocity in the direction of camera aim
+            moveTowardPoint(arrowBody, targetPoint, ARROW.speed);
+
+            world.addBody(arrowBody);
+
+            // Create Three.js geometries
+            const shaftGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLength, 12);
+            const tipGeometry = new THREE.ConeGeometry(tipRadius, tipLength, 12);
+
+            // Create materials with textures
+            const shaftMaterial = new THREE.MeshStandardMaterial({
+                color: COLORS.SHAFT,
+                roughness: 0.7,
+                metalness: 0.1
+            });
+            const tipMaterial = new THREE.MeshStandardMaterial({
+                color: COLORS.TIP,
+                metalness: 0.8,
+                roughness: 0.2
+            });
+
+            // Create meshes
+            const shaftMesh = new THREE.Mesh(shaftGeometry, shaftMaterial);
+            const tipMesh = new THREE.Mesh(tipGeometry, tipMaterial);
+
+            // Position the tip at the end of the shaft and add rotation
+            shaftMesh.rotation.z = -Math.PI / 2
+            tipMesh.rotation.z = -Math.PI / 2
+            tipMesh.position.x = (shaftLength / 2 + tipLength / 2)
+
+            // Create a group to hold both parts
+            const arrowMesh = new THREE.Group();
+            arrowMesh.add(shaftMesh);
+            arrowMesh.add(tipMesh);
+
+            arrowMesh.quaternion.copy(arrowBody.quaternion)
+            arrowMesh.position.copy(arrowBody.position)
+
+            // Add shadows
+            shaftMesh.castShadow = true;
+            shaftMesh.receiveShadow = true;
+            tipMesh.castShadow = true;
+            tipMesh.receiveShadow = true;
+
+            scene.add(arrowMesh);
+
+            projectiles.push({
+                body: arrowBody,
+                mesh: arrowMesh,
+                creationTime: Date.now()
+            });
+        }
+
+
+        // Update physics and visuals
+        function updatePhysics(scene, world, projectiles, deltaTime) {
+            world.step(PHYSICS.FIXED_TIMESTEP, deltaTime, 10);
+
+            const currentTime = Date.now();
+            const maxAge = 5000; // 5 seconds in milliseconds
+
+            // Update mesh positions based on physics bodies
+            // Iterate backwards to safely remove items
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const projectile = projectiles[i];
+                const { body, mesh, creationTime } = projectile;
+
+                // Check if the projectile is too old (5 seconds)
+                if (currentTime - creationTime > maxAge) {
+                    // Remove from scene and physics world
+                    scene.remove(mesh);
+                    world.removeBody(body);
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+
+                // Update position and rotation
+                mesh.position.copy(body.position);
+                mesh.quaternion.copy(body.quaternion);
+            }
+        }
+
+        // Main function
+        function main() {
+            // Setup basics
+            const scene = setupScene();
+            // Setup scene elements
+            const lights = setupLights(scene);
+            const camera = setupCamera();
+
+            const canvas = document.getElementById('canvas');
+            const renderer = setupRenderer(canvas);
+            const world = setupPhysicsWorld();
+
+            // Initialize the Cannon.js debugger
+            const cannonDebugger = new CannonDebugger(scene, world, {
+                color: 0x00ff00,  // Green color for debug shapes
+                scale: 1.0        // Scale of the debug shapes
+            });
+
+            // Add a reticle to the center of the screen
+            const reticleGeometry = new THREE.RingGeometry(0.01, 0.02, 32);
+            const reticleMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.8
+            });
+            const reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+            reticle.position.set(0, 0, -0.1);
+
+            // Create a separate scene and camera for the reticle
+            const reticleScene = new THREE.Scene();
+            const reticleCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 10);
+            reticleCamera.position.z = 1;
+            // reticleScene.add(reticle);
+
+            // Setup FPS-style mouse look controls
+            let mouseX = 0;
+            let mouseY = 0;
+            let targetRotationX = 0;
+            let targetRotationY = 0;
+            const sensitivity = 0.002;
+
+            // Setup orbit controls for non-FPS mode
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.target.set(SHIELD.position.x, SHIELD.position.y, SHIELD.position.z);
+
+            // Use 'a/A' key to toggle pointer lock for FPS controls
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'a' || event.key === 'A') {
+                    if (document.pointerLockElement === canvas) {
+                        // Exit pointer lock if already locked
+                        document.exitPointerLock();
+                    } else {
+                        // Enter pointer lock if not locked
+                        canvas.requestPointerLock();
+                    }
+                }
+            });
+
+            // Handle pointer lock changes
+            document.addEventListener('pointerlockchange', () => {
+                if (document.pointerLockElement === canvas) {
+                    // Pointer is locked, show reticle and disable orbit controls
+                    reticleScene.add(reticle);
+                    controls.enabled = false;
+
+                    // Reset camera to FPS starting position
+                    camera.position.set(CAMERA.POSITION.x, CAMERA.POSITION.y, CAMERA.POSITION.z);
+                    camera.lookAt(SHIELD.position.x, SHIELD.position.y, SHIELD.position.z);
+                    targetRotationX = 0;
+                    targetRotationY = 0;
+                } else {
+                    // Pointer is unlocked, hide reticle and enable orbit controls
+                    reticleScene.remove(reticle);
+                    controls.enabled = true;
+
+                    // Reset camera position and rotation to original state
+                    camera.position.set(CAMERA.POSITION.x, CAMERA.POSITION.y, CAMERA.POSITION.z);
+                    camera.lookAt(SHIELD.position.x, SHIELD.position.y, SHIELD.position.z);
+
+                    // Reset rotation tracking variables
+                    targetRotationX = 0;
+                    targetRotationY = 0;
+
+                    // reset orbit controls
+                    controls.target.set(SHIELD.position.x, SHIELD.position.y, SHIELD.position.z);
+                }
+            });
+
+
+            // Track mouse movement
+            document.addEventListener('mousemove', (event) => {
+                if (document.pointerLockElement === canvas) {
+                    mouseX = event.movementX || 0;
+                    mouseY = event.movementY || 0;
+
+                    targetRotationY -= mouseX * sensitivity;
+                    targetRotationX -= mouseY * sensitivity;
+
+                    // Limit vertical rotation to avoid flipping
+                    targetRotationX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, targetRotationX));
+
+                    // Apply rotation to camera
+                    camera.rotation.order = 'YXZ'; // Important for FPS controls
+                    camera.rotation.y = targetRotationY;
+                    camera.rotation.x = targetRotationX;
+                }
+            });
+
+            const ground = createGround(scene, world);
+            const shield = createShield(scene, world, SHIELD);
+
+            canvas.addEventListener('click', () => {
+                // Only create arrow if pointer is locked (to avoid creating on the initial click to lock)
+                if (document.pointerLockElement === canvas) {
+                    createArrow(scene, world, camera, ARROW);
+                }
+            });
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // Animation loop
+            let lastTime = 0;
+            function animate(time) {
+                const deltaTime = (time - lastTime) / 1000
+                lastTime = time;
+
+                requestAnimationFrame(animate);
+
+                updatePhysics(scene, world, projectiles, deltaTime);
+
+                // Update the debugger
+                if (DEBUG) {
+                    cannonDebugger.update();
+                }
+
+                // Update orbit controls if enabled
+                if (controls.enabled) {
+                    controls.update();
+                }
+
+                // Render main scene
+                renderer.render(scene, camera);
+
+                // Render reticle on top
+                renderer.autoClear = false;
+                renderer.render(reticleScene, reticleCamera);
+                renderer.autoClear = true;
+            }
+
+            animate(0);
+        }
+
+        // Start the application
+        main();
+    </script>
+
+    <canvas id="canvas"></canvas>
+</body>
+
+</html>

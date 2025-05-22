@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Rigid Body Chain Simulation (Single File - Corrected JSON)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            color: black;
+            font-family: sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 20px;
+            width: 40%;
+            text-align: left;
+            z-index: 100;
+            display: block;
+        }
+
+        #info h3 {
+            margin: 0px
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin-right: 10px;
+            cursor: pointer;
+            background-color: #444;
+            color: white;
+            border: 1px solid #666;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background-color: #555;
+        }
+
+        button:active {
+            background-color: #333;
+        }
+
+        #ui-controls {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            z-index: 100;
+            background-color: hsla(0, 0%, 73%, 0.6);
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 250px;
+        }
+
+        #ui-controls label,
+        #ui-controls input,
+        #ui-controls select,
+        #ui-controls span {
+            margin: 5px;
+            box-sizing: border-box;
+        }
+
+        #ui-controls input[type="range"] {
+            margin-bottom: 0;
+        }
+
+        #ui-controls div {
+            margin-bottom: 5px;
+        }
+
+        #ui-controls span {
+            font-weight: bold;
+            text-align: right;
+            margin-bottom: 10px;
+            min-height: 1em;
+            /* Prevent layout shift */
+        }
+
+        #ui-controls select {
+            padding: 5px;
+        }
+    </style>
+    <script type="importmap">
+            {
+                "imports": {
+                    "three": "https://unpkg.com/three@0.163.0/build/three.module.js",
+                    "three/addons/": "https://unpkg.com/three@0.163.0/examples/jsm/",
+                    "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+                }
+            }
+    </script>
+</head>
+
+<body>
+    <div id="info">
+        <h3> 3D Rigid Body Chain Simulation</h3><br />
+        Click & Drag on Chain link (Spheres) to apply force. Snap mouse pointer to apply different force magnitudes.
+
+
+        <div style="margin-top: 12px;">Use controls on the right.</div>
+
+    </div>
+
+    <div id="ui-controls">
+        <div>
+            <label for="chainLength">New Chain Links (<span id="chainLengthValue">10</span>):</label>
+            <input type="range" id="chainLength" name="chainLength" min="8" max="12" value="10">
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="addChainBtn">Add Chain</button>
+        <button id="resetBtn">Reset Simulation</button>
+    </div>
+
+    <canvas id="simulationCanvas"></canvas>
+
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+
+        // --- Configuration ---
+        const CHAIN_LENGTH_DEFAULT = 10;
+
+        let nextChainLength = CHAIN_LENGTH_DEFAULT;
+
+        // --- DOM Element References ---
+        const canvas = document.getElementById('simulationCanvas');
+        const addChainBtn = document.getElementById('addChainBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const chainLengthSlider = document.getElementById('chainLength');
+        const chainLengthValueSpan = document.getElementById('chainLengthValue');
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.setClearColor(0xffffff, 1);  // Set white background (0xffffff)
+
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 20, 15);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 1024;
+        directionalLight.shadow.mapSize.height = 1024;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 50;
+        directionalLight.shadow.camera.left = -20;
+        directionalLight.shadow.camera.right = 20;
+        directionalLight.shadow.camera.top = 20;
+        directionalLight.shadow.camera.bottom = -20;
+        scene.add(directionalLight);
+
+        // --- Physics Setup ---
+        let physicsWorld;
+        let defaultMaterial;
+        let groundMaterial;
+
+        function setupPhysicsWorld() {
+            physicsWorld = new CANNON.World({
+                gravity: new CANNON.Vec3(0, -9.82, 0),
+            });
+            physicsWorld.broadphase = new CANNON.SAPBroadphase(physicsWorld);
+            physicsWorld.solver.iterations = 10; // Good balance
+
+            // Physics Materials
+            defaultMaterial = new CANNON.Material("default");
+            groundMaterial = new CANNON.Material("ground");
+
+            const defaultContactMaterial = new CANNON.ContactMaterial(
+                defaultMaterial, defaultMaterial,
+                { friction: 0.4, restitution: 0.3 }
+            );
+            physicsWorld.addContactMaterial(defaultContactMaterial);
+
+            const groundContactMaterial = new CANNON.ContactMaterial(
+                groundMaterial, defaultMaterial,
+                { friction: 0.6, restitution: 0.1 }
+            );
+            physicsWorld.addContactMaterial(groundContactMaterial);
+        }
+
+        // --- Ground ---
+        let groundBody;
+        let groundMesh;
+
+        function createGround() {
+            // Physics Ground
+            const groundShape = new CANNON.Plane();
+            groundBody = new CANNON.Body({
+                mass: 0,
+                shape: groundShape,
+                material: groundMaterial,
+            });
+            groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+            physicsWorld.addBody(groundBody);
+
+            // Visual Ground
+            const groundGeometry = new THREE.PlaneGeometry(100, 100);
+            const groundMaterialVisual = new THREE.MeshStandardMaterial({
+                color: 0x888888,
+                side: THREE.DoubleSide,
+                metalness: 0.2,
+                roughness: 0.8,
+            });
+            groundMesh = new THREE.Mesh(groundGeometry, groundMaterialVisual);
+            groundMesh.rotation.x = -Math.PI / 2;
+            groundMesh.receiveShadow = true;
+            groundMesh.name = "GROUND"; // For easier identification if needed
+            scene.add(groundMesh);
+        }
+
+        // --- Objects & Synchronization ---
+        let objectsToUpdate = []; // Store { mesh, body } pairs
+        let chainCount = 0; // Current chains in the scene
+
+        const platformSize = [1, 0.5, 15]
+        const platformPosition = new CANNON.Vec3(0, 20, 0)
+
+        function createPlatform() {
+            const platformMesh = new THREE.Group()
+
+            const platformGeometry = new THREE.BoxGeometry(platformSize[0], platformSize[1], platformSize[2]);
+            const platformMaterialVisual = new THREE.MeshStandardMaterial({
+                color: 0xe1e333,
+                side: THREE.DoubleSide,
+                roughness: 1,
+            });
+
+            const platformBaseMesh = new THREE.Mesh(platformGeometry, platformMaterialVisual)
+
+            platformBaseMesh.castShadow = true
+            platformBaseMesh.receiveShadow = true
+
+
+            // Horizontal Support Beam to support the platform
+            const horizontalBeamLength = 10
+            const horizontalBeamRadius = 0.2
+            const horizontalSupportBeamGeometry = new THREE.CylinderGeometry(horizontalBeamRadius, horizontalBeamRadius, horizontalBeamLength, 16);
+
+            const horizontalSupportBeamMesh = new THREE.Mesh(horizontalSupportBeamGeometry, platformMaterialVisual);
+
+            horizontalSupportBeamMesh.castShadow = true
+            horizontalSupportBeamMesh.receiveShadow = true
+
+            horizontalSupportBeamMesh.position.set(-platformSize[0] / 2 - horizontalBeamLength / 2, platformSize[1] / 2 - horizontalBeamRadius / 2, 0);
+
+            horizontalSupportBeamMesh.rotation.z = Math.PI / 2
+
+            // Vertical Support Beam to support the platform
+            const verticalBeamLength = platformPosition.y
+            const verticalBeamRadius = 0.2
+            const verticalSupportBeamGeometry = new THREE.CylinderGeometry(verticalBeamRadius, verticalBeamRadius, verticalBeamLength, 16);
+            const verticalSupportBeamMesh = new THREE.Mesh(verticalSupportBeamGeometry, platformMaterialVisual);
+
+            verticalSupportBeamMesh.castShadow = true
+            verticalSupportBeamMesh.receiveShadow = true
+
+            verticalSupportBeamMesh.position.set(-platformSize[0] / 2 - horizontalBeamLength, -verticalBeamLength / 2, 0);
+
+            verticalSupportBeamMesh.rotation.y = Math.PI / 2
+
+            platformMesh.add(platformBaseMesh)
+            platformMesh.add(horizontalSupportBeamMesh)
+            platformMesh.add(verticalSupportBeamMesh)
+            scene.add(platformMesh)
+
+            const platformBody = new CANNON.Body({
+                mass: 0,
+            });
+
+            platformBody.addShape(new CANNON.Box(new CANNON.Vec3(platformSize[0] / 2, platformSize[1] / 2, platformSize[2] / 2)))
+
+            platformBody.position.copy(platformPosition);
+            platformMesh.position.copy(platformPosition)
+            physicsWorld.addBody(platformBody);
+
+        }
+
+
+        // Allowed chain links to be added to the scene
+        const LINK_RADIUS = 0.6
+        const CHAIN_DISTANCE = LINK_RADIUS * 2 + 1
+        const MAX_CHAINS_COUNT = Math.ceil(platformSize[2] / (CHAIN_DISTANCE + LINK_RADIUS))
+
+        // --- Chain Creation Function ---
+        function createChain(platformPosition, numLinks = 10, linkLength = LINK_RADIUS * 2, linkRadius = LINK_RADIUS, linkMass = 0.2) {
+            if (chainCount >= MAX_CHAINS_COUNT) {
+                console.warn(`Maximum chain count reached (${MAX_CHAINS_COUNT}). Cannot add more chains.`);
+                return;
+            }
+
+            chainCount++;
+
+            const startX = platformPosition.x
+            const startY = platformPosition.y - platformSize[1] / 2 - (linkRadius * 2)
+            const startZ = platformPosition.z + platformSize[2] / 2 - (chainCount * CHAIN_DISTANCE)
+
+            const linkShape = new CANNON.Sphere(linkRadius);
+            const linkGeometry = new THREE.SphereGeometry(linkRadius, 16, 12);
+            const linkMaterialVisual = new THREE.MeshStandardMaterial({
+                color: (1 - Math.random()) * 0xffffff,
+            });
+
+            let previousBody = null;
+            const chainObjects = [];
+
+            // Anchor point in world space (static body) for the first link if it's dynamic
+            const worldAnchorBody = new CANNON.Body({ type: CANNON.Body.STATIC });
+            // Position slightly above where the first link's top pivot will be
+            const firstPivotYOffset = linkLength * 0.9;
+            worldAnchorBody.position.set(startX, startY + firstPivotYOffset, startZ);
+            // We don't need to add this body to the world explicitly if only used in constraints
+
+
+            for (let i = 0; i < numLinks; i++) {
+                const currentMass = linkMass; // Make all links dynamic
+
+                const linkBody = new CANNON.Body({
+                    mass: currentMass,
+                    position: new CANNON.Vec3(startX, startY - i * linkLength * 1.1, startZ), // Initial position
+                    shape: linkShape,
+                    material: defaultMaterial,
+                    linearDamping: 0.1, // Helps stabilize
+                    angularDamping: 0.1,
+                });
+                physicsWorld.addBody(linkBody);
+
+                const linkMesh = new THREE.Mesh(linkGeometry, linkMaterialVisual);
+                linkMesh.castShadow = true;
+                linkMesh.receiveShadow = true;
+                linkMesh.userData.physicsBody = linkBody; // Link for interaction
+                linkMesh.userData.bodyToAnchorDistance = linkBody.position.distanceTo(worldAnchorBody.position); // Anchor point for interaction
+                linkMesh.userData.anchorPosition = worldAnchorBody.position
+
+                scene.add(linkMesh);
+
+                const updateInfo = { mesh: linkMesh, body: linkBody };
+                objectsToUpdate.push(updateInfo);
+                chainObjects.push(updateInfo);
+
+                // Add constraints (Joints)
+                let constraint;
+                const pivotA = new CANNON.Vec3(0, linkLength * 0.55, 0); // Top of current link (local)
+                const pivotB = new CANNON.Vec3(0, -linkLength * 0.55, 0); // Bottom of previous link (local)
+
+                if (previousBody) { // Connect to the previous link
+                    constraint = new CANNON.DistanceConstraint(linkBody, previousBody);
+
+                } else if (currentMass > 0) { // Connect the FIRST dynamic link to the world anchor
+                    constraint = new CANNON.PointToPointConstraint(
+                        linkBody, pivotA, // Connect top pivot of the first link
+                        worldAnchorBody, new CANNON.Vec3(0, 0, 0), // To the center of the static anchor body
+                        3e12
+                    );
+                }
+
+                physicsWorld.addConstraint(constraint);
+                // Add stiffness and relaxation to prevent excessive stretching
+                constraint.equations.forEach(eq => {
+                    eq.stiffness = 1e6;  // Higher value = stiffer connection
+                    eq.relaxation = 3;   // Lower value = more stable but slower to solve
+                });
+                previousBody = linkBody;
+            }
+            return chainObjects;
+        }
+
+        // --- Interaction (Mouse Dragging) ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let selectedBody = null;
+        let selectedBodyToAnchorDistance = 0
+        let selectedBodyAnchorPosition = new CANNON.Vec3()
+
+        let mouseConstraint = null;
+        let dragPlane = new THREE.Plane(); // Plane for projecting mouse movement
+        let initialOffset = new CANNON.Vec3(); // Offset from object center to click point (in body's local frame)
+        let worldClickPoint = new CANNON.Vec3(); // Click point in world space
+
+        // Invisible body to act as the mouse constraint target
+        const mouseConstraintTargetBody = new CANNON.Body({ mass: 0 }); // Kinematic / Static
+        mouseConstraintTargetBody.addShape(new CANNON.Sphere(0.1)); // Needs a shape to exist
+        // No need to add to world, position updated directly
+
+        function onPointerDown(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children.filter(c => c !== groundMesh), true); // Exclude ground, check recursively
+
+            if (intersects.length > 0) {
+                const intersect = intersects[0]; // Closest intersected object
+                let targetMesh = intersect.object;
+                while (targetMesh && !targetMesh.userData.physicsBody) {
+                    targetMesh = targetMesh.parent; // Find parent with physics body if clicking a child mesh
+                }
+
+                if (targetMesh && targetMesh.userData.physicsBody && targetMesh.userData.physicsBody.mass > 0) {
+                    selectedBody = targetMesh.userData.physicsBody;
+                    selectedBodyToAnchorDistance = targetMesh.userData.bodyToAnchorDistance
+                    selectedBodyAnchorPosition = targetMesh.userData.anchorPosition
+
+                    selectedBody.wakeUp();
+
+                    // Save world click point
+                    worldClickPoint.copy(intersect.point);
+
+                    // Calculate offset from body center to intersection point (in body's *local* frame)
+                    selectedBody.pointToLocalFrame(worldClickPoint, initialOffset);
+
+                    // Set up drag plane perpendicular to camera view, passing through intersection point
+                    const cameraDirection = camera.getWorldDirection(new THREE.Vector3());
+                    dragPlane.setFromNormalAndCoplanarPoint(cameraDirection, worldClickPoint);
+
+                    // Move constraint target body to the initial click point
+                    mouseConstraintTargetBody.position.copy(worldClickPoint);
+
+                    // Create constraint - connect the local offset point on the body to the target body center
+                    mouseConstraint = new CANNON.PointToPointConstraint(
+                        selectedBody, initialOffset, // Use local offset as pivot on selected body
+                        mouseConstraintTargetBody, new CANNON.Vec3(0, 0, 0) // Use target center as pivot
+                    );
+                    physicsWorld.addConstraint(mouseConstraint);
+
+                    controls.enabled = false; // Disable camera controls while dragging
+                }
+            }
+        }
+
+        function onPointerMove(event) {
+            if (!mouseConstraint || !selectedBody) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Find intersection of ray with the drag plane
+            const targetPos = new THREE.Vector3();
+            if (raycaster.ray.intersectPlane(dragPlane, targetPos)) {
+                // Calculate the vector from anchor to target position
+
+                const anchorToTarget = new THREE.Vector3(
+                    targetPos.x - selectedBodyAnchorPosition.x,
+                    targetPos.y - selectedBodyAnchorPosition.y,
+                    targetPos.z - selectedBodyAnchorPosition.z
+                );
+
+                // Get the current distance
+                const currentDistance = targetPos.distanceTo(selectedBodyAnchorPosition);
+
+                // If distance exceeds the original, scale it back
+                if (currentDistance > selectedBodyToAnchorDistance) {
+                    anchorToTarget.normalize();
+                    anchorToTarget.multiplyScalar(selectedBodyToAnchorDistance);
+
+                    // Calculate new constrained position
+                    targetPos.copy(selectedBodyAnchorPosition).add(anchorToTarget);
+                }
+
+                // Update constraint target position, keeping x constant
+                mouseConstraintTargetBody.position.copy(
+                    new THREE.Vector3(mouseConstraintTargetBody.position.x, targetPos.y, targetPos.z)
+                );
+                mouseConstraint.update(); // Important: tell constraint target moved
+
+                selectedBody.wakeUp();
+            }
+        }
+
+
+        function onPointerUp() {
+            if (mouseConstraint) {
+                physicsWorld.removeConstraint(mouseConstraint);
+                mouseConstraint = null;
+                selectedBody = null;
+                selectedBodyToAnchorDistance = 0;
+                selectedBodyAnchorPosition = new CANNON.Vec3()
+                controls.enabled = true; // Re-enable camera controls
+            }
+        }
+
+        // --- UI Controls Event Listeners ---
+        chainLengthSlider.addEventListener('input', (event) => {
+            nextChainLength = parseInt(event.target.value);
+            chainLengthValueSpan.textContent = nextChainLength;
+        });
+
+
+        addChainBtn.addEventListener('click', () => {
+            createChain(
+                platformPosition,
+                nextChainLength,            // Use selected length
+            );
+        });
+
+        resetBtn.addEventListener('click', resetSimulation);
+
+        // --- Reset Function ---
+        function resetSimulation() {
+            // Remove interaction constraint if active
+            onPointerUp(); // Use the existing cleanup logic
+
+
+            // Reset chain count
+            chainCount = 0
+
+            // Remove all dynamic bodies and their meshes
+            // Iterate backwards when removing from array being iterated
+            for (let i = objectsToUpdate.length - 1; i >= 0; i--) {
+                const obj = objectsToUpdate[i];
+                if (obj.body && obj.body !== groundBody) {
+                    physicsWorld.removeBody(obj.body);
+                    if (obj.mesh && obj.mesh.parent) {
+                        obj.mesh.geometry?.dispose(); // Optional cleanup
+                        obj.mesh.material?.dispose(); // Optional cleanup
+                        obj.mesh.parent.remove(obj.mesh);
+                    }
+                    objectsToUpdate.splice(i, 1); // Remove from update list
+                }
+            }
+            // objectsToUpdate should now be empty or contain only static things if they were added
+
+            // Remove all constraints (simpler than tracking)
+            while (physicsWorld.constraints.length > 0) {
+                physicsWorld.removeConstraint(physicsWorld.constraints[0]);
+            }
+
+            // Check/re-add ground (shouldn't be needed if filter works)
+            if (!scene.getObjectByName("GROUND")) {
+                scene.add(groundMesh);
+            }
+            // Ensure ground body is still in physics world (should be)
+            let groundBodyFound = false;
+            physicsWorld.bodies.forEach(b => { if (b === groundBody) groundBodyFound = true; });
+            if (!groundBodyFound) {
+                physicsWorld.addBody(groundBody);
+                console.warn("Ground body had to be re-added during reset.");
+            }
+
+
+            // Reset UI controls to default values
+            chainLengthSlider.value = CHAIN_LENGTH_DEFAULT;
+            chainLengthValueSpan.textContent = CHAIN_LENGTH_DEFAULT;
+            nextChainLength = CHAIN_LENGTH_DEFAULT;
+
+            createPlatform();
+            // Create initial chains again
+            createChain(platformPosition, CHAIN_LENGTH_DEFAULT);
+            createChain(platformPosition, CHAIN_LENGTH_DEFAULT);
+
+            // Reset camera
+            camera.position.set(38, 15, 0);
+            camera.lookAt(0, 15, 0);
+            controls.target.set(0, 15, 0);
+            controls.update();
+        }
+
+
+        // --- Camera Controls ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.target.set(0, 5, 0);
+        controls.update();
+
+        // --- Handle Window Resize ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }, false);
+
+        // --- Event Listeners for Interaction ---
+        window.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointerleave', onPointerUp); // Also cancel drag if pointer leaves window
+
+
+        // --- Animation Loop ---
+        const clock = new THREE.Clock();
+        let lastTime = 0; // Keep track for physics step
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const deltaTime = clock.getDelta(); // Time since last frame
+
+            // Step the physics world with a fixed timestep
+            const fixedTimeStep = 1 / 60; // Target 60 FPS
+            const maxSubSteps = 3; // Max physics steps per frame
+            physicsWorld.step(fixedTimeStep, deltaTime, maxSubSteps);
+
+            // Update visual objects from physics bodies
+            objectsToUpdate.forEach(obj => {
+                if (obj.mesh && obj.body) { // Ensure both exist
+                    obj.mesh.position.copy(obj.body.position);
+                    obj.mesh.quaternion.copy(obj.body.quaternion);
+                }
+            });
+
+            // Update controls (for damping)
+            controls.update();
+
+            // Render the scene
+            renderer.render(scene, camera);
+        }
+
+        // --- Initialization ---
+
+        setupPhysicsWorld();
+        createPlatform()
+        createGround();
+        resetSimulation(); // Call reset to set up initial state and chains
+        animate(); // Start the loop
+
+    </script>
+
+</body>
+
+</html>

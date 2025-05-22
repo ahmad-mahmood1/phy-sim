@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Physics Simulation</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+    }
+  </style>
+
+  <!-- Import map for module resolution -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.159.0/three.module.min.js",
+        "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/+esm"
+      }
+    }
+  </script>
+</head>
+
+<body>
+  <script type="module">
+    import * as THREE from 'three';
+    import * as CANNON from 'cannon-es';
+
+    // Configuration constants
+    const CONFIG = {
+      PLANE: {
+        SIZE: 70,
+        COLOR: 0x666666,
+        ROUGHNESS: 0.8,
+        POSITION: { X: 0, Y: 0, Z: 0 },
+      },
+      RING: {
+        RADIUS: 4,
+        TUBE_THICKNESS: 2,
+        RADIAL_SEGMENTS: 150,
+        TUBULAR_SEGMENTS: 150,
+        COLOR: 0x00f123,
+        ROUGHNESS: 0.5,
+        POSITION: { X: -10, Y: 10, Z: 0 },
+        PULSE: {
+          SPEED: 0.001,
+          AMPLITUDE: 0.2,
+        },
+        INITIAL_VELOCITY: { X: 15, Y: 0, Z: 0 },
+        MASS: 1,
+        ANGULAR_DAMPING: 0.01,
+      },
+      CAMERA: {
+        FOV: 100,
+        NEAR: 0.1,
+        FAR: 1000,
+        POSITION: { X: 0, Y: 20, Z: 30 },
+      },
+      LIGHTS: {
+        AMBIENT: {
+          COLOR: 0xffffff,
+          INTENSITY: 0.7,
+        },
+        DIRECTIONAL: {
+          COLOR: 0x12ffff,
+          INTENSITY: 0.8,
+          POSITION: { X: 0, Y: 30, Z: 10 },
+        },
+      },
+      PHYSICS: {
+        GRAVITY: { X: 0, Y: -9.82, Z: 0 },
+        RESET_THRESHOLD: -10,
+      },
+      RENDERER: {
+        ANTIALIAS: true,
+        SHADOWS: false,
+      },
+      DEBUG: {
+        SHOW_AXES: false,
+        SHOW_PHYSICS: true,
+      },
+    };
+
+    // Wait for all scripts to load before initializing
+    window.addEventListener('load', () => {
+      // Scene setup
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000000);
+
+      // Camera setup
+      const camera = new THREE.PerspectiveCamera(CONFIG.CAMERA.FOV, window.innerWidth / window.innerHeight, CONFIG.CAMERA.NEAR, CONFIG.CAMERA.FAR);
+      camera.position.set(CONFIG.CAMERA.POSITION.X, CONFIG.CAMERA.POSITION.Y, CONFIG.CAMERA.POSITION.Z);
+      camera.lookAt(0, 0, 0);
+
+      // Renderer setup
+      const renderer = new THREE.WebGLRenderer({
+        antialias: CONFIG.RENDERER.ANTIALIAS,
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = CONFIG.RENDERER.SHADOWS;
+      document.body.appendChild(renderer.domElement);
+
+
+
+
+      // Lighting setup
+      function setupLights() {
+        const ambientLight = new THREE.AmbientLight(CONFIG.LIGHTS.AMBIENT.COLOR, CONFIG.LIGHTS.AMBIENT.INTENSITY);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(
+          CONFIG.LIGHTS.DIRECTIONAL.COLOR,
+          CONFIG.LIGHTS.DIRECTIONAL.INTENSITY,
+        );
+        directionalLight.position.set(
+          CONFIG.LIGHTS.DIRECTIONAL.POSITION.X,
+          CONFIG.LIGHTS.DIRECTIONAL.POSITION.Y,
+          CONFIG.LIGHTS.DIRECTIONAL.POSITION.Z,
+        );
+        scene.add(directionalLight);
+      }
+
+      // Create plane
+      function createPlane(planeBody) {
+        const planeGeometry = new THREE.PlaneGeometry(CONFIG.PLANE.SIZE, CONFIG.PLANE.SIZE);
+        const planeMaterial = new THREE.MeshStandardMaterial({
+          color: CONFIG.PLANE.COLOR,
+          roughness: CONFIG.PLANE.ROUGHNESS,
+        });
+        const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.copy(planeBody.position);
+
+        scene.add(plane);
+        return plane;
+      }
+
+      // Create plane physics body
+      function createPlaneBody(world) {
+        const planeBody = new CANNON.Body({
+          type: CANNON.Body.STATIC,
+          shape: new CANNON.Box(new CANNON.Vec3(CONFIG.PLANE.SIZE / 2, 0.1, CONFIG.PLANE.SIZE / 2)),
+          position: new CANNON.Vec3(CONFIG.PLANE.POSITION.X, CONFIG.PLANE.POSITION.Y, CONFIG.PLANE.POSITION.Z),
+        });
+
+        world.addBody(planeBody);
+        return planeBody;
+      }
+
+      // Create ring
+      function createRing() {
+        const ringGeometry = new THREE.TorusGeometry(
+          CONFIG.RING.RADIUS,
+          CONFIG.RING.TUBE_THICKNESS,
+          CONFIG.RING.RADIAL_SEGMENTS,
+          CONFIG.RING.TUBULAR_SEGMENTS,
+        );
+
+        const ringMaterial = new THREE.MeshPhongMaterial({
+          color: CONFIG.RING.COLOR,
+          wireframe: true,
+        });
+
+        const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+        ringMesh.position.x = CONFIG.RING.POSITION.X;
+        ringMesh.position.y = CONFIG.RING.POSITION.Y;
+        ringMesh.position.z = CONFIG.RING.POSITION.Z;
+
+        scene.add(ringMesh);
+        return ringMesh;
+      }
+
+      // Physics world setup
+      function setupPhysics() {
+        const world = new CANNON.World();
+        world.gravity.set(CONFIG.PHYSICS.GRAVITY.X, CONFIG.PHYSICS.GRAVITY.Y, CONFIG.PHYSICS.GRAVITY.Z);
+        return world;
+      }
+
+      function createRingBodyShape(scale = 1) {
+        const ringShape = new CANNON.Cylinder(
+          (CONFIG.RING.RADIUS + CONFIG.RING.TUBE_THICKNESS) * scale,
+          (CONFIG.RING.RADIUS + CONFIG.RING.TUBE_THICKNESS) * scale,
+          CONFIG.RING.TUBE_THICKNESS * scale,
+          CONFIG.RING.RADIAL_SEGMENTS,
+        );
+        return ringShape;
+      }
+
+      function setRingBodyParameters(ringBody, ringShape) {
+        ringBody.position.set(CONFIG.RING.POSITION.X, CONFIG.RING.POSITION.Y, CONFIG.RING.POSITION.Z);
+        ringBody.velocity.set(CONFIG.RING.INITIAL_VELOCITY.X, CONFIG.RING.INITIAL_VELOCITY.Y, CONFIG.RING.INITIAL_VELOCITY.Z);
+        ringBody.angularVelocity.set(0, 0, 0);
+
+        const quaternion = new CANNON.Quaternion();
+        quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2);
+
+        if (ringBody.shapes.length > 0) {
+          ringBody.shapes.pop();
+        }
+
+        ringBody.addShape(ringShape, new CANNON.Vec3(0, 0, 0), quaternion);
+        ringBody.angularDamping = CONFIG.RING.ANGULAR_DAMPING;
+      }
+
+      // Create ring physics body
+      function createRingBody(world) {
+        const ringBody = new CANNON.Body({
+          mass: CONFIG.RING.MASS,
+          position: new CANNON.Vec3(CONFIG.RING.POSITION.X, CONFIG.RING.POSITION.Y, CONFIG.RING.POSITION.Z),
+        });
+        const ringShape = createRingBodyShape();
+
+        setRingBodyParameters(ringBody, ringShape);
+        world.addBody(ringBody);
+        return ringBody;
+      }
+
+      // Handle window resize
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+      window.addEventListener('resize', onWindowResize);
+
+      // Initialize everything
+      setupLights();
+      const world = setupPhysics();
+      const ringBody = createRingBody(world);
+      const ring = createRing();
+      const planeBody = createPlaneBody(world);
+      createPlane(planeBody);
+
+      // Add axis helper
+      if (CONFIG.DEBUG.SHOW_AXES) {
+        const axesHelper = new THREE.AxesHelper(5);
+        scene.add(axesHelper);
+
+        // Add axis labels
+        const addAxisLabel = (text, position, color) => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 64;
+          canvas.height = 32;
+          const context = canvas.getContext('2d');
+          context.fillStyle = '#ffffff';
+          context.font = '24px Arial';
+          context.fillText(text, 8, 24);
+
+          const texture = new THREE.CanvasTexture(canvas);
+          const material = new THREE.SpriteMaterial({ map: texture, color: color });
+          const sprite = new THREE.Sprite(material);
+          sprite.position.copy(position);
+          sprite.scale.set(2, 1, 1);
+          scene.add(sprite);
+        };
+
+        addAxisLabel('X', new THREE.Vector3(6, 0, 0), 0xff0000);
+        addAxisLabel('Y', new THREE.Vector3(0, 6, 0), 0x00ff00);
+        addAxisLabel('Z', new THREE.Vector3(0, 0, 6), 0x0000ff);
+      }
+
+
+
+      // Animation loop
+      function animate() {
+        requestAnimationFrame(animate);
+
+
+        const pulseScale = Math.sin(Date.now() * CONFIG.RING.PULSE.SPEED) * CONFIG.RING.PULSE.AMPLITUDE + 1;
+        ring.scale.set(1, pulseScale, pulseScale);
+
+        if (ringBody.shapes.length > 0) {
+          ringBody.shapes.pop();
+          ringBody.shapeOffsets.pop();
+          ringBody.shapeOrientations.pop();
+        }
+
+        const scaledRingShape = new CANNON.Cylinder(
+          (CONFIG.RING.RADIUS + CONFIG.RING.TUBE_THICKNESS) * pulseScale,
+          (CONFIG.RING.RADIUS + CONFIG.RING.TUBE_THICKNESS) * pulseScale,
+          CONFIG.RING.TUBE_THICKNESS * pulseScale,
+          CONFIG.RING.RADIAL_SEGMENTS,
+        );
+
+        const quaternion = new CANNON.Quaternion();
+        quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2);
+        ringBody.addShape(scaledRingShape, new CANNON.Vec3(0, 0, 0), quaternion);
+
+        ring.position.copy(ringBody.position);
+        ring.quaternion.copy(ringBody.quaternion);
+
+        world.step(1 / 60);
+
+
+        if (ringBody.position.y < CONFIG.PHYSICS.RESET_THRESHOLD) {
+          ringBody.position.set(CONFIG.RING.POSITION.X, CONFIG.RING.POSITION.Y, CONFIG.RING.POSITION.Z);
+          ringBody.velocity.set(
+            CONFIG.RING.INITIAL_VELOCITY.X,
+            CONFIG.RING.INITIAL_VELOCITY.Y,
+            CONFIG.RING.INITIAL_VELOCITY.Z,
+          );
+          ringBody.angularVelocity.set(0, 0, 0);
+
+          ringBody.shapes.pop();
+          const ringShape = createRingBodyShape(pulseScale);
+          setRingBodyParameters(ringBody, ringShape);
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      // Start animation
+      animate();
+    });
+  </script>
+
+</body>
+
+</html>

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #ffffff;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #444;
+            box-shadow: 0 0 15px #000;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <h1>Wheelbarrow: A Second-Class Lever</h1>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Configuration ---
+            const CANVAS_WIDTH = 900;
+            const CANVAS_HEIGHT = 600; // Main drawing area height, as per user's last code
+            const GROUND_Y = CANVAS_HEIGHT - 100;
+
+            // Wheelbarrow visual parameters
+            const WHEEL_RADIUS = 25;
+            const FULCRUM_X = 300;
+            const FULCRUM_Y = GROUND_Y - WHEEL_RADIUS;
+
+            // Colors
+            let trayColor, wheelColor, handleColor, loadColor, groundColor;
+            let arrowBlue, arrowRed, textColor;
+
+            // Structural dimensions
+            const FULCRUM_TO_TRAY_START_DIST = 15;
+            const TRAY_LENGTH = 220;
+            const TRAY_DEPTH = 60;
+            const TRAY_BASE_LEVEL_ABOVE_AXLE = 10;
+            const HANDLE_EXTENSION_LENGTH = 130;
+            const HANDLE_GRIP_OFFSET_Y = -20;
+
+            // Physics state variables
+            let loadMass;
+            let loadPositionRatio;
+            let appliedLiftForce; // New: Force applied by the user
+
+            let structuralLoadArm;
+            let structuralEffortArm;
+
+            let effortForce; // Calculated effort force needed (N)
+            let mechanicalAdvantage;
+            const GRAVITY = 9.81;
+
+            // Visual properties
+            let liftAngle; // This will now be dynamic
+            const INITIAL_TILT_ANGLE = -0.12; // Radians, initial subtle tilt
+            const LIFTED_STATE_ANGLE = -0.35; // Radians, for when wheelbarrow is lifted
+            const MAX_ADDITIONAL_FORCE_FACTOR = 1.5; // Maximum force factor for full lift angle
+
+            // UI Sliders and Labels
+            let loadMassSlider, loadPositionSlider, appliedForceSlider; // Added appliedForceSlider
+            let massValueLabel, posValueLabel, appliedForceValueLabel; // Added appliedForceValueLabel
+
+            p.setup = () => {
+                p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).parent('canvas-container');
+                p.textFont('Roboto Mono', 'monospace'); // Added monospace fallback
+
+                // Initialize colors
+                trayColor = p.color(160, 82, 45);
+                wheelColor = p.color(50, 50, 50);
+                handleColor = p.color(80, 80, 80);
+                loadColor = p.color(220, 20, 60, 200);
+                groundColor = p.color(124, 184, 46);
+                arrowBlue = p.color(0, 102, 204);
+                arrowRed = p.color(204, 0, 0);
+                textColor = p.color(20, 20, 20);
+
+                // Initialize lift angle
+                liftAngle = INITIAL_TILT_ANGLE;
+
+                // --- UI Element Creation ---
+                let currentYOffset = 10;
+                let currentXOffset = CANVAS_WIDTH * 0.65
+
+                // Load Mass Slider and Label
+                let massLabelText = p.createP('Load Mass (kg): ').parent('canvas-container');
+                massLabelText.position(currentXOffset, currentYOffset);
+                massValueLabel = p.createSpan('50').parent(massLabelText);
+                currentYOffset += 20;
+                loadMassSlider = p.createSlider(10, 150, 50, 1).parent('canvas-container');
+                loadMassSlider.position(currentXOffset, currentYOffset);
+                loadMassSlider.style('width', '180px');
+                currentYOffset += 35;
+
+                // Load Position Slider and Label
+                let posLabelText = p.createP('Load Position (0.1 near wheel ↔ 0.9 near handles): ').parent('canvas-container');
+                posLabelText.position(currentXOffset, currentYOffset);
+                posValueLabel = p.createSpan('0.50').parent(posLabelText);
+                currentYOffset += 40;
+                loadPositionSlider = p.createSlider(0.1, 0.9, 0.5, 0.01).parent('canvas-container');
+                loadPositionSlider.position(currentXOffset, currentYOffset);
+                loadPositionSlider.style('width', '180px');
+                currentYOffset += 35; // Space for the next slider group
+
+                // Applied Lift Force Slider and Label (NEW)
+                let appliedForceLabelText = p.createP('Applied Lift Force (N): ').parent('canvas-container');
+                appliedForceLabelText.position(currentXOffset, currentYOffset);
+                appliedForceValueLabel = p.createSpan('0').parent(appliedForceLabelText);
+                currentYOffset += 20;
+                // Max effort force is around 900N, so 1000N max for slider is reasonable.
+                appliedForceSlider = p.createSlider(0, 1500, 0, 1).parent('canvas-container');
+                appliedForceSlider.position(currentXOffset, currentYOffset);
+                appliedForceSlider.style('width', '180px');
+
+                // Calculate the fixed structural effort arm
+                structuralEffortArm = FULCRUM_TO_TRAY_START_DIST + TRAY_LENGTH + HANDLE_EXTENSION_LENGTH * 0.85;
+            };
+
+            p.draw = () => {
+                p.background(230, 235, 240);
+
+                // Read current values from sliders
+                loadMass = loadMassSlider.value();
+                loadPositionRatio = loadPositionSlider.value();
+                appliedLiftForce = appliedForceSlider.value(); // Read new slider value
+
+                // Update the text display for slider values
+                massValueLabel.html(loadMass);
+                posValueLabel.html(loadPositionRatio.toFixed(2));
+                appliedForceValueLabel.html(appliedLiftForce); // Update new label
+
+                // --- Physics Calculations ---
+                structuralLoadArm = FULCRUM_TO_TRAY_START_DIST + loadPositionRatio * TRAY_LENGTH;
+                if (structuralLoadArm <= 0) structuralLoadArm = 0.001;
+
+                mechanicalAdvantage = structuralEffortArm / structuralLoadArm;
+                let loadForceMagnitude = loadMass * GRAVITY; // Defined here for use in effortForce and text display
+                effortForce = loadForceMagnitude / mechanicalAdvantage;
+
+                // --- Update Lift Angle based on Applied Force ---
+                if (appliedLiftForce >= effortForce && effortForce > 0.01) { // Check effortForce to avoid lifting with 0N for 0 load
+                    // Calculate how much the applied force exceeds the required force
+                    let forceRatio = Math.min((appliedLiftForce - effortForce) / (effortForce * MAX_ADDITIONAL_FORCE_FACTOR) + 1, 2);
+
+                    // Map the force ratio to an angle between INITIAL_TILT_ANGLE and LIFTED_STATE_ANGLE
+                    liftAngle = p.map(
+                        forceRatio,
+                        1, // At exactly required force
+                        2, // At required force + MAX_ADDITIONAL_FORCE_FACTOR * required force
+                        INITIAL_TILT_ANGLE, // Starting angle
+                        LIFTED_STATE_ANGLE  // Maximum lift angle
+                    );
+                } else {
+                    liftAngle = INITIAL_TILT_ANGLE;
+                }
+
+                // --- Drawing Section ---
+                // Draw Ground
+                p.noStroke();
+                p.fill(groundColor);
+                p.rect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+
+                // Draw Wheel (Fulcrum)
+                p.fill(wheelColor);
+                p.stroke(30);
+                p.ellipse(FULCRUM_X, FULCRUM_Y, WHEEL_RADIUS * 2, WHEEL_RADIUS * 2);
+                p.fill(120);
+                p.noStroke();
+                p.ellipse(FULCRUM_X, FULCRUM_Y, WHEEL_RADIUS * 0.7, WHEEL_RADIUS * 0.7);
+
+                // Wheelbarrow body (rotated)
+                p.push();
+                p.translate(FULCRUM_X, FULCRUM_Y);
+                p.rotate(liftAngle); // Use the potentially updated liftAngle
+
+                // Draw Tray
+                p.fill(trayColor);
+                p.stroke(p.lerpColor(trayColor, p.color(0), 0.3));
+                p.strokeWeight(1.5);
+                p.quad(
+                    FULCRUM_TO_TRAY_START_DIST, -TRAY_BASE_LEVEL_ABOVE_AXLE,
+                    FULCRUM_TO_TRAY_START_DIST + TRAY_LENGTH, -TRAY_BASE_LEVEL_ABOVE_AXLE,
+                    FULCRUM_TO_TRAY_START_DIST + TRAY_LENGTH - 15, -TRAY_BASE_LEVEL_ABOVE_AXLE - TRAY_DEPTH,
+                    FULCRUM_TO_TRAY_START_DIST + 15, -TRAY_BASE_LEVEL_ABOVE_AXLE - TRAY_DEPTH
+                );
+
+                // Draw Handles
+                p.strokeWeight(10);
+                p.stroke(handleColor);
+                const handleBaseX = FULCRUM_TO_TRAY_START_DIST + TRAY_LENGTH;
+                const handleBaseY = -TRAY_BASE_LEVEL_ABOVE_AXLE - TRAY_DEPTH * 0.3;
+                p.line(handleBaseX, handleBaseY - 4, handleBaseX + HANDLE_EXTENSION_LENGTH, handleBaseY + HANDLE_GRIP_OFFSET_Y - 4);
+                p.line(handleBaseX, handleBaseY + 4, handleBaseX + HANDLE_EXTENSION_LENGTH, handleBaseY + HANDLE_GRIP_OFFSET_Y + 4);
+                p.strokeWeight(1);
+
+                // Draw Load
+                const loadX_local = FULCRUM_TO_TRAY_START_DIST + loadPositionRatio * TRAY_LENGTH;
+                const loadY_local = -TRAY_BASE_LEVEL_ABOVE_AXLE - TRAY_DEPTH / 2;
+                p.fill(loadColor);
+                p.noStroke();
+                let loadVisualSize = p.map(loadMass, 10, 150, 25, 55);
+                p.ellipse(loadX_local, loadY_local, loadVisualSize, loadVisualSize);
+                p.fill(255);
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(11);
+                p.text('Load', loadX_local, loadY_local);
+
+                p.pop(); // Restore transformation state
+
+                // --- Draw some chickens, since wheelbarrow ---
+                let cC = [[FULCRUM_X - 100, GROUND_Y * 0.99], [FULCRUM_X - 150, GROUND_Y * 1.05], [FULCRUM_X - 200, GROUND_Y * 0.95], [FULCRUM_X + TRAY_LENGTH + 200, GROUND_Y * 1.09], [FULCRUM_X + TRAY_LENGTH + 250, GROUND_Y * 1.02]];
+                for (let i = 0; i < cC.length; i++) {
+                    let x = cC[i][0];
+                    let y = cC[i][1];
+                    p.noStroke();
+                    p.fill('red');
+                    p.arc(x - 12, y - 8, 18, 20, p.radians(180), p.radians(0), p.PIE);
+                    p.fill(255);
+                    p.arc(x, y, 40, 40, 0, p.PI + p.QUARTER_PI, p.PIE);
+                    p.arc(x - 15, y, 20, 30, p.radians(180), p.radians(0), p.PIE);
+                    p.fill('orange');
+                    p.triangle(x - 25, y, x - 36, y, x - 23, y - 7);
+                    p.strokeWeight(3);
+                    p.stroke('orange');
+                    p.line(x - 5, y + 20, x - 5, y + 30);
+                    p.line(x + 5, y + 20, x + 5, y + 30);
+                }
+
+                // --- Draw Force Arrows and Arm Indicators ---
+                let loadGlobalPoint = p.createVector(structuralLoadArm, 0).rotate(liftAngle).add(FULCRUM_X, FULCRUM_Y);
+                let effortGlobalPoint = p.createVector(structuralEffortArm, 0).rotate(liftAngle).add(FULCRUM_X, FULCRUM_Y);
+
+                let horizontalLoadArm = structuralLoadArm * p.cos(p.abs(liftAngle));
+                let horizontalEffortArm = structuralEffortArm * p.cos(p.abs(liftAngle));
+
+                // Load Arm Indicator Line
+                p.stroke(arrowRed); p.fill(arrowRed); p.strokeWeight(1.5);
+                let armLineY_load = FULCRUM_Y + WHEEL_RADIUS + 35;
+                p.line(FULCRUM_X, armLineY_load, loadGlobalPoint.x, armLineY_load);
+                p.line(loadGlobalPoint.x, armLineY_load, loadGlobalPoint.x, loadGlobalPoint.y - loadVisualSize / 2);
+                p.noStroke(); p.textAlign(p.CENTER, p.BOTTOM); p.textSize(12);
+
+                // Adjust text placement to prevent overlap with the vertical line
+                const textLength = 120; // Estimated text width in pixels
+                let textCenterX = (FULCRUM_X + loadGlobalPoint.x) / 2;
+                if (loadGlobalPoint.x - FULCRUM_X < textLength) {
+                    // If the horizontal distance is less than text length, shift text to the left
+                    textCenterX = loadGlobalPoint.x - textLength / 2
+                }
+                p.text(`Load Arm: ${(horizontalLoadArm / 50).toFixed(2)} m`, textCenterX, armLineY_load - 2);
+
+                // Effort Arm Indicator Line
+                p.stroke(arrowBlue); p.fill(arrowBlue); p.strokeWeight(1.5);
+                let armLineY_effort = armLineY_load + 30;
+                p.line(FULCRUM_X, armLineY_effort, effortGlobalPoint.x, armLineY_effort);
+                p.line(effortGlobalPoint.x, armLineY_effort, effortGlobalPoint.x, effortGlobalPoint.y);
+                p.noStroke(); p.textAlign(p.CENTER, p.BOTTOM);
+                p.text(`Effort Arm: ${(horizontalEffortArm / 50).toFixed(2)} m`, (FULCRUM_X + effortGlobalPoint.x) / 2, armLineY_effort - 2);
+
+
+                // Effort Force Arrow (representing required effort, not applied)
+                // The green arrow still shows the *required* effort to lift.
+                let effortRequiredArrowVecLength = p.map(effortForce, 0, 150 * GRAVITY, 0, 70);
+                let effortRequiredArrowVec = p.createVector(0, -effortRequiredArrowVecLength);
+                drawArrow(p, p.createVector(effortGlobalPoint.x, effortGlobalPoint.y), effortRequiredArrowVec, arrowBlue);
+
+                // --- Display Text Information on Canvas ---
+                p.fill(textColor);
+                p.noStroke();
+                p.textAlign(p.LEFT);
+                p.textSize(13);
+                let textX = 20;
+                let textY = 25;
+                const lineSpacing = 18;
+
+                p.text(`Load Force (Weight): ${loadForceMagnitude.toFixed(1)} N`, textX, textY);
+                p.text(`Effort Force Required: ${effortForce.toFixed(1)} N`, textX, textY + lineSpacing);
+                p.text(`Mechanical Advantage (MA): ${mechanicalAdvantage.toFixed(2)}`, textX, textY + 2 * lineSpacing);
+                p.textSize(11);
+                p.text(`(MA = Effort Arm / Load Arm; Effort = Load Force / MA)`, textX, textY + 2.8 * lineSpacing); // Adjusted Y for clarity
+                // Using CANVAS_HEIGHT - 15 for the note, as it was in my previous version, for better spacing.
+                p.text(`Note: Arm lengths displayed in 'm' assume 50 pixels = 1 meter for illustration.`, textX, CANVAS_HEIGHT - 5);
+            };
+
+            function drawArrow(p, base, vec, myColor) {
+                p.push();
+                p.stroke(myColor);
+                p.strokeWeight(2.5);
+                p.fill(myColor);
+                p.translate(base.x, base.y);
+                p.line(0, 0, vec.x, vec.y);
+
+                p.translate(vec.x, vec.y);
+                p.rotate(vec.heading());
+                let arrowSize = 7;
+                p.triangle(0, 0, -arrowSize, -arrowSize / 2.5, -arrowSize, arrowSize / 2.5);
+                p.pop();
+            }
+        };
+
+        new p5(sketch, window.document.getElementById('canvas-container'));
+
+    </script>
+</body>
+
+</html>

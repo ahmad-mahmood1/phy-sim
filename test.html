@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            /* Stack elements vertically */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            /* Lighter background for the page */
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+            overflow: hidden;
+            /* Prevent scrollbars if canvas is large */
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #444;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+            /* Slightly softer shadow */
+            margin-bottom: 20px;
+            /* Space between canvas and text */
+            /* The canvas itself will be appended here by p5.js */
+        }
+
+        h2 {
+            color: #333;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: #555;
+            margin-top: 0;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 90%;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <h2>Dynamic 2D Shadow Simulation</h2>
+    <div id="canvas-container">
+    </div>
+    <p>Move the mouse to control the light source. Shapes will cast shadows that interact.</p>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let lightPos; // p5.Vector for light position
+            const shapes = []; // Array to hold all shape objects
+
+            // Conceptual heights for perspective projection
+            const H_LIGHT = 250; // Height of the light source
+            const H_OBJ = 40;    // Height of the objects off the "ground"
+            let shadowFactor;    // Calculated factor for shadow scaling and displacement
+
+            // Canvas dimensions
+            const CANVAS_WIDTH = Math.min(800, window.innerWidth - 40);
+            const CANVAS_HEIGHT = Math.min(600, window.innerHeight - 150);
+
+            p.setup = () => {
+                p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+                lightPos = p.createVector(p.width / 2, 50); // Initial light position
+
+                // Calculate shadow factor based on heights
+                // Ensure H_LIGHT > H_OBJ and H_OBJ >= 0 for realistic projection
+                if (H_LIGHT <= H_OBJ || H_OBJ < 0) {
+                    console.warn("Warning: H_LIGHT should be greater than H_OBJ, and H_OBJ should be non-negative. Using a default shadowFactor = 2.");
+                    shadowFactor = 2;
+                } else {
+                    shadowFactor = H_LIGHT / (H_LIGHT - H_OBJ);
+                }
+
+                // Initialize shapes with properties
+                shapes.push({
+                    type: 'rect', // Shape type
+                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)), // Initial position
+                    w: 60, // Width
+                    h: 90, // Height
+                    color: p.color(231, 76, 60, 230), // Alizarin (reddish) with some transparency
+                    vel: p5.Vector.random2D().mult(p.random(0.8, 1.5)) // Random initial velocity
+                });
+                shapes.push({
+                    type: 'circle',
+                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)),
+                    r: 40, // Radius
+                    color: p.color(52, 152, 219, 230), // Peter River (blueish)
+                    vel: p5.Vector.random2D().mult(p.random(1.0, 1.8))
+                });
+                shapes.push({
+                    type: 'rect',
+                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)),
+                    w: 100,
+                    h: 50,
+                    color: p.color(46, 204, 113, 230), // Emerald (greenish)
+                    vel: p5.Vector.random2D().mult(p.random(0.7, 1.2))
+                });
+                shapes.push({
+                    type: 'circle',
+                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)),
+                    r: 30,
+                    color: p.color(241, 196, 15, 230), // Sun Flower (yellowish)
+                    vel: p5.Vector.random2D().mult(p.random(1.2, 2.0))
+                });
+                shapes.push({
+                    type: 'rect',
+                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)),
+                    w: 30,
+                    h: 30,
+                    color: p.color(155, 89, 182, 230), // Amethyst (purpleish)
+                    vel: p5.Vector.random2D().mult(p.random(1.5, 2.2))
+                });
+            };
+
+            p.draw = () => {
+                p.background(236, 240, 241); // "Clouds" - a light gray background
+
+                // Update light position to follow the mouse, constrained to canvas
+                lightPos.set(p.constrain(p.mouseX, 0, p.width), p.constrain(p.mouseY, 0, p.height));
+
+                // --- 1. Draw all shadows first ---
+                p.fill(44, 62, 80, 100); // "Wet Asphalt" - dark, semi-transparent for shadows
+                p.noStroke(); // Shadows typically don't have outlines
+                for (const shape of shapes) {
+                    drawShadow(shape);
+                }
+
+                // --- 2. Update positions and Draw all shapes ---
+                for (const shape of shapes) {
+                    // Update position based on velocity
+                    shape.pos.add(shape.vel);
+
+                    // Bounce off canvas walls
+                    if (shape.type === 'rect') {
+                        if (shape.pos.x < 0 || shape.pos.x + shape.w > p.width) {
+                            shape.vel.x *= -1;
+                            shape.pos.x = p.constrain(shape.pos.x, 0, p.width - shape.w); // Prevent sticking
+                        }
+                        if (shape.pos.y < 0 || shape.pos.y + shape.h > p.height) {
+                            shape.vel.y *= -1;
+                            shape.pos.y = p.constrain(shape.pos.y, 0, p.height - shape.h); // Prevent sticking
+                        }
+                    } else if (shape.type === 'circle') {
+                        if (shape.pos.x - shape.r < 0 || shape.pos.x + shape.r > p.width) {
+                            shape.vel.x *= -1;
+                            shape.pos.x = p.constrain(shape.pos.x, shape.r, p.width - shape.r); // Prevent sticking
+                        }
+                        if (shape.pos.y - shape.r < 0 || shape.pos.y + shape.r > p.height) {
+                            shape.vel.y *= -1;
+                            shape.pos.y = p.constrain(shape.pos.y, shape.r, p.height - shape.r); // Prevent sticking
+                        }
+                    }
+
+                    // Draw the shape itself
+                    p.fill(shape.color);
+                    p.stroke(44, 62, 80); // Dark stroke for shapes for definition
+                    p.strokeWeight(1.5);
+                    if (shape.type === 'rect') {
+                        p.rect(shape.pos.x, shape.pos.y, shape.w, shape.h, 5); // Slightly rounded corners for rects
+                    } else if (shape.type === 'circle') {
+                        p.ellipse(shape.pos.x, shape.pos.y, shape.r * 2, shape.r * 2);
+                    }
+                }
+
+                // --- 3. Draw the light source ---
+                p.fill(243, 156, 18, 230); // "Orange" - for the light source
+                p.stroke(230, 126, 34);    // "Carrot" - darker orange outline
+                p.strokeWeight(2);
+                p.ellipse(lightPos.x, lightPos.y, 20, 20); // Represent light as a small circle
+            };
+
+            // Function to draw the shadow for a given shape
+            function drawShadow(shape) {
+                if (shape.type === 'rect') {
+                    // For a rectangle, project its four vertices
+                    const vertices = [
+                        p.createVector(shape.pos.x, shape.pos.y),
+                        p.createVector(shape.pos.x + shape.w, shape.pos.y),
+                        p.createVector(shape.pos.x + shape.w, shape.pos.y + shape.h),
+                        p.createVector(shape.pos.x, shape.pos.y + shape.h)
+                    ];
+
+                    const shadowVertices = [];
+                    for (const v of vertices) {
+                        // Vector from light to vertex
+                        const lightToVertex = p5.Vector.sub(v, lightPos);
+                        // Project vertex away from light source based on shadowFactor
+                        const shadowVertex = p5.Vector.add(lightPos, p5.Vector.mult(lightToVertex, shadowFactor));
+                        shadowVertices.push(shadowVertex);
+                    }
+
+                    // Draw the shadow polygon
+                    p.beginShape();
+                    for (const sv of shadowVertices) {
+                        p.vertex(sv.x, sv.y);
+                    }
+                    p.endShape(p.CLOSE);
+
+                } else if (shape.type === 'circle') {
+                    const center = shape.pos;
+                    const radius = shape.r;
+
+                    // Vector from light to circle's center
+                    const lightToCenter = p5.Vector.sub(center, lightPos);
+                    // Project the center away from light source
+                    const shadowCenter = p5.Vector.add(lightPos, p5.Vector.mult(lightToCenter, shadowFactor));
+                    // Scale the radius by the shadowFactor
+                    const shadowRadius = radius * shadowFactor;
+
+                    p.ellipse(shadowCenter.x, shadowCenter.y, shadowRadius * 2, shadowRadius * 2);
+                }
+            }
+
+            // Resize canvas when window is resized
+            p.windowResized = () => {
+                const newWidth = Math.min(800, window.innerWidth - 40);
+                const newHeight = Math.min(600, window.innerHeight - 150);
+                p.resizeCanvas(newWidth, newHeight);
+            };
+        };
+
+        // Get the container for the p5.js canvas
+        const container = window.document.getElementById('canvas-container');
+        // Create the p5 instance
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>

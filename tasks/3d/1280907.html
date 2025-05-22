@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Hexagon Ball Simulation</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.js",
+            "three/examples/jsm/controls/OrbitControls": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/controls/OrbitControls.js",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+            "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js"
+          }
+    }
+    </script>
+</head>
+
+<body>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+        import * as CANNON from 'cannon-es';
+        import CannonDebugger from 'cannon-es-debugger';
+
+        // Constants
+        const HEXAGON_RADIUS = 5;
+        const HEXAGON_HEIGHT = 10;
+        const BALL_RADIUS = 1;
+        const GRAVITY = -9.82;
+        const ROTATION_SPEED = 0.1;
+        const PLANE_SIZE = 50;
+        const FRICTION = 0.3;
+        const RESTITUTION = 0.7;
+        const HEXAGON_WALL_THICKNESS = 0.1;
+        const HEXAGON_BOTTOM_THICKNESS = 0.2;
+        const HEXAGON_WALL_WIDTH_MULTIPLIER = 0.6;
+        const INITIAL_BALL_VELOCITY = 15;
+
+        // Scene setup
+        const { scene, camera, renderer, controls } = setupScene();
+
+        // Physics setup
+        const { world, cannonDebugger } = setupPhysics();
+
+        // Materials
+        const { ballContactMaterial, hexagonContactMaterial } = createMaterials(world);
+
+        // Create ground plane
+        const { plane, planeBody } = createGroundPlane(scene, world);
+
+        // Create hexagon container
+        const { hexagonBody, bottomMesh } = createHexagonContainer(scene, world, hexagonContactMaterial);
+
+        // Create ball
+        const { ballBody, ballMesh } = createBall(scene, world, ballContactMaterial);
+
+        // Add lighting
+        addLighting(scene);
+
+        // Set camera position
+        positionCamera(camera);
+
+        // Start animation loop
+        startAnimationLoop(scene, camera, renderer, world, cannonDebugger, ballBody, ballMesh, controls);
+
+        // Handle window resize
+        handleWindowResize(camera, renderer);
+
+        // Function to set up the scene, camera, and renderer
+        function setupScene() {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            return { scene, camera, renderer, controls };
+        }
+
+        // Function to set up the physics world
+        function setupPhysics() {
+            const world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+
+            // Enable contact detection between bodies
+            world.defaultContactMaterial.contactEquationStiffness = 1e9;
+            world.defaultContactMaterial.contactEquationRelaxation = 4;
+
+            const cannonDebugger = new CannonDebugger(scene, world, {
+                color: 0x00ff00,
+                scale: 1.0
+            });
+
+            return { world, cannonDebugger };
+        }
+
+        // Function to create materials
+        function createMaterials(world) {
+            const ballContactMaterial = new CANNON.Material('ball');
+            const hexagonContactMaterial = new CANNON.Material('hexagon');
+
+            const ballHexagonContact = new CANNON.ContactMaterial(
+                ballContactMaterial,
+                hexagonContactMaterial,
+                {
+                    friction: FRICTION,
+                    restitution: RESTITUTION
+                }
+            );
+            world.addContactMaterial(ballHexagonContact);
+
+            return { ballContactMaterial, hexagonContactMaterial };
+        }
+
+        // Function to create the ground plane
+        function createGroundPlane(scene, world) {
+            const planeGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff' });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+            const planeBody = new CANNON.Body({
+                type: 'static',
+                shape: new CANNON.Plane(),
+                position: new CANNON.Vec3(0, -HEXAGON_HEIGHT / 2, 0)
+            });
+
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(planeBody);
+
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.copy(planeBody.position);
+            plane.receiveShadow = true;
+
+            scene.add(plane);
+
+            return { plane, planeBody };
+        }
+
+        // Function to create a hexagon wall
+        function createHexagonWall(angle, rotation, hexagonBody) {
+            const planeShape = new CANNON.Box(new CANNON.Vec3(
+                HEXAGON_RADIUS * HEXAGON_WALL_WIDTH_MULTIPLIER,
+                HEXAGON_HEIGHT * 0.5,
+                HEXAGON_WALL_THICKNESS
+            ));
+
+            const x = Math.cos(angle) * HEXAGON_RADIUS;
+            const z = Math.sin(angle) * HEXAGON_RADIUS;
+
+            const q = new CANNON.Quaternion();
+            q.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), rotation + Math.PI / 2);
+
+            hexagonBody.addShape(planeShape, new CANNON.Vec3(x, 0, z), q);
+        }
+
+        // Function to create the hexagon container
+        function createHexagonContainer(scene, world, hexagonContactMaterial) {
+            const hexagonBody = new CANNON.Body({
+                mass: 0,
+                material: hexagonContactMaterial
+            });
+
+            // Create walls
+            const rotations = [0, Math.PI / 2 + Math.PI / 6, Math.PI / 3, 0, Math.PI / 2 + Math.PI / 6, Math.PI / 3];
+
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i;
+                createHexagonWall(angle, rotations[i], hexagonBody);
+            }
+
+            // Add bottom
+            const bottomShape = new CANNON.Cylinder(
+                HEXAGON_RADIUS * 1.01,
+                HEXAGON_RADIUS * 1.01,
+                HEXAGON_BOTTOM_THICKNESS,
+                6
+            );
+            hexagonBody.addShape(bottomShape, new CANNON.Vec3(0, -HEXAGON_HEIGHT / 2, 0));
+
+            // Create visual bottom
+            const bottomGeometry = new THREE.BoxGeometry(
+                HEXAGON_RADIUS * 2,
+                HEXAGON_BOTTOM_THICKNESS,
+                HEXAGON_RADIUS * 2
+            );
+            const bottomMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.3
+            });
+            const bottomMesh = new THREE.Mesh(bottomGeometry, bottomMaterial);
+            bottomMesh.position.set(0, -HEXAGON_HEIGHT / 2, 0);
+            scene.add(bottomMesh);
+
+            hexagonBody.position.set(0, 0, 0);
+            world.addBody(hexagonBody);
+
+            // Set up collision callback
+            setupCollisionCallback(hexagonBody, bottomMesh);
+
+            return { hexagonBody, bottomMesh };
+        }
+
+        // Function to set up collision callback
+        function setupCollisionCallback(hexagonBody, bottomMesh) {
+            hexagonBody.addEventListener('collide', function (event) {
+                console.log("Collision detected!", event);
+
+                if (event.body === ballBody) {
+                    const contactNormal = new CANNON.Vec3();
+                    event.contact.getImpactVelocityAlongNormal();
+
+                    const contactPoint = event.contact.bi.position;
+                    event.contact.ni.negate(contactNormal);
+
+                    const rotationQuaternion = new CANNON.Quaternion();
+                    rotationQuaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), ROTATION_SPEED);
+
+                    hexagonBody.quaternion.mult(rotationQuaternion, hexagonBody.quaternion);
+
+                    bottomMesh.position.copy(
+                        new THREE.Vector3(0, -HEXAGON_HEIGHT / 2, 0).applyQuaternion(hexagonBody.quaternion)
+                    );
+                    bottomMesh.quaternion.copy(hexagonBody.quaternion);
+                }
+            });
+        }
+
+        // Function to create the ball
+        function createBall(scene, world, ballContactMaterial) {
+            const ballShape = new CANNON.Sphere(BALL_RADIUS);
+            const ballBody = new CANNON.Body({
+                mass: 1,
+                material: ballContactMaterial
+            });
+            ballBody.addShape(ballShape);
+            ballBody.position.set(0, HEXAGON_HEIGHT / 2, 0);
+            ballBody.velocity.set(INITIAL_BALL_VELOCITY, 0, 0);
+
+            world.addBody(ballBody);
+
+            const ballGeometry = new THREE.SphereGeometry(BALL_RADIUS);
+            const ballMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
+            scene.add(ballMesh);
+
+            return { ballBody, ballMesh };
+        }
+
+        // Function to add lighting
+        function addLighting(scene) {
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(10, 10, 10);
+            scene.add(light);
+        }
+
+        // Function to position the camera
+        function positionCamera(camera) {
+            camera.position.set(15, 10, 15);
+            camera.lookAt(0, 0, 0);
+        }
+
+        // Function to start the animation loop
+        function startAnimationLoop(scene, camera, renderer, world, cannonDebugger, ballBody, ballMesh, controls) {
+            const animate = () => {
+                requestAnimationFrame(animate);
+
+                world.step(1 / 60);
+                cannonDebugger.update();
+
+                ballMesh.position.copy(ballBody.position);
+                ballMesh.quaternion.copy(ballBody.quaternion);
+
+                renderer.render(scene, camera);
+                controls.update();
+            };
+
+            animate();
+        }
+
+        // Function to handle window resize
+        function handleWindowResize(camera, renderer) {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+    </script>
+</body>
+
+</html>

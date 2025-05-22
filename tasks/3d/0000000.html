@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Simulation</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+        "imports": {
+            "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.157.0/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+            "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js",
+            "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+          }
+    }
+    </script>
+</head>
+
+<body>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+        import CannonDebugger from 'cannon-es-debugger';
+        import { GUI } from 'dat.gui';
+
+        const GRAVITY = -9.82
+        const PLANE_SIZE = 50
+        const CAMERA_POSITION = { x: 25, y: 10, z: 15 };
+        const LIGHT_POSITION = { x: 10, y: 10, z: 30 };
+        const PHYSICS_TIME_STEP = 1 / 60;
+        const CONTACT_EQUATION_RELAXATION = 1;
+
+        let scene, camera, renderer, orbitControls
+
+        let world, cannonDebugger, gui
+
+        let plane, planeBody
+
+        let lastTime = 0
+
+
+        // Simulation controls
+        const controls = {
+            showDebugger: true,
+            reset: function () { },
+        };
+
+
+        // Function to set up the scene, camera, and renderer
+        function setupScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff); // Set background color to white
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+
+
+        }
+
+        // Function to setup GUI controls
+        function setupGUI() {
+            gui = new GUI();
+
+
+        }
+
+
+        // Function to set up the physics world
+        function setupPhysics() {
+            world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+
+            // Enable contact detection between bodies
+            world.defaultContactMaterial.contactEquationRelaxation = CONTACT_EQUATION_RELAXATION;
+
+            cannonDebugger = new CannonDebugger(scene, world, {
+                color: 0x00ff00,
+                scale: 1.0
+            });
+        }
+
+
+        // Function to add lighting
+        function addLighting() {
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            scene.add(light);
+        }
+
+        // Function to position the camera
+        function positionCamera() {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, 0, 0);
+        }
+
+        // Function to create the ground plane as terrain using boxes
+        function createGroundPlane() {
+            const planeGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff' });
+            plane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+            planeBody = new CANNON.Body({
+                type: 'static',
+                shape: new CANNON.Plane(),
+                position: new CANNON.Vec3(0, 0, 0)
+            });
+
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.copy(planeBody.position);
+            plane.receiveShadow = true;
+
+            world.addBody(planeBody);
+            scene.add(plane);
+        }
+
+
+
+        // Function to handle window resize
+        function handleWindowResize() {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+
+        // Function to start the animation loop
+        function startAnimationLoop() {
+            const animate = (time) => {
+                requestAnimationFrame(animate);
+
+                let currentTime = performance.now()
+                let dt = currentTime - lastTime
+                lastTime = currentTime
+
+                world.step(PHYSICS_TIME_STEP, dt);
+
+                // Only update debugger if enabled
+                if (controls.showDebugger) {
+                    cannonDebugger.update();
+                }
+
+                renderer.render(scene, camera);
+                orbitControls.update();
+            };
+
+            animate(0);
+        }
+
+
+        // Scene setup
+        setupScene();
+
+        setupPhysics();
+
+        createGroundPlane();
+
+        // Setup GUI controls
+        setupGUI();
+
+        // Add lighting
+        addLighting();
+
+        // Set camera position
+        positionCamera();
+
+        // Start animation loop
+        startAnimationLoop();
+
+        // Handle window resize
+        handleWindowResize();
+
+
+
+    </script>
+</body>
+
+</html>

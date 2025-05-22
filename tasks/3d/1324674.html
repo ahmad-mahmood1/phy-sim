@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Fireworks Obstacle Course</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            /* Prevent scrollbars */
+            background-color: #000;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: sans-serif;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px black;
+            pointer-events: none;
+            /* Allow mouse events to pass through */
+            z-index: 10;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 300px;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-family: sans-serif;
+            font-size: 16px;
+            text-align: center;
+            text-shadow: 1px 1px 2px black;
+            z-index: 10;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 5px;
+            pointer-events: none;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+        "imports": {
+            "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.157.0/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+            "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+          }
+    }
+    </script>
+</head>
+
+<body>
+    <div id="instructions">
+        <p><strong>Controls:</strong> Use the <strong>Start Simulation</strong> button to launch rockets. <strong>Reset
+                Simulation</strong> will clear and restart.</p>
+        <p>Drag to rotate view. Scroll to zoom in/out.</p>
+    </div>
+    <div id="info"></div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+        import { GUI } from 'dat.gui';
+
+        // --- Constants ---
+        const GRAVITY = -9.82;
+        const GROUND_SIZE = 50;
+        const CAMERA_POSITION = { x: 25, y: 20, z: 25 };
+        const LIGHT_POSITION = { x: 20, y: 30, z: 30 };
+        const PHYSICS_TIME_STEP = 1 / 60;
+        const CONTACT_EQUATION_RELAXATION = 4;
+
+        const OBSTACLE_COURSE_START_HEIGHT = 10 // Distance from the ground
+        const OBSTACLE_COURSE_HEIGHT = 40; // Total vertical height of obstacles
+        const OBSTACLE_CYLINDER_RADIUS = 15; // Horizontal boundary for obstacles and rockets
+        const OBSTACLE_COUNT = 30; // Number of obstacles
+        const OBSTACLE_TYPES = ['box', 'sphere', 'cylinder']; // Types of obstacles
+        const OBSTACLE_SIZE_RANGE = [1, 4]; // Min/Max size for obstacles
+        const OBSTACLE_AVOIDANCE_RADIUS = OBSTACLE_SIZE_RANGE[1] * 1.2 // Radius around obstacles for rockets to avoid
+
+        const ROCKET_COUNT = 10; // Increased rocket count
+        const ROCKET_BASE_RADIUS = 0.4; // Base radius for the rocket shape (body and nose)
+        const ROCKET_BODY_HEIGHT = ROCKET_BASE_RADIUS * 4; // Height of the main body cylinder
+        const ROCKET_NOSE_HEIGHT = ROCKET_BASE_RADIUS * 2; // Height of the nose cone
+        const ROCKET_TOTAL_HEIGHT = ROCKET_BODY_HEIGHT + ROCKET_NOSE_HEIGHT;
+        const ROCKET_PHYSICS_HEIGHT = ROCKET_TOTAL_HEIGHT
+
+        const ROCKET_MASS = 1;
+        const ROCKET_UPWARD_FORCE = 20; // Constant upward force
+        const ROCKET_LINEAR_DAMPING = 0.7; // Simulate air resistance
+        const ROCKET_EXPLODE_HEIGHT = OBSTACLE_COURSE_HEIGHT + OBSTACLE_COURSE_START_HEIGHT + 10; // Height above which rockets explode
+        const ROCKET_EXPLODE_RADIUS = OBSTACLE_CYLINDER_RADIUS * 1.1; // Max horizontal distance before explosion
+        const EXPLOSION_DURATION = 0.8; // Seconds for explosion effect
+        const ROCKET_AVOIDANCE_RADIUS = ROCKET_BASE_RADIUS * 1.1; // Radius to avoid other rockets (based on max obstacle size, adjusted)
+        const ROCKET_AVOIDANCE_FORCE = 1; // Force to repel other rockets
+        const OBSTACLE_AVOIDANCE_FORCE = ROCKET_UPWARD_FORCE * 1.2; // Force to repel from obstacles
+
+
+        // Explosion particle properties
+        const EXPLOSION_PARTICLE_COUNT = 5; // Particle count for better visual
+        const EXPLOSION_PARTICLE_LIFE = 2.0; // Seconds
+        const EXPLOSION_PARTICLE_SPEED = 5; // Base speed
+        const EXPLOSION_PARTICLE_SPEED_RANDOM = 10; // Random speed addition
+        const EXPLOSION_COLORS = [
+            0xff0000, 0xffff00, 0x00ff00, 0x0000ff, 0xff00ff, 0xffffff,
+            0xff8800, 0x88ff00, 0x00ffff, 0xff00ff,
+        ];
+        const EXPLOSION_FLASH_INTENSITY = 10;
+        const EXPLOSION_FLASH_DISTANCE = 20;
+        const EXPLOSION_FLASH_DURATION = 200; // Milliseconds
+
+        // Rocket trail properties
+        const ROCKET_TRAIL_RATE = 0.5; // Probability of creating a trail particle each frame (0 to 1)
+        const ROCKET_TRAIL_LIFE = 1.0; // Seconds
+
+
+        // --- Global Variables ---
+        let scene, camera, renderer, orbitControls;
+        let world;
+        let gui;
+        let infoElement;
+
+        const obstacles = []; // Store { mesh, body }
+        // Rocket structure now includes explosion/trail properties
+        let rockets = []; // Store { mesh, body, exploding, explosionStartTime, particles, trail, light }
+        let simulationRunning = false;
+        let lastTime = 0;
+
+        // Physics materials
+        let obstaclePhysicsMaterial, rocketPhysicsMaterial;
+
+        // --- Initialize the application ---
+        initializeApplication();
+
+        // --- Main application initialization ---
+        function initializeApplication() {
+            infoElement = document.getElementById('info');
+            updateInfoText();
+
+            // Scene setup
+            const sceneSetup = setupScene();
+            scene = sceneSetup.scene;
+            camera = sceneSetup.camera;
+            renderer = sceneSetup.renderer;
+            orbitControls = sceneSetup.orbitControls;
+
+            // Physics setup
+            const physicsSetup = setupPhysics(scene);
+            world = physicsSetup.world;
+
+            // Create ground plane
+            createGroundPlane(scene, world);
+
+            // Setup GUI controls
+            setupGUI();
+
+            // Add lighting
+            addLighting(scene);
+
+            // Set camera position
+            positionCamera(camera);
+
+            // Create obstacles and rockets for the initial state
+            createObstacles();
+            createRockets();
+
+            // Handle window resize
+            handleWindowResize(camera, renderer);
+
+            // Start animation loop
+            startAnimationLoop();
+
+            // Simulation starts paused, wait for user input
+            simulationRunning = false;
+        }
+
+        // --- Function to set up the scene, camera, and renderer ---
+        function setupScene() {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // Sky blue background
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio); // Improve rendering quality
+            renderer.shadowMap.enabled = true; // Enable shadow maps
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
+            document.body.appendChild(renderer.domElement);
+
+            const orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+            orbitControls.maxPolarAngle = Math.PI / 2; // Prevent camera from going below the ground
+
+            return { scene, camera, renderer, orbitControls };
+        }
+
+        // --- Function to setup GUI controls ---
+        function setupGUI() {
+            gui = new GUI();
+
+            const simulationControls = {
+                startStop: function () {
+                    toggleSimulation();
+                },
+                reset: function () {
+                    resetSimulation();
+                }
+            };
+
+            gui.add(simulationControls, 'startStop').name('Start Simulation');
+            gui.add(simulationControls, 'reset').name('Reset Simulation');
+
+            return gui;
+        }
+
+        // --- Function to start the animation loop ---
+        function startAnimationLoop() {
+            const animate = (time) => {
+                requestAnimationFrame(animate);
+
+                const currentTime = performance.now();
+                const dt = (currentTime - lastTime) / 1000; // Time since last frame in seconds
+                lastTime = currentTime; // Update lastTime here
+
+                if (simulationRunning) {
+                    // Apply constant upward force and avoidance forces
+                    applyRocketForces();
+
+                    world.step(PHYSICS_TIME_STEP, dt); // Step physics world
+
+                    // Update rockets (including explosion/particle logic)
+                    updateRockets(dt);
+
+                    updateInfoText(); // Update info display
+                }
+
+
+                // Sync obstacle meshes with physics bodies (static, but good practice)
+                for (const obstacle of obstacles) {
+                    obstacle.mesh.position.copy(obstacle.body.position);
+                    obstacle.mesh.quaternion.copy(obstacle.body.quaternion);
+                }
+
+                renderer.render(scene, camera);
+                orbitControls.update();
+            };
+
+            animate(0); // Start the loop
+        }
+
+        // --- Function to set up the physics world ---
+        function setupPhysics(scene) {
+            const world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+
+            // Create physics materials
+            obstaclePhysicsMaterial = new CANNON.Material('obstacle');
+            rocketPhysicsMaterial = new CANNON.Material('rocket');
+
+            // Configure contact materials
+            const rocketObstacleContactMaterial = new CANNON.ContactMaterial(rocketPhysicsMaterial, obstaclePhysicsMaterial, {
+                friction: 0.1,
+                restitution: 0.0 // No bounce on obstacle collision (will explode instead)
+            });
+            world.addContactMaterial(rocketObstacleContactMaterial);
+
+            const rocketRocketContactMaterial = new CANNON.ContactMaterial(rocketPhysicsMaterial, rocketPhysicsMaterial, {
+                friction: 0.01,
+                restitution: 0.1 // Very little bounce between rockets
+            });
+            world.addContactMaterial(rocketRocketContactMaterial);
+
+
+            // Enable contact detection between bodies (already in template)
+            world.defaultContactMaterial.contactEquationRelaxation = CONTACT_EQUATION_RELAXATION;
+
+            return { world };
+        }
+
+        // --- Function to add lighting ---
+        function addLighting(scene) {
+            const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            directionalLight.castShadow = true; // Enable shadows (needs renderer shadow config too)
+            directionalLight.shadow.mapSize.width = 1024; // Increase shadow map size for better quality
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5; // Adjust shadow camera bounds
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -20;
+            directionalLight.shadow.camera.right = 20;
+            directionalLight.shadow.camera.top = 20;
+            directionalLight.shadow.camera.bottom = -20;
+            scene.add(directionalLight);
+
+        }
+
+        // --- Function to position the camera ---
+        function positionCamera(camera) {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, OBSTACLE_COURSE_HEIGHT / 2, 0); // Look towards the middle of the course
+        }
+
+        // --- Function to create the ground plane ---
+        function createGroundPlane(scene, world) {
+            const planeGeometry = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({ color: '#cccccc', side: THREE.DoubleSide });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+            const planeBody = new CANNON.Body({
+                type: CANNON.Body.STATIC, // Static body doesn't move
+                shape: new CANNON.Plane(),
+                position: new CANNON.Vec3(0, 0, 0)
+            });
+
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+
+            plane.rotation.x = -Math.PI / 2;
+            // plane.position.copy(planeBody.position); // No need to copy, position is 0,0,0
+            plane.receiveShadow = true; // Enable receiving shadows
+
+            world.addBody(planeBody);
+            scene.add(plane);
+
+            // Return for potential later access if needed
+            return { plane, planeBody };
+        }
+
+        // --- Function to create obstacles ---
+        function createObstacles() {
+            const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, flatShading: true }); // Grayish material
+            obstaclePhysicsMaterial = new CANNON.Material('obstacle'); // Ensure material is created here
+
+            for (let i = 0; i < OBSTACLE_COUNT; i++) {
+                const type = OBSTACLE_TYPES[Math.floor(Math.random() * OBSTACLE_TYPES.length)];
+                const size = Math.random() * (OBSTACLE_SIZE_RANGE[1] - OBSTACLE_SIZE_RANGE[0]) + OBSTACLE_SIZE_RANGE[0];
+
+                let geometry, shape, mesh, body;
+
+                // Random position within cylindrical bounds and vertical range
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * (OBSTACLE_CYLINDER_RADIUS - size * 0.5); // Ensure obstacle is within radius, account for size
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                const y = ((i / OBSTACLE_COUNT) * OBSTACLE_COURSE_HEIGHT + size * 0.5) + OBSTACLE_COURSE_START_HEIGHT; // Distribute vertically, account for size
+
+
+                const position = new CANNON.Vec3(x, y, z);
+
+                switch (type) {
+                    case 'box':
+                        const boxSize = size;
+                        geometry = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
+                        shape = new CANNON.Box(new CANNON.Vec3(boxSize / 2, boxSize / 2, boxSize / 2));
+                        mesh = new THREE.Mesh(geometry, obstacleMaterial);
+                        body = new CANNON.Body({
+                            mass: 0, // Static
+                            shape: shape,
+                            position: position,
+                            material: obstaclePhysicsMaterial
+                        });
+                        break;
+                    case 'sphere':
+                        const sphereRadius = size / 2;
+                        geometry = new THREE.SphereGeometry(sphereRadius, 16, 16);
+                        shape = new CANNON.Sphere(sphereRadius);
+                        mesh = new THREE.Mesh(geometry, obstacleMaterial);
+                        body = new CANNON.Body({
+                            mass: 0, // Static
+                            shape: shape,
+                            position: position,
+                            material: obstaclePhysicsMaterial
+                        });
+                        break;
+                    case 'cylinder':
+                        const cylinderRadius = size / 2;
+                        const cylinderHeight = size * 1.5;
+                        geometry = new THREE.CylinderGeometry(cylinderRadius, cylinderRadius, cylinderHeight, 16);
+                        shape = new CANNON.Cylinder(cylinderRadius, cylinderRadius, cylinderHeight, 16);
+                        mesh = new THREE.Mesh(geometry, obstacleMaterial);
+                        body = new CANNON.Body({
+                            mass: 0, // Static
+                            shape: shape,
+                            position: position,
+                            material: obstaclePhysicsMaterial
+                        });
+                        break;
+                }
+
+                if (mesh && body) {
+                    mesh.position.copy(position);
+                    mesh.quaternion.copy(body.quaternion); // Sync rotation
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+
+                    scene.add(mesh);
+                    world.addBody(body);
+
+                    obstacles.push({ mesh, body, type, size });
+                }
+            }
+        }
+
+        // --- Function to create and launch rockets ---
+        function createRockets() {
+            rocketPhysicsMaterial = new CANNON.Material('rocket'); // Ensure material is created here
+
+            for (let i = 0; i < ROCKET_COUNT; i++) {
+                const color = new THREE.Color(Math.random(), Math.random(), Math.random()); // Random vibrant color
+                // Use a standard material with emissive for glow effect
+                const rocketMaterial = new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.8, flatShading: true });
+
+                // --- THREE.js Visual Mesh (Group of Cylinders) ---
+                const rocketGroup = new THREE.Group();
+
+                // Rocket Body
+                const bodyGeometry = new THREE.CylinderGeometry(ROCKET_BASE_RADIUS, ROCKET_BASE_RADIUS, ROCKET_BODY_HEIGHT, 16);
+                const bodyMesh = new THREE.Mesh(bodyGeometry, rocketMaterial);
+                // Position the body mesh so its base is at Y=0 relative to the group's origin
+                bodyMesh.position.y = ROCKET_BODY_HEIGHT / 2;
+                rocketGroup.add(bodyMesh);
+
+                // Rocket Nose Cone
+                // CylinderGeometry(radiusTop, radiusBottom, height, radialSegments)
+                const noseGeometry = new THREE.CylinderGeometry(0, ROCKET_BASE_RADIUS, ROCKET_NOSE_HEIGHT, 16);
+                const noseMesh = new THREE.Mesh(noseGeometry, rocketMaterial);
+                // Position the nose cone on top of the body
+                noseMesh.position.y = ROCKET_BODY_HEIGHT + ROCKET_NOSE_HEIGHT / 2;
+                rocketGroup.add(noseMesh);
+
+                // --- CANNON.js Physics Body (Single Sphere) ---
+                const rocketShape = new CANNON.Sphere(ROCKET_BASE_RADIUS);
+
+                const rocketConeShape = new CANNON.Cylinder(0, ROCKET_BASE_RADIUS, ROCKET_NOSE_HEIGHT, 16);
+
+                // Start at a slightly random horizontal position near the center
+                const startX = -OBSTACLE_CYLINDER_RADIUS / 2 + i * ((OBSTACLE_CYLINDER_RADIUS / ROCKET_COUNT) + ROCKET_BASE_RADIUS); // Start closer to center
+                const startZ = (Math.random() - 0.5) * (OBSTACLE_CYLINDER_RADIUS * 0.9);
+                // Start position Y for the physics body's center
+                const startY = ROCKET_PHYSICS_HEIGHT + 1; // Start physics body center slightly above ground level
+
+                const initialPosition = new CANNON.Vec3(startX, startY, startZ);
+
+                const rocketBody = new CANNON.Body({
+                    mass: ROCKET_MASS,
+                    position: initialPosition.clone(), // Use clone to store initial position separately
+                    shape: rocketShape,
+                    material: rocketPhysicsMaterial,
+                    linearDamping: ROCKET_LINEAR_DAMPING, // Add linear damping
+                });
+
+
+                // Set the initial position of the THREE.js group (its base will be at the initialPosition Y)
+                rocketGroup.position.set(initialPosition.x, initialPosition.y - ROCKET_PHYSICS_HEIGHT, initialPosition.z);
+
+
+                scene.add(rocketGroup);
+                world.addBody(rocketBody);
+
+                // Add point light to follow the rocket
+                const rocketLight = new THREE.PointLight(color, 2, 10); // Point light for glow
+                // Position the light slightly up from the base, near the physics body center for consistency
+                rocketLight.position.set(initialPosition.x, initialPosition.y, initialPosition.z);
+                scene.add(rocketLight);
+
+
+                rockets.push({
+                    mesh: rocketGroup, // The THREE.js group is the mesh
+                    body: rocketBody,
+                    exploding: false,
+                    explosionStartTime: 0,
+                    initialPosition: initialPosition.clone(), // Store initial position for reset
+                    particles: [], // Array to hold explosion particles
+                    trail: [], // Array to hold trail particles
+                    light: rocketLight // Store the point light
+                });
+            }
+
+            // Add collision listeners *after* all rockets are created
+            // We only need to listen once per body
+            rockets.forEach((rocket) => {
+                // Prevent adding multiple listeners if reset is called
+                if (!rocket.__collisionListenerAdded) {
+                    rocket.collisionListener = (event) => {
+                        const collidingBody = event.body;
+                        const isObstacleCollision = obstacles.some(obstacle => obstacle.body === collidingBody);
+
+                        if (isObstacleCollision && !rocket.exploding) {
+                            explodeRocket(rocket, performance.now() / 1000);
+                        }
+                    };
+                    rocket.body.addEventListener('collide', rocket.collisionListener);
+                    rocket.__collisionListenerAdded = true;
+                }
+            });
+        }
+
+        // --- Function to apply forces to rockets (upward and avoidance) ---
+        function applyRocketForces() {
+            const upwardForce = new CANNON.Vec3(0, ROCKET_UPWARD_FORCE * ROCKET_MASS, 0); // Force scaled by mass
+
+            for (let i = 0; i < rockets.length; i++) {
+                const rocket = rockets[i];
+                if (!rocket.exploding) {
+                    // Store the total force for this rocket to determine orientation
+                    const totalForce = upwardForce.clone()
+
+                    const rocketCenterPoint = new CANNON.Vec3()
+                    const localCenter = new CANNON.Vec3(0, 0, 0)
+                    rocket.body.pointToWorldFrame(localCenter, rocketCenterPoint)
+
+                    // Apply constant upward force (acts against gravity)
+                    rocket.body.applyForce(upwardForce, rocketCenterPoint);
+
+                    // Apply avoidance force from other rockets
+                    for (let j = 0; j < rockets.length; j++) {
+                        if (j !== i) {
+                            const otherRocket = rockets[j];
+                            if (!otherRocket.exploding) {
+                                const distance = rocket.body.position.distanceTo(otherRocket.body.position);
+                                if (distance < ROCKET_AVOIDANCE_RADIUS && distance > 0.1) { // Add a minimum distance check
+                                    const direction = new CANNON.Vec3();
+                                    direction.copy(rocket.body.position).vsub(otherRocket.body.position).normalize();
+                                    // Apply force inversely proportional to distance (simple model)
+                                    const avoidanceForceMagnitude = (ROCKET_AVOIDANCE_FORCE / distance);
+                                    const avoidanceForce = direction.scale(avoidanceForceMagnitude);
+
+                                    // Add to total force for orientation
+                                    totalForce.vadd(avoidanceForce, totalForce);
+
+                                    rocket.body.applyForce(avoidanceForce, rocket.body.position);
+                                    otherRocket.body.applyForce(avoidanceForce.negate(), otherRocket.body.position); // Apply opposite force
+                                }
+                            }
+                        }
+
+                    }
+
+                    // Apply avoidance force from obstacles
+                    for (const obstacle of obstacles) {
+                        const distance = rocket.body.position.distanceTo(obstacle.body.position);
+                        const obstalceType = obstacle.type
+                        const size = obstacle.size
+
+                        const obstacleAvoidanceRadius = (() => {
+                            if (obstalceType === 'cylinder') {
+                                return size * 3.5
+                            }
+
+                            else return size
+
+                        })()
+                        // Check if the rocket is within avoidance range and below the obstacle's vertical center
+                        if (distance < obstacleAvoidanceRadius && rocket.body.position.y < obstacle.body.position.y + obstacle.mesh.geometry.parameters.height / 2) {
+                            const direction = new CANNON.Vec3();
+                            direction.copy(rocket.body.position).vsub(obstacle.body.position).normalize();
+
+                            // Prioritize horizontal avoidance
+                            direction.y *= 0.3; // Reduce vertical component of avoidance force
+                            direction.normalize();
+
+                            // Apply force inversely proportional to distance
+                            const avoidanceForceMagnitude = (OBSTACLE_AVOIDANCE_FORCE / distance);
+                            const avoidanceForce = direction.scale(avoidanceForceMagnitude);
+
+                            // Add to total force for orientation
+                            totalForce.vadd(avoidanceForce, totalForce);
+
+                            rocket.body.applyForce(avoidanceForce, rocket.body.position);
+                        }
+                    }
+
+                    // Store the force direction for orientation in updateRockets
+                    if (totalForce.length() > 0.001) {
+                        // Normalize the force direction
+                        totalForce.normalize();
+                        // Store the direction for use in updateRockets
+                        rocket.forceDirection = totalForce;
+                    }
+                }
+            }
+        }
+
+
+        // --- Function to update rocket positions and handle explosions/particles ---
+        function updateRockets(dt) {
+            const currentTime = performance.now() / 1000; // Current time in seconds
+            const rocketsToKeep = [];
+
+            for (let i = 0; i < rockets.length; i++) {
+                const rocket = rockets[i];
+
+                if (!rocket.exploding) {
+                    // Calculate the base position from the physics body's center
+                    const basePosition = new THREE.Vector3().copy(rocket.body.position).add(new THREE.Vector3(0, -ROCKET_BODY_HEIGHT, 0));
+
+                    // Sync mesh (group) and light position/rotation with physics body
+                    rocket.mesh.position.copy(basePosition); // Mesh group's base is at this position
+
+                    // Orient rocket based on velocity or force direction
+                    if (rocket.forceDirection) {
+                        // Convert CANNON.Vec3 to THREE.Vector3
+                        const forceDir = new THREE.Vector3(
+                            rocket.forceDirection.x,
+                            rocket.forceDirection.y,
+                            rocket.forceDirection.z
+                        );
+
+                        // Default up vector (rocket points up by default)
+                        const defaultUp = new THREE.Vector3(0, 1, 0);
+
+                        // Check if force direction is close to default up
+                        const isCloseToUp = forceDir.distanceTo(defaultUp) <= 0.001;
+
+                        if (isCloseToUp) {
+                            // Gradually reset to straight orientation instead of immediate change
+                            // Create identity quaternion (no rotation - straight up)
+                            const targetQuaternion = new THREE.Quaternion(0, 0, 0, 1);
+
+                            // Interpolate current rotation towards target rotation
+                            // The 0.05 factor controls how quickly the rocket straightens (smaller = slower)
+                            rocket.mesh.quaternion.slerp(targetQuaternion, 0.07);
+                        } else {
+                            // Create quaternion for rotation from default up to force direction
+                            const quaternion = new THREE.Quaternion();
+                            quaternion.setFromUnitVectors(defaultUp, forceDir);
+
+                            // Apply rotation to rocket mesh
+                            rocket.mesh.quaternion.copy(quaternion);
+                        }
+                    }
+
+                    rocket.light.position.copy(rocket.body.position); // Light follows the physics body center for now
+
+                    // Add trail particle (spawn from the base of the rocket)
+                    if (Math.random() < ROCKET_TRAIL_RATE) { // Probability check
+                        const trailParticle = new THREE.Mesh(
+                            new THREE.SphereGeometry(ROCKET_BASE_RADIUS * 0.2, 8, 8), // Smaller size for trail
+                            new THREE.MeshBasicMaterial({ // Basic material for trail (no lighting needed)
+                                color: rocket.mesh.children[0].material.color, // Use rocket body color
+                                transparent: true,
+                                opacity: 0.7,
+                            })
+                        );
+                        // Position trail particle at the rocket's base
+                        trailParticle.position.copy(basePosition);
+                        scene.add(trailParticle);
+                        rocket.trail.push({
+                            mesh: trailParticle,
+                            life: ROCKET_TRAIL_LIFE, // Life in seconds
+                        });
+                    }
+
+                    // Check explosion conditions (using physics body position)
+                    const horizontalDistance = Math.sqrt(rocket.body.position.x * rocket.body.position.x + rocket.body.position.z * rocket.body.position.z);
+
+                    // Explode if too high OR too far horizontally
+                    if (rocket.body.position.y > ROCKET_EXPLODE_HEIGHT || horizontalDistance > ROCKET_EXPLODE_RADIUS) {
+                        // Trigger explosion
+                        explodeRocket(rocket, currentTime);
+                    }
+                }
+
+                // Update explosion particles (if exploding)
+                if (rocket.exploding) {
+                    // Update explosion particles
+                    for (let j = rocket.particles.length - 1; j >= 0; j--) {
+                        const particle = rocket.particles[j];
+                        particle.life -= dt; // Use delta time
+
+                        if (particle.life > 0) {
+                            // Update particle position
+                            particle.mesh.position.add(
+                                particle.velocity.clone().multiplyScalar(dt) // Use delta time
+                            );
+
+                            // Apply gravity to particles
+                            particle.velocity.y += GRAVITY * dt; // Apply gravity scaled by delta time
+
+                            // Fade out
+                            particle.mesh.material.opacity =
+                                particle.life / particle.initialLife;
+
+                        } else {
+                            // Particle life ended, remove it
+                            scene.remove(particle.mesh);
+                            rocket.particles.splice(j, 1);
+                        }
+                    }
+
+                    // Update trail particles (they continue to fade after explosion)
+                    for (let j = rocket.trail.length - 1; j >= 0; j--) {
+                        const particle = rocket.trail[j];
+                        particle.life -= dt; // Use delta time
+                        particle.mesh.material.opacity = particle.life;
+
+                        if (particle.life <= 0) {
+                            scene.remove(particle.mesh);
+                            rocket.trail.splice(j, 1);
+                        }
+                    }
+
+
+                    // Keep the rocket object until all its particles and trail have faded
+                    if (rocket.particles.length > 0 || rocket.trail.length > 0) {
+                        rocketsToKeep.push(rocket);
+                    }
+                } else {
+                    // Keep rockets that are not exploding
+                    rocketsToKeep.push(rocket);
+                }
+            }
+
+            // Update the rockets array with the rockets that should remain
+            rockets.length = 0;
+            rockets = rocketsToKeep
+        }
+
+        // --- Function to trigger and create explosion effect ---
+        function explodeRocket(rocket, currentTime) {
+            if (rocket.exploding) return; // Prevent multiple explosions
+
+            rocket.exploding = true;
+            rocket.explosionStartTime = currentTime;
+
+            // Store explosion position before removing the body/mesh
+            const explosionPosition = new THREE.Vector3().copy(rocket.mesh.position);
+
+
+            // Remove the main rocket mesh (group) and light
+            scene.remove(rocket.mesh);
+            scene.remove(rocket.light);
+
+
+            // Create explosion flash
+            const flashColor = EXPLOSION_COLORS[Math.floor(Math.random() * EXPLOSION_COLORS.length)];
+            const flash = new THREE.PointLight(
+                flashColor,
+                EXPLOSION_FLASH_INTENSITY,
+                EXPLOSION_FLASH_DISTANCE
+            );
+            flash.position.copy(explosionPosition); // Use the rocket's last base position
+            scene.add(flash);
+
+            // Remove flash after a short time
+            setTimeout(() => {
+                scene.remove(flash);
+            }, EXPLOSION_FLASH_DURATION);
+
+
+            // Create explosion particles
+            const particleGeometry = new THREE.SphereGeometry(0.1); // Small sphere for particles
+
+
+            for (let i = 0; i < EXPLOSION_PARTICLE_COUNT; i++) {
+                const size = 0.1 + Math.random() * 0.2; // Random size for particles
+                const geometry = new THREE.SphereGeometry(size);
+                const color = EXPLOSION_COLORS[Math.floor(Math.random() * EXPLOSION_COLORS.length)];
+                const material = new THREE.MeshStandardMaterial({
+                    color: color,
+                    emissive: color,
+                    emissiveIntensity: 1.0,
+                    transparent: true,
+                    opacity: 1,
+                    flatShading: true
+                });
+
+
+                const particleMesh = new THREE.Mesh(geometry, material);
+                particleMesh.position.copy(explosionPosition); // Start at explosion location
+                scene.add(particleMesh);
+
+                const speed = EXPLOSION_PARTICLE_SPEED + Math.random() * EXPLOSION_PARTICLE_SPEED_RANDOM;
+                // Generate velocity vector in a random direction
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                ).normalize().multiplyScalar(speed);
+
+
+                const initialLife = EXPLOSION_PARTICLE_LIFE + Math.random(); // Randomize particle life
+
+                rocket.particles.push({
+                    mesh: particleMesh,
+                    velocity: velocity,
+                    life: initialLife,
+                    initialLife: initialLife, // Store initial life for fading calculation
+                });
+            }
+
+            // Note: Trail particles are handled in the update loop and will fade out naturally
+            // No need to remove them here, just stop adding new ones.
+        }
+
+
+        // --- Function to reset the simulation ---
+        function resetSimulation() {
+            // Stop simulation
+            simulationRunning = false;
+            const startStopController = gui.__controllers.find(controller => controller.property === 'startStop');
+            startStopController.name('Start Simulation'); // Update button text
+            gui.updateDisplay(); // Update GUI display
+
+
+            // Remove all current rockets (including main mesh, light, particles, trail) from scene and world
+            for (const rocket of rockets) {
+                // Remove main rocket mesh (group) and light if they still exist
+                if (rocket.mesh) scene.remove(rocket.mesh);
+
+                // Remove event listener before removing the body
+                if (rocket.collisionListener && rocket.body) {
+                    rocket.body.removeEventListener('collide', rocket.collisionListener);
+                    rocket.collisionListener = null;
+                }
+
+                // Check if the body exists before trying to remove
+                if (rocket.body && world.bodies.includes(rocket.body)) {
+                    world.removeBody(rocket.body);
+                }
+                if (rocket.light) scene.remove(rocket.light);
+
+                // Remove explosion particles
+                for (const particle of rocket.particles) {
+                    scene.remove(particle.mesh);
+                }
+                rocket.particles.length = 0; // Clear particles array
+
+                // Remove trail particles
+                for (const trailParticle of rocket.trail) {
+                    scene.remove(trailParticle.mesh);
+                }
+                rocket.trail.length = 0; // Clear trail array
+                rocket.__collisionListenerAdded = false; // Reset listener flag
+            }
+            rockets.length = 0; // Clear the rockets array
+
+            // Remove all current obstacles from scene and world (if recreating)
+            for (const obstacle of obstacles) {
+                scene.remove(obstacle.mesh);
+                // Check if the body exists before trying to remove
+                if (obstacle.body && world.bodies.includes(obstacle.body)) {
+                    world.removeBody(obstacle.body);
+                }
+            }
+            obstacles.length = 0; // Clear the obstacles array
+
+
+            // Recreate obstacles and rockets
+            createObstacles();
+            createRockets();
+
+            // Reset camera position and controls target
+            positionCamera(camera);
+            orbitControls.target.set(0, OBSTACLE_COURSE_HEIGHT / 2, 0);
+            orbitControls.update();
+
+            // Reset lastTime for smooth animation start after reset
+            lastTime = performance.now();
+
+            updateInfoText(); // Update info display
+        }
+
+        // --- Function to toggle simulation start/stop ---
+        function toggleSimulation() {
+            simulationRunning = !simulationRunning;
+            const startStopController = gui.__controllers.find(controller => controller.property === 'startStop');
+            startStopController.name(simulationRunning ? 'Stop Simulation' : 'Start Simulation');
+            gui.updateDisplay(); // Update GUI display
+
+
+            if (simulationRunning) {
+                // Ensure lastTime is set correctly when resuming
+                lastTime = performance.now();
+            }
+            updateInfoText(); // Update info display
+        }
+
+
+        // --- Function to handle window resize ---
+        function handleWindowResize(camera, renderer) {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(window.devicePixelRatio);
+            });
+        }
+
+        // --- Function to update information text ---
+        function updateInfoText() {
+            if (!infoElement) return;
+
+            const rocketCount = rockets.filter(r => !r.exploding).length;
+            const explodedCount = ROCKET_COUNT - rocketCount;
+
+            infoElement.innerHTML = `
+                <h3>3D Fireworks Simulation</h3>
+                <p>Rockets: ${rocketCount} active / ${explodedCount} exploded</p>
+                <p>Obstacles: ${obstacles.length}</p>
+                <p>Status: ${simulationRunning ? 'Running' : 'Paused'}</p>
+                <p><strong>Controls:</strong> Use the buttons in the top-right panel</p>
+            `;
+        }
+
+    </script>
+</body>
+
+</html>

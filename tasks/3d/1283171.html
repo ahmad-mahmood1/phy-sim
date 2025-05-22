@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Particles Wind Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            max-width: 300px;
+            font-size: 14px;
+        }
+
+        #info ul {
+            margin: 5px 0;
+        }
+
+        #info p {
+            margin: 5px 0;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.js",
+            "three/examples/jsm/controls/OrbitControls": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/controls/OrbitControls.js",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+            "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+          }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="info">
+        Cloud Particles Wind Simulation
+        <div id="controls-info" style="margin-top: 10px; font-size: 0.9em;">
+            <p><strong>Controls:</strong></p>
+            <ul style="padding-left: 15px; margin: 5px 0;">
+                <li>Rotate view: Left-click + drag</li>
+                <li>Pan: Right-click + drag</li>
+                <li>Zoom: Scroll wheel</li>
+            </ul>
+            <p><strong>Wind Settings:</strong> Use the GUI panel to adjust wind direction, strength, and turbulence.</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+        import * as CANNON from 'cannon-es';
+        import { GUI } from 'dat.gui';
+
+        // Constants
+        const GRAVITY = -0.1;
+        const PLANE_SIZE = 100;
+        const CAMERA_POSITION = { x: 25, y: 30, z: 45 };
+        const LIGHT_POSITION = { x: 10, y: 50, z: 30 };
+        const PHYSICS_TIME_STEP = 1 / 60;
+        const NUM_PARTICLES = 200;
+        const PARTICLE_SIZE_RANGE = { min: 1, max: 3 };
+        const CLOUD_AREA = { x: 40, y: 15, z: 40 };
+        const CLOUD_HEIGHT = 25;
+        const MIN_CLOUD_HEIGHT = 5;
+        const CLOUD_RESET_DISTANCE = PLANE_SIZE / 1.5;
+        const CLOUD_RESET_OFFSET = PLANE_SIZE / 3;
+        const CLOUD_RESET_RANDOM_RANGE = 20;
+        const CLOUD_RESET_HEIGHT_RANDOM_RANGE = 10;
+        const CLOUD_PHYSICS = {
+            MASS: 0.1,
+            LINEAR_DAMPING_MIN: 0.5,
+            LINEAR_DAMPING_RANDOM: 0.3,
+            ANGULAR_DAMPING: 0.8
+        };
+        const CLOUD_MATERIAL = {
+            COLOR: 0xffffff,
+            OPACITY: 0.8,
+            EMISSIVE: 0xffffff,
+            EMISSIVE_INTENSITY: 0.1
+        };
+        const GROUND_MATERIAL = {
+            COLOR: '#4CAF50',
+            ROUGHNESS: 0.8,
+            METALNESS: 0.2
+        };
+        const LIGHT = {
+            AMBIENT_INTENSITY: 0.6,
+            DIRECTIONAL_INTENSITY: 0.8,
+            SHADOW_MAP_SIZE: 2048,
+            SHADOW_CAMERA_BOUNDS: 50
+        };
+        const FOG_DENSITY = 0.001;
+        const SKY_COLOR = '#87CEEB';
+        const DEFAULT_WIND = {
+            DIRECTION_X: 0.5,
+            DIRECTION_Y: 0.00,
+            DIRECTION_Z: 0.00,
+            STRENGTH: 2.0,
+            TURBULENCE: 0.3
+        };
+        const GUI_RANGES = {
+            WIND_X: { min: -1, max: 1 },
+            WIND_Y: { min: -1, max: 1 },
+            WIND_Z: { min: -1, max: 1 },
+            WIND_STRENGTH: { min: 0, max: 5 },
+            TURBULENCE: { min: 0, max: 5 }
+        };
+
+        // Track all cloud particles
+        let cloudParticles = [];
+        let cloudBodies = [];
+
+        // Simulation controls
+        const controls = {
+            windDirection: {
+                x: DEFAULT_WIND.DIRECTION_X,
+                y: DEFAULT_WIND.DIRECTION_Y,
+                z: DEFAULT_WIND.DIRECTION_Z
+            },
+            windStrength: DEFAULT_WIND.STRENGTH,
+            turbulence: DEFAULT_WIND.TURBULENCE,
+            reset: resetSimulation,
+            respawnClouds: respawnClouds
+        };
+
+        // Initialize the application
+        let scene, camera, renderer, orbitControls, world;
+        initializeApplication();
+
+        // Main application initialization
+        function initializeApplication() {
+            // Scene setup
+            const sceneSetup = setupScene();
+            scene = sceneSetup.scene;
+            camera = sceneSetup.camera;
+            renderer = sceneSetup.renderer;
+            orbitControls = sceneSetup.orbitControls;
+
+            // Set sky background
+            scene.background = new THREE.Color(SKY_COLOR);
+            scene.fog = new THREE.FogExp2('#ffffff', FOG_DENSITY);
+
+            // Physics setup
+            const physicsSetup = setupPhysics(scene);
+            world = physicsSetup.world;
+
+            // Create ground plane
+            createGroundPlane(scene, world);
+
+            // Setup GUI controls
+            setupGUI();
+
+            // Add lighting
+            addLighting(scene);
+
+            // Create cloud particles
+            createCloudParticles(scene, world);
+
+            // Set camera position
+            positionCamera(camera);
+
+            // Start animation loop
+            startAnimationLoop();
+
+            // Handle window resize
+            handleWindowResize(camera, renderer);
+        }
+
+        // Function to set up the scene, camera, and renderer
+        function setupScene() {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            const orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+
+            return { scene, camera, renderer, orbitControls };
+        }
+
+        // Function to setup GUI controls
+        function setupGUI() {
+            const gui = new GUI();
+
+            const windFolder = gui.addFolder('Wind Controls');
+            windFolder.add(controls.windDirection, 'x', GUI_RANGES.WIND_X.min, GUI_RANGES.WIND_X.max).name('Wind X');
+            windFolder.add(controls.windDirection, 'y', GUI_RANGES.WIND_Y.min, GUI_RANGES.WIND_Y.max).name('Wind Y');
+            windFolder.add(controls.windDirection, 'z', GUI_RANGES.WIND_Z.min, GUI_RANGES.WIND_Z.max).name('Wind Z');
+            windFolder.add(controls, 'windStrength', GUI_RANGES.WIND_STRENGTH.min, GUI_RANGES.WIND_STRENGTH.max).name('Strength');
+            windFolder.add(controls, 'turbulence', GUI_RANGES.TURBULENCE.min, GUI_RANGES.TURBULENCE.max).name('Turbulence');
+            windFolder.open();
+
+            gui.add(controls, 'respawnClouds').name('Respawn Clouds');
+            gui.add(controls, 'reset').name('Reset Simulation');
+
+            return gui;
+        }
+
+        // Function to set up the physics world
+        function setupPhysics(scene) {
+            const world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+
+            // Create a soft physics material for air
+            const airMaterial = new CANNON.Material('air');
+            world.addContactMaterial(
+                new CANNON.ContactMaterial(airMaterial, airMaterial, {
+                    friction: 0.0,
+                    restitution: 0.9
+                })
+            );
+
+            world.defaultContactMaterial.contactEquationRelaxation = 4;
+
+            return { world };
+        }
+
+        // Function to add lighting
+        function addLighting(scene) {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0xffffff, LIGHT.AMBIENT_INTENSITY);
+            scene.add(ambientLight);
+
+            // Directional light (sunlight)
+            const directionalLight = new THREE.DirectionalLight(0xffffff, LIGHT.DIRECTIONAL_INTENSITY);
+            directionalLight.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = LIGHT.SHADOW_MAP_SIZE;
+            directionalLight.shadow.mapSize.height = LIGHT.SHADOW_MAP_SIZE;
+            directionalLight.shadow.camera.left = -LIGHT.SHADOW_CAMERA_BOUNDS;
+            directionalLight.shadow.camera.right = LIGHT.SHADOW_CAMERA_BOUNDS;
+            directionalLight.shadow.camera.top = LIGHT.SHADOW_CAMERA_BOUNDS;
+            directionalLight.shadow.camera.bottom = -LIGHT.SHADOW_CAMERA_BOUNDS;
+            scene.add(directionalLight);
+        }
+
+        // Function to position the camera
+        function positionCamera(camera) {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, CLOUD_HEIGHT / 2, 0);
+        }
+
+        // Function to create the ground plane
+        function createGroundPlane(scene, world) {
+            // Create visual plane
+            const planeGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({
+                color: GROUND_MATERIAL.COLOR,
+                roughness: GROUND_MATERIAL.ROUGHNESS,
+                metalness: GROUND_MATERIAL.METALNESS
+            });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = -Math.PI / 2;
+            plane.receiveShadow = true;
+            scene.add(plane);
+
+            // Create physics plane
+            const planeBody = new CANNON.Body({
+                type: CANNON.Body.STATIC,
+                shape: new CANNON.Plane()
+            });
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(planeBody);
+
+            return { plane, planeBody };
+        }
+
+        // Function to create cloud particles
+        function createCloudParticles(scene, world) {
+            // Clear existing particles
+            cloudParticles.forEach(particle => scene.remove(particle));
+            cloudBodies.forEach(body => world.removeBody(body));
+            cloudParticles = [];
+            cloudBodies = [];
+
+            // Create cloud material
+            const cloudMaterial = new THREE.MeshStandardMaterial({
+                color: CLOUD_MATERIAL.COLOR,
+                transparent: true,
+                opacity: CLOUD_MATERIAL.OPACITY,
+                emissive: CLOUD_MATERIAL.EMISSIVE,
+                emissiveIntensity: CLOUD_MATERIAL.EMISSIVE_INTENSITY
+            });
+
+            // Create physics material
+            const cloudPhysicsMaterial = new CANNON.Material('cloud');
+
+            // Create cloud particles
+            for (let i = 0; i < NUM_PARTICLES; i++) {
+                // Random position within cloud area
+                const x = (Math.random() - 0.5) * CLOUD_AREA.x;
+                const y = CLOUD_HEIGHT + (Math.random() - 0.5) * CLOUD_AREA.y;
+                const z = (Math.random() - 0.5) * CLOUD_AREA.z;
+
+                // Random size
+                const size = PARTICLE_SIZE_RANGE.min + Math.random() * (PARTICLE_SIZE_RANGE.max - PARTICLE_SIZE_RANGE.min);
+
+                // Create geometry
+                let geometry = new THREE.SphereGeometry(size, 8, 8);
+
+                // Create mesh
+                const cloudParticle = new THREE.Mesh(geometry, cloudMaterial.clone());
+                cloudParticle.position.set(x, y, z);
+                cloudParticle.castShadow = true;
+                cloudParticle.receiveShadow = true;
+                scene.add(cloudParticle);
+                cloudParticles.push(cloudParticle);
+
+                // Create physics body
+                const shape = new CANNON.Sphere(size);
+                const cloudBody = new CANNON.Body({
+                    mass: CLOUD_PHYSICS.MASS,
+                    position: new CANNON.Vec3(x, y, z),
+                    material: cloudPhysicsMaterial,
+                    linearDamping: CLOUD_PHYSICS.LINEAR_DAMPING_MIN + Math.random() * CLOUD_PHYSICS.LINEAR_DAMPING_RANDOM,
+                    angularDamping: CLOUD_PHYSICS.ANGULAR_DAMPING
+                });
+                cloudBody.addShape(shape);
+                world.addBody(cloudBody);
+                cloudBodies.push(cloudBody);
+
+                // Store the reference to the mesh
+                cloudBody.userData = { mesh: cloudParticle };
+                cloudParticle.userData = { body: cloudBody };
+            }
+        }
+
+        // Function to apply wind force to cloud particles
+        function applyWindForce() {
+            // Base wind direction amplified by strength
+            const baseWindForce = new CANNON.Vec3(
+                controls.windDirection.x * controls.windStrength,
+                controls.windDirection.y * controls.windStrength,
+                controls.windDirection.z * controls.windStrength
+            );
+
+            // Apply wind force to each cloud particle
+            cloudBodies.forEach(body => {
+                // Calculate turbulence (random variation)
+                const turbulence = controls.turbulence;
+
+                // Create the wind force with turbulence
+                const windForce = new CANNON.Vec3(
+                    baseWindForce.x,
+                    baseWindForce.y,
+                    baseWindForce.z
+                );
+
+                // Randomly set one component of turbulence to zero for more varied movement
+                const randomComponent = Math.floor(Math.random() * 3);
+                const turbulenceForce = new CANNON.Vec3(
+                    randomComponent === 0 ? 0 : turbulence,
+                    randomComponent === 1 ? 0 : turbulence,
+                    randomComponent === 2 ? 0 : turbulence
+                );
+
+                // Apply the force
+                body.applyForce(windForce, body.position);
+                body.applyForce(turbulenceForce, body.position);
+
+                // Enforce a height limit to keep clouds from falling too low
+                if (body.position.y < MIN_CLOUD_HEIGHT) {
+                    body.position.y = MIN_CLOUD_HEIGHT;
+                    body.velocity.y = Math.abs(body.velocity.y) * 0.5;
+                }
+
+                // Teleport clouds back to the starting area if they move too far
+                const distanceFromCenter = Math.sqrt(
+                    body.position.x * body.position.x +
+                    body.position.z * body.position.z
+                );
+
+                if (distanceFromCenter > CLOUD_RESET_DISTANCE) {
+                    // Reset position based on wind direction (upwind)
+                    const resetX = -controls.windDirection.x * CLOUD_RESET_OFFSET;
+                    const resetZ = -controls.windDirection.z * CLOUD_RESET_OFFSET;
+                    body.position.x = resetX + (Math.random() - 0.5) * CLOUD_RESET_RANDOM_RANGE;
+                    body.position.y = CLOUD_HEIGHT + (Math.random() - 0.5) * CLOUD_RESET_HEIGHT_RANDOM_RANGE;
+                    body.position.z = resetZ + (Math.random() - 0.5) * CLOUD_RESET_RANDOM_RANGE;
+                    body.velocity.setZero();
+                }
+            });
+        }
+
+        // Function to reset simulation
+        function resetSimulation() {
+            controls.windDirection.x = DEFAULT_WIND.DIRECTION_X;
+            controls.windDirection.y = DEFAULT_WIND.DIRECTION_Y;
+            controls.windDirection.z = DEFAULT_WIND.DIRECTION_Z;
+            controls.windStrength = DEFAULT_WIND.STRENGTH;
+            controls.turbulence = DEFAULT_WIND.TURBULENCE;
+
+            respawnClouds();
+        }
+
+        // Function to respawn clouds
+        function respawnClouds() {
+            createCloudParticles(scene, world);
+        }
+
+        // Function to start the animation loop
+        function startAnimationLoop() {
+            const animate = () => {
+                requestAnimationFrame(animate);
+
+                // Step the physics world
+                world.step(PHYSICS_TIME_STEP);
+
+                // Apply wind forces
+                applyWindForce();
+
+                // Update cloud particle positions
+                cloudParticles.forEach((particle, index) => {
+                    const body = cloudBodies[index];
+                    particle.position.copy(body.position);
+                    particle.quaternion.copy(body.quaternion);
+                });
+
+                // Update controls
+                orbitControls.update();
+
+                // Render the scene
+                renderer.render(scene, camera);
+            };
+
+            animate();
+        }
+
+        // Function to handle window resize
+        function handleWindowResize() {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>P5.js Shape Fitter</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            /* Arrange items vertically */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            /* Light gray background */
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #canvas-container {
+            position: relative;
+            /* For potential future overlays or info panels */
+            border: 2px solid #333;
+            /* Darker border for better contrast */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            /* Softer shadow */
+            margin-top: 20px;
+            /* Space from top instructions */
+        }
+
+        #instructions {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: linear-gradient(135deg, #6e8efb, #a777e3);
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            color: white;
+            max-width: 750px;
+        }
+
+        #instructions h2 {
+            margin-top: 0;
+            font-size: 24px;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        #instructions p {
+            margin-bottom: 0;
+            font-size: 16px;
+        }
+
+        #warning {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #ffcc00;
+            border-left: 5px solid #ff9900;
+            border-radius: 8px;
+            color: #333;
+            font-weight: bold;
+            text-align: center;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.8;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.8;
+            }
+        }
+
+        #controls {
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        #reset-button {
+            background-color: #ff5252;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        #reset-button:hover {
+            background-color: #ff3232;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        #reset-button:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        #info {
+            background-color: #4caf50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        #score-label {
+            margin-right: 5px;
+        }
+
+        #items-placed {
+            font-size: 22px;
+            color: #ffff00;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="instructions">
+        <h2>Shape Packing Challenge!</h2>
+        <p>How many shapes can you fit into the container? Try to maximize your score by strategically placing shapes
+            without overlapping!</p>
+    </div>
+    <div id="warning">
+        <p>Choose wisely! Once placed, shapes cannot be moved.</p>
+    </div>
+    <div id="canvas-container">
+    </div>
+    <div id="controls">
+        <button id="reset-button">
+            Start Over
+        </button>
+        <div id="info">
+            <span id="score-label">Your Score:</span> <span id="items-placed">0</span>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Canvas and Container Dimensions ---
+            const canvasWidth = 600;
+            const canvasHeight = 400;
+            const containerMargin = 10;
+            const containerX = containerMargin + 350; // Leave space on left for palette
+            const containerY = containerMargin;
+            const containerWidth = canvasWidth - containerMargin * 2 - 350;
+            const containerHeight = (canvasHeight - containerMargin * 2) * 0.75;
+
+            // --- Shape Properties ---
+            let shapes = []; // All draggable shapes
+            let placedShapes = []; // Shapes successfully placed in the container
+            let draggedShape = null;
+            let offsetX, offsetY; // For smooth dragging
+
+            // --- Colors ---
+            const paletteColors = [
+                p.color(255, 100, 100, 200), // Reddish
+                p.color(100, 200, 100, 200), // Greenish
+                p.color(100, 100, 255, 200), // Bluish
+                p.color(255, 200, 100, 200), // Orangeish
+                p.color(200, 100, 255, 200)  // Purplish
+            ];
+            const boundaryColor = p.color(50);
+            const containerBgColor = p.color(245, 245, 245); // Lighter background for container
+
+            // --- Shape Base Class/Object Factory ---
+            function createShape(type, x, y, arg1, arg2, id) {
+                const shape = {
+                    id: id || p.random(100000), // Unique ID for each shape
+                    type: type,
+                    x: x,
+                    y: y,
+                    originalX: x,
+                    originalY: y,
+                    isDragging: false,
+                    color: p.random(paletteColors),
+                    vertices: [], // For polygons
+                    // Common methods
+                    getAABB: function () {
+                        if (this.type === 'rect') {
+                            return { x: this.x, y: this.y, w: this.w, h: this.h };
+                        } else if (this.type === 'circle') {
+                            return { x: this.x - this.r, y: this.y - this.r, w: this.r * 2, h: this.r * 2 };
+                        } else if (this.type === 'polygon') {
+                            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                            this.getAbsoluteVertices().forEach(v => {
+                                minX = Math.min(minX, v.x);
+                                minY = Math.min(minY, v.y);
+                                maxX = Math.max(maxX, v.x);
+                                maxY = Math.max(maxY, v.y);
+                            });
+                            return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+                        }
+                        return { x: 0, y: 0, w: 0, h: 0 }; // Should not happen
+                    },
+                    getAbsoluteVertices: function () { // For polygons
+                        if (this.type !== 'polygon') return [];
+                        return this.vertices.map(v => p.createVector(this.x + v.x, this.y + v.y));
+                    },
+                    draw: function () {
+                        p.push();
+                        p.fill(this.color);
+                        p.stroke(50);
+                        p.strokeWeight(this.isDragging ? 3 : 1.5);
+
+                        if (this.type === 'rect') {
+                            p.rect(this.x, this.y, this.w, this.h);
+                        } else if (this.type === 'circle') {
+                            p.ellipse(this.x, this.y, this.r * 2, this.r * 2);
+                        } else if (this.type === 'polygon') {
+                            p.beginShape();
+                            this.getAbsoluteVertices().forEach(v => p.vertex(v.x, v.y));
+                            p.endShape(p.CLOSE);
+                        }
+                        p.pop();
+                    },
+                    containsPoint: function (px, py) {
+                        const aabb = this.getAABB(); // Broad check first
+                        if (px < aabb.x || px > aabb.x + aabb.w || py < aabb.y || py > aabb.y + aabb.h) {
+                            return false;
+                        }
+                        // Narrow check (simplified for this example, real polygon check is more complex)
+                        if (this.type === 'rect') {
+                            return (px >= this.x && px <= this.x + this.w &&
+                                py >= this.y && py <= this.y + this.h);
+                        } else if (this.type === 'circle') {
+                            return p.dist(px, py, this.x, this.y) < this.r;
+                        } else if (this.type === 'polygon') {
+                            // Basic AABB check is often enough for selection,
+                            return true; // Already passed AABB
+                        }
+                        return false;
+                    }
+                };
+
+                if (type === 'rect') {
+                    shape.w = arg1;
+                    shape.h = arg2;
+                } else if (type === 'circle') {
+                    shape.r = arg1; // arg1 is radius
+                } else if (type === 'polygon') {
+                    // arg1 is an array of relative vertex vectors
+                    shape.vertices = arg1.map(v => p.createVector(v.x, v.y));
+                }
+                return shape;
+            }
+
+            // --- Initialize Shapes ---
+            function setupShapes(col = 0, colSpacing = 65) {
+                const paletteX = 5 + col * colSpacing;
+                let currentY = 10;
+                const spacing = 55;
+
+                shapes.push(createShape('rect', paletteX, currentY, 40, 50, 'rect1' + `col${col}`));
+                currentY += spacing;
+                shapes.push(createShape('circle', paletteX + 25, currentY + 25, 23, null, 'circle1' + `col${col}`)); // x,y is center for circle
+                currentY += spacing;
+
+                // Triangle (centered approximately)
+                const triSize = 22;
+                shapes.push(createShape('polygon', paletteX + triSize, currentY + triSize, [
+                    p.createVector(0, -triSize), p.createVector(-triSize, triSize), p.createVector(triSize, triSize)
+                ], null, 'triangle1' + `col${col}`));
+                currentY += spacing + triSize;
+
+                // Hexagon (centered approximately)
+                const hexRadius = 25;
+                let hexVertices = [];
+                for (let i = 0; i < 6; i++) {
+                    hexVertices.push(p.createVector(
+                        hexRadius * p.cos(p.PI / 3 * i),
+                        hexRadius * p.sin(p.PI / 3 * i)
+                    ));
+                }
+                shapes.push(createShape('polygon', paletteX + hexRadius, currentY + hexRadius, hexVertices, null, 'hexagon1' + `col${col}`));
+                currentY += spacing + hexRadius;
+
+                shapes.push(createShape('rect', paletteX, currentY, 50, 40, 'rect2' + `col${col}`));
+            }
+
+            // Reset all shapes to their original positions
+            function resetShapes() {
+                // Move all placed shapes back to their original positions
+                placedShapes.forEach(shape => {
+                    shape.x = shape.originalX;
+                    shape.y = shape.originalY;
+                    shape.isDragging = false;
+                });
+
+                // Clear the placed shapes array
+                placedShapes = [];
+
+                // Update the counter
+                updateItemsPlacedCounter();
+            }
+
+            // Update the items placed counter in the UI
+            function updateItemsPlacedCounter() {
+                const itemsPlacedElement = document.getElementById('items-placed');
+                if (itemsPlacedElement) {
+                    itemsPlacedElement.textContent = placedShapes.length;
+                }
+            }
+
+            // --- P5.js Setup ---
+            p.setup = () => {
+                const canvas = p.createCanvas(canvasWidth, canvasHeight);
+                canvas.parent('canvas-container');
+                p.ellipseMode(p.CENTER); // For circle drawing
+                // p.rectMode(p.CENTER); // If you prefer center for rectangles too
+                for (let col = 0; col < 5; col++) {
+                    setupShapes(col);
+                }
+
+                // Add reset button functionality
+                const resetButton = document.getElementById('reset-button');
+                resetButton.addEventListener('click', resetShapes);
+
+                // Initialize items placed counter
+                updateItemsPlacedCounter();
+            };
+
+            // --- P5.js Draw Loop ---
+            p.draw = () => {
+                p.background(220); // Overall background
+
+                // Draw container
+                p.push();
+                p.fill(containerBgColor);
+                p.stroke(boundaryColor);
+                p.strokeWeight(2);
+                p.rect(containerX, containerY, containerWidth, containerHeight);
+                p.pop();
+
+                // Draw palette area (optional visual separation)
+                p.push();
+                p.fill(200);
+                p.noStroke();
+                p.rect(0, 0, containerX - containerMargin / 2, canvasHeight);
+                p.pop();
+
+
+                // Draw all shapes (draggable and placed)
+                placedShapes.forEach(s => s.draw());
+                shapes.forEach(s => {
+                    if (!placedShapes.find(ps => ps.id === s.id)) { // Only draw if not already placed
+                        s.draw();
+                    }
+                });
+
+
+                // Highlight dragged shape
+                if (draggedShape) {
+                    draggedShape.draw(); // Draw on top
+                }
+            };
+
+            // --- Mouse Interaction ---
+            p.mousePressed = () => {
+                // Check shapes in reverse order so top shapes are picked first
+                for (let i = shapes.length - 1; i >= 0; i--) {
+                    const shape = shapes[i];
+                    // Do not allow dragging of already placed shapes
+                    if (placedShapes.find(ps => ps.id === shape.id)) continue;
+
+                    if (shape.containsPoint(p.mouseX, p.mouseY)) {
+                        draggedShape = shape;
+                        offsetX = draggedShape.x - p.mouseX;
+                        offsetY = draggedShape.y - p.mouseY;
+                        draggedShape.isDragging = true;
+                        // Bring to front for drawing (by reordering or separate draw)
+                        // For simplicity, draw loop handles drawing draggedShape last.
+                        break;
+                    }
+                }
+            };
+
+            p.mouseDragged = () => {
+                if (draggedShape) {
+                    draggedShape.x = p.mouseX + offsetX;
+                    draggedShape.y = p.mouseY + offsetY;
+                }
+            };
+
+            p.mouseReleased = () => {
+                if (draggedShape) {
+                    let isValidDrop = true;
+
+                    // 1. Check if within container bounds
+                    if (!isShapeInsideContainer(draggedShape)) {
+                        isValidDrop = false;
+                        console.log("Drop invalid: Out of bounds");
+                    }
+
+                    // 2. Check for overlap with other placed shapes
+                    if (isValidDrop) {
+                        for (const placedShape of placedShapes) {
+                            if (checkCollision(draggedShape, placedShape)) {
+                                isValidDrop = false;
+                                console.log("Drop invalid: Overlaps with another shape");
+                                break;
+                            }
+                        }
+                    }
+
+                    if (isValidDrop) {
+                        // Successfully placed
+                        placedShapes.push(draggedShape);
+                        // Update the counter when a shape is placed
+                        updateItemsPlacedCounter();
+
+                        console.log(`Shape ${draggedShape.id} placed.`);
+                    } else {
+                        // Reset to original position
+                        draggedShape.x = draggedShape.originalX;
+                        draggedShape.y = draggedShape.originalY;
+                        console.log(`Shape ${draggedShape.id} reset to original position.`);
+                    }
+
+                    draggedShape.isDragging = false;
+                    draggedShape = null;
+                }
+            };
+
+            // --- Collision Detection Logic ---
+
+            // Check if a shape is entirely within the main container
+            function isShapeInsideContainer(shape) {
+                const aabb = shape.getAABB();
+                if (aabb.x < containerX ||
+                    aabb.x + aabb.w > containerX + containerWidth ||
+                    aabb.y < containerY ||
+                    aabb.y + aabb.h > containerY + containerHeight) {
+                    return false;
+                }
+
+                // For polygons, ensure all vertices are within bounds (more precise)
+                if (shape.type === 'polygon') {
+                    for (const v of shape.getAbsoluteVertices()) {
+                        if (v.x < containerX || v.x > containerX + containerWidth ||
+                            v.y < containerY || v.y > containerY + containerHeight) {
+                            return false;
+                        }
+                    }
+                }
+                // For circles, check edges
+                if (shape.type === 'circle') {
+                    if (shape.x - shape.r < containerX || shape.x + shape.r > containerX + containerWidth ||
+                        shape.y - shape.r < containerY || shape.y + shape.r > containerY + containerHeight) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            // Main collision check dispatcher
+            function checkCollision(s1, s2) {
+                if (!s1 || !s2 || s1.id === s2.id) return false; // Cannot collide with self or null
+
+                // Broad phase: AABB collision
+                const aabb1 = s1.getAABB();
+                const aabb2 = s2.getAABB();
+                if (!checkAABBOverlap(aabb1, aabb2)) {
+                    return false; // No AABB overlap, so no collision
+                }
+
+                // Narrow phase: Specific collision checks
+                // Order matters for type checking (e.g. rect vs polygon is different from polygon vs rect if not symmetric)
+                if (s1.type === 'rect' && s2.type === 'rect') {
+                    return collideRectRect(s1, s2); // AABB is sufficient for axis-aligned rects
+                } else if (s1.type === 'circle' && s2.type === 'circle') {
+                    return collideCircleCircle(s1, s2);
+                } else if ((s1.type === 'circle' && s2.type === 'rect') || (s1.type === 'rect' && s2.type === 'circle')) {
+                    const circle = s1.type === 'circle' ? s1 : s2;
+                    const rect = s1.type === 'rect' ? s1 : s2;
+                    return collideCircleRect(circle, rect);
+                }
+                // Polygon collisions (using SAT)
+                else if (s1.type === 'polygon' && s2.type === 'polygon') {
+                    return collidePolygonPolygonSAT(s1, s2);
+                } else if ((s1.type === 'polygon' && s2.type === 'rect') || (s1.type === 'rect' && s2.type === 'polygon')) {
+                    const poly = s1.type === 'polygon' ? s1 : s2;
+                    const rectShape = s1.type === 'rect' ? s1 : s2;
+                    // Treat rect as a polygon for SAT
+                    const rectPoly = { // Temporary polygon representation for the rectangle
+                        getAbsoluteVertices: () => [
+                            p.createVector(rectShape.x, rectShape.y),
+                            p.createVector(rectShape.x + rectShape.w, rectShape.y),
+                            p.createVector(rectShape.x + rectShape.w, rectShape.y + rectShape.h),
+                            p.createVector(rectShape.x, rectShape.y + rectShape.h)
+                        ]
+                    };
+                    return collidePolygonPolygonSAT(poly, rectPoly);
+                } else if ((s1.type === 'polygon' && s2.type === 'circle') || (s1.type === 'circle' && s2.type === 'polygon')) {
+                    const poly = s1.type === 'polygon' ? s1 : s2;
+                    const circle = s1.type === 'circle' ? s1 : s2;
+                    return collideCirclePolygonSAT(circle, poly);
+                }
+
+                console.warn("Collision check not implemented for types:", s1.type, s2.type);
+                return false; // Default if no specific check
+            }
+
+            function checkAABBOverlap(aabb1, aabb2) {
+                return (aabb1.x < aabb2.x + aabb2.w &&
+                    aabb1.x + aabb1.w > aabb2.x &&
+                    aabb1.y < aabb2.y + aabb2.h &&
+                    aabb1.y + aabb1.h > aabb2.y);
+            }
+
+            function collideRectRect(r1, r2) {
+                // For axis-aligned rectangles, AABB overlap is sufficient.
+                // This was already checked in the broad phase.
+                return true;
+            }
+
+            function collideCircleCircle(c1, c2) {
+                const distSq = (c1.x - c2.x) * (c1.x - c2.x) + (c1.y - c2.y) * (c1.y - c2.y);
+                const radiiSumSq = (c1.r + c2.r) * (c1.r + c2.r);
+                return distSq < radiiSumSq;
+            }
+
+            function collideCircleRect(circle, rect) {
+                // Find closest point on rect to circle center
+                let closestX = p.constrain(circle.x, rect.x, rect.x + rect.w);
+                let closestY = p.constrain(circle.y, rect.y, rect.y + rect.h);
+
+                const distanceSq = (circle.x - closestX) * (circle.x - closestX) +
+                    (circle.y - closestY) * (circle.y - closestY);
+                return distanceSq < (circle.r * circle.r);
+            }
+
+            // --- SAT (Separating Axis Theorem) Implementation ---
+            function getPolygonAxes(vertices) {
+                const axes = [];
+                for (let i = 0; i < vertices.length; i++) {
+                    const p1 = vertices[i];
+                    const p2 = vertices[(i + 1) % vertices.length]; // Next vertex, wraps around
+                    const edge = p5.Vector.sub(p2, p1);
+                    const normal = p.createVector(-edge.y, edge.x); // Perpendicular vector
+                    normal.normalize();
+                    axes.push(normal);
+                }
+                return axes;
+            }
+
+            function projectPolygonOntoAxis(vertices, axis) {
+                let min = Infinity;
+                let max = -Infinity;
+                for (const vertex of vertices) {
+                    const projection = p5.Vector.dot(vertex, axis);
+                    min = Math.min(min, projection);
+                    max = Math.max(max, projection);
+                }
+                return { min, max };
+            }
+
+            function projectCircleOntoAxis(circle, axis) {
+                const centerProjection = p5.Vector.dot(p.createVector(circle.x, circle.y), axis);
+                return {
+                    min: centerProjection - circle.r,
+                    max: centerProjection + circle.r
+                };
+            }
+
+            function checkProjectionOverlap(proj1, proj2) {
+                return proj1.max > proj2.min && proj2.max > proj1.min;
+            }
+
+            function collidePolygonPolygonSAT(poly1, poly2) {
+                const vertices1 = poly1.getAbsoluteVertices();
+                const vertices2 = poly2.getAbsoluteVertices();
+
+                const axes1 = getPolygonAxes(vertices1);
+                const axes2 = getPolygonAxes(vertices2);
+
+                // Test axes from poly1
+                for (const axis of axes1) {
+                    const proj1 = projectPolygonOntoAxis(vertices1, axis);
+                    const proj2 = projectPolygonOntoAxis(vertices2, axis);
+                    if (!checkProjectionOverlap(proj1, proj2)) {
+                        return false; // Separating axis found
+                    }
+                }
+
+                // Test axes from poly2
+                for (const axis of axes2) {
+                    const proj1 = projectPolygonOntoAxis(vertices1, axis);
+                    const proj2 = projectPolygonOntoAxis(vertices2, axis);
+                    if (!checkProjectionOverlap(proj1, proj2)) {
+                        return false; // Separating axis found
+                    }
+                }
+                return true; // No separating axis found, polygons overlap
+            }
+
+            function collideCirclePolygonSAT(circle, polygon) {
+                const polyVertices = polygon.getAbsoluteVertices();
+                const axes = getPolygonAxes(polyVertices);
+
+                // Add axes from circle center to polygon vertices (for closest point detection)
+                let closestVertexDistSq = Infinity;
+                let closestVertex = null;
+
+                for (const vertex of polyVertices) {
+                    const circleCenter = p.createVector(circle.x, circle.y);
+                    const distSq = p.pow(vertex.x - circleCenter.x, 2) + p.pow(vertex.y - circleCenter.y, 2);
+                    if (distSq < closestVertexDistSq) {
+                        closestVertexDistSq = distSq;
+                        closestVertex = vertex;
+                    }
+                }
+                if (closestVertex) {
+                    const axisToClosest = p5.Vector.sub(closestVertex, p.createVector(circle.x, circle.y));
+                    axisToClosest.normalize();
+                    axes.push(axisToClosest);
+                }
+
+
+                for (const axis of axes) {
+                    const projCircle = projectCircleOntoAxis(circle, axis);
+                    const projPoly = projectPolygonOntoAxis(polyVertices, axis);
+                    if (!checkProjectionOverlap(projCircle, projPoly)) {
+                        return false; // Separating axis found
+                    }
+                }
+                return true; // No separating axis found
+            }
+
+        }; // End of sketch function
+
+        // Initialize P5 instance
+        const containerElement = window.document.getElementById('canvas-container');
+        new p5(sketch, containerElement);
+
+    </script>
+</body>
+
+</html>

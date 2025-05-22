@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Fluid Simulation</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.157.0/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/",
+                "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+                "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="generalInfo"
+        style="position: fixed; top: 10px; left: 10px; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 5px;">
+        <h3 style="margin: 0 0 5px 0">Fluid Viscosity Simulation</h3>
+        <p style="margin: 0">Higher viscosity values make the fluid thicker and slower to flow, similar to honey vs
+            water</p>
+    </div>
+    <div id="note"
+        style="position: fixed; top: 90px; left: 10px; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 5px; font-style: italic;">
+        <p style="margin: 0">Hold left mouse button to rotate view, right button to pan, scroll to zoom</p>
+    </div>
+    <div id="flowInfo"
+        style="position: fixed; bottom: 30px; left: 10px; background: hsla(130, 100%, 79%, 0.902); padding: 10px; border-radius: 5px;">
+        Flow Rate: <span id="flowRate">0</span> particles/s
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+        import { GUI } from 'dat.gui';
+
+        const GRAVITY = -9.82;
+        const PHYSICS_TIME_STEP = 1 / 60;
+
+        const CAMERA_POSITION = { x: 0, y: 20, z: 12 };
+        const LIGHT_POSITION = { x: 10, y: 20, z: 30 };
+
+        const TORUS_OUTER_RADIUS = 6
+        const TORUS_INNER_RADIUS = 5.6
+        const TORUS_Y_POS = 4
+        const MIN_SPAWN_RADIUS = TORUS_OUTER_RADIUS - TORUS_INNER_RADIUS
+        const MIN_SPAWN_HEIGHT = TORUS_OUTER_RADIUS * 1.05
+
+
+        const FLOW_RATE_UPDATE_INTERVAL = 1000; // Update every second
+        const TORUS_Y_BOUND = TORUS_Y_POS - TORUS_OUTER_RADIUS; // Torus position.y - outer radius
+
+
+        const FLUID_COLOR = 0x0077ff; // Blue
+        const WALL_COLOR = 0xaaaaaa; // Grey
+
+
+        const MAX_PARTICLES = 90; // Maximum number of particles
+        const PARTICLE_SIZE = 0.2;
+        const PARTICLE_MASS = 0.1
+
+        const SMOOTHING_RADIUS = PARTICLE_SIZE * 5
+
+        const VISCOSITY_START = 0.1 // Higher viscosity for more "stickiness"
+        const VISCOSITY_MIN = 0.1
+        const VISCOSITY_MAX = 0.6
+
+
+        const CONTACT_EQUATION_RELAXATION = 0.9  // More relaxation for stability
+
+        const FLUID_FLUID_RESISTANCE = 0.001    // Slight resistance between particles
+        const FLUID_FLUID_RESTITUTION = 0.01   // Some bounce between particles
+
+        const FLUID_WALL_RESISTANCE = 0.001    // More friction with walls
+        const FLUID_WALL_RESTITUTION = 0   // Some bounce with walls
+
+        let scene, camera, renderer, orbitControls, world, sph, gui;
+        let containerBody, funnelBody;
+        let particles = [];
+        let particleBodies = [];
+        let numParticles = 0;
+        let fluidMaterial, containerMaterial, fluidContactMaterial, fluidContainerContractMaterial
+        let lastTime = 0
+
+        let particlesPassedTorus = 0;
+        let lastFlowRateUpdate = 0;
+
+        // Same material for everything
+        fluidMaterial = new CANNON.Material('water')
+        containerMaterial = new CANNON.Material('container')
+        fluidContactMaterial = new CANNON.ContactMaterial(fluidMaterial, fluidMaterial, {
+            friction: FLUID_FLUID_RESISTANCE,
+            restitution: FLUID_FLUID_RESTITUTION,
+        })
+
+        fluidContainerContractMaterial = new CANNON.ContactMaterial(fluidMaterial, containerMaterial, {
+            friction: FLUID_WALL_RESISTANCE,
+            restitution: FLUID_WALL_RESTITUTION,
+        })
+
+        // SPH Parameters (Default values)
+        const sphParams = {
+            smoothingRadius: SMOOTHING_RADIUS, // Influence radius of each particle
+            viscosity: VISCOSITY_START,    // Dynamic viscosity of the fluid
+        };
+
+        // Simulation controls
+        const controls = {
+            reset: function () {
+                resetSimulation();
+            },
+        };
+
+        // Initialize the application
+        initializeApplication();
+
+        // Main application initialization
+        function initializeApplication() {
+            // Scene setup
+            setupScene()
+
+            // Physics setup
+            setupPhysics()
+
+            // Setup GUI controls
+            setupGUI();
+
+            // Add lighting
+            addLighting();
+
+            // Set camera position
+            positionCamera();
+
+            // Create container and funnel
+            createContainerAndFunnel();
+
+            //Add particles
+            addParticles()
+
+            // Start animation loop
+            startAnimationLoop();
+
+            // Handle window resize
+            handleWindowResize();
+
+        }
+
+        // Function to set up the physics world
+        function setupPhysics() {
+            world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+            world.damping = 0.9
+            world.solver.iterations = 20; // Increased for SPH stability
+
+
+            sph = new CANNON.SPHSystem()
+
+            sph.smoothingRadius = sphParams.smoothingRadius
+            updateSPHParameters()
+
+
+            world.subsystems.push(sph)
+            world.addContactMaterial(fluidContactMaterial)
+            world.addContactMaterial(fluidContainerContractMaterial)
+
+
+        }
+
+
+        // Function to set up the scene, camera, and renderer
+        function setupScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+
+        }
+
+        function updateSPHParameters() {
+            sph.viscosity = sphParams.viscosity
+        }
+
+        // Function to add lighting
+        function addLighting() {
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            scene.add(light);
+            const ambientLight = new THREE.AmbientLight(0x404040); // Add ambient light
+            scene.add(ambientLight);
+        }
+
+        // Function to position the camera
+        function positionCamera() {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, 4, 0); // Look at the center of the container
+        }
+
+        // Function to setup GUI controls
+        function setupGUI() {
+            gui = new GUI();
+
+            gui.add(sphParams, 'viscosity', VISCOSITY_MIN, VISCOSITY_MAX).step(0.01).name('Viscosity')
+            gui.add(controls, 'reset').name('Reset Simulation');
+        }
+
+
+
+        // Function to start the animation loop
+        function startAnimationLoop() {
+            const animate = (time) => {
+                requestAnimationFrame(animate);
+
+                const currentTime = performance.now();
+                const dt = (currentTime - lastTime) / 1000; // Time since last frame in seconds
+                lastTime = currentTime; // Update lastTime here
+
+                // Apply SPH physics and update particle positions
+                updateParticlePositions(currentTime);
+
+                if (numParticles < MAX_PARTICLES) {
+                    // Calculate radius between min and max bounds
+                    const maxRadius = MIN_SPAWN_RADIUS * 1.5;
+                    const radius = MIN_SPAWN_RADIUS + (maxRadius - MIN_SPAWN_RADIUS) * (numParticles / MAX_PARTICLES);
+
+                    const randomHeight = MIN_SPAWN_HEIGHT * 1.5;
+                    // Space particles by their size in a circular path
+                    const angleStep = Math.asin(PARTICLE_SIZE * 2 / radius) // Angle needed for particles to be side by side
+                    const angle = (numParticles * angleStep) + ((time / 3600) * Math.PI * 2); // Base angle + rotation over time
+
+
+                    addFluidParticle(radius, angle, randomHeight)
+                }
+
+                world.step(PHYSICS_TIME_STEP);
+
+
+                renderer.render(scene, camera);
+                orbitControls.update();
+
+            };
+
+            animate(0);
+        }
+
+
+        // Function to create the container and funnel
+        function createContainerAndFunnel() {
+            const torusShape = CANNON.Trimesh.createTorus(TORUS_OUTER_RADIUS, TORUS_INNER_RADIUS, 32, 32)
+            const torusBody = new CANNON.Body({ mass: 0, material: containerMaterial })
+            torusBody.addShape(torusShape)
+            torusBody.position.set(0, TORUS_Y_POS, 0)
+            torusBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0)
+            torusBody.velocity.set(0, 1, 1)
+            world.addBody(torusBody)
+
+            const geometry = new THREE.TorusGeometry(TORUS_OUTER_RADIUS, TORUS_INNER_RADIUS, 32, 32);
+            const material = new THREE.MeshLambertMaterial({ color: 0x6eaed4, emissive: 0x000000, wireframe: true });
+            const torusMesh = new THREE.Mesh(geometry, material);
+            torusMesh.userData.isBelowBound = false
+            torusMesh.position.copy(torusBody.position);
+            torusMesh.quaternion.copy(torusBody.quaternion)
+            scene.add(torusMesh);
+
+        }
+
+
+        // Function to add a fluid particle
+        function addFluidParticle(radius, angle, currentHeight) {
+            const particleGeometry = new THREE.SphereGeometry(PARTICLE_SIZE, 8, 8);
+            const particleMaterial = new THREE.MeshStandardMaterial({ color: FLUID_COLOR, flatShading: true });
+            const particleMesh = new THREE.Mesh(particleGeometry, particleMaterial);
+
+            // Position particles in concentric circles
+            const x = radius * Math.cos(angle);
+            const y = currentHeight
+            const z = radius * Math.sin(angle);
+
+
+            particleMesh.position.set(x, y, z);
+            scene.add(particleMesh);
+            particles.push(particleMesh);
+
+            const particleBody = new CANNON.Body({
+                mass: PARTICLE_MASS,
+                shape: new CANNON.Sphere(PARTICLE_SIZE),
+                material: fluidMaterial,
+                position: new CANNON.Vec3(x, y, z),
+                angularDamping: 1,
+                linearDamping: 0.1,
+            });
+
+
+            world.addBody(particleBody);
+            particleBodies.push(particleBody);
+            // sph.add(particleBody)
+            numParticles++;
+        }
+
+        function addParticles() {
+            // Remove existing particles from scene and world
+            particles.forEach(particle => scene.remove(particle));
+            particleBodies.forEach(body => world.removeBody(body));
+
+            particles = [];
+            particleBodies = [];
+            numParticles = 0;
+
+            let circleIndex = 0
+            let currentParticlesPerCircle = 0
+            const gap = 0.6
+            const yGap = 1
+            const minRadius = MIN_SPAWN_RADIUS
+            const minHeight = MIN_SPAWN_HEIGHT
+
+            for (let i = 0; i < MAX_PARTICLES; i++) {
+                const currentRadius = minRadius + gap * circleIndex
+                const circumference = 2 * Math.PI * currentRadius
+                const toalParticlesPerCirlce = circumference / (PARTICLE_SIZE * 2)
+
+                if (currentParticlesPerCircle >= toalParticlesPerCirlce) {
+                    circleIndex++
+                    currentParticlesPerCircle = 0
+                }
+
+                let currentAngle = (currentParticlesPerCircle / toalParticlesPerCirlce) * Math.PI * 2
+                let currentHeight = minHeight + (1 + circleIndex) * yGap
+
+                addFluidParticle(currentRadius, currentAngle, currentHeight);
+                currentParticlesPerCircle++
+            }
+        }
+
+
+        // Function to handle window resize
+        function handleWindowResize() {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        function resetSimulation() {
+            lastTime = performance.now()
+            lastFlowRateUpdate = performance.now()
+            particlesPassedTorus = 0
+            document.getElementById('flowRate').textContent = '0';
+            updateSPHParameters()
+            addParticles()
+        }
+
+
+        // Function to update the positions of the Three.js particle meshes
+        function updateParticlePositions(currentTime) {
+            for (let i = 0; i < numParticles; i++) {
+                const particleA = particleBodies[i];
+
+                // Apply cohesion forces based on viscosity
+                for (let j = 0; j < numParticles; j++) {
+                    if (j !== i) {
+                        const particleB = particleBodies[j];
+                        const dx = particleA.position.x - particleB.position.x;
+                        const dy = particleA.position.y - particleB.position.y;
+                        const dz = particleA.position.z - particleB.position.z;
+
+                        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                        if (distance < SMOOTHING_RADIUS && distance > 0) {
+                            // Calculate direction vector
+                            const nx = dx / distance;
+                            const ny = dy / distance;
+                            const nz = dz / distance;
+
+                            const cohesionForce = -sphParams.viscosity * (distance / SMOOTHING_RADIUS)
+
+
+                            particleA.applyForce(
+                                new CANNON.Vec3(
+                                    nx * cohesionForce,
+                                    ny * cohesionForce,
+                                    nz * cohesionForce
+                                ),
+                                particleA.position
+                            );
+                        }
+                    }
+                }
+
+                particles[i].position.copy(particleBodies[i].position);
+                particles[i].quaternion.copy(particleBodies[i].quaternion)
+
+
+                // Track particles passing through torus
+                if (particles[i].position.y < TORUS_Y_BOUND - PARTICLE_SIZE / 2 && !particles[i].userData.isBelowBound) {
+                    particles[i].userData.isBelowBound = true
+                    particlesPassedTorus++;
+                }
+
+                // Update flow rate display
+                if (currentTime - lastFlowRateUpdate > FLOW_RATE_UPDATE_INTERVAL) {
+                    const flowRate = (particlesPassedTorus).toFixed(1);
+                    document.getElementById('flowRate').textContent = flowRate;
+                    particlesPassedTorus = 0;
+                    lastFlowRateUpdate = currentTime;
+                }
+
+                const minHeight = -TORUS_OUTER_RADIUS * 1.3
+
+                if (particles[i].position.y < minHeight) {
+                    world.removeBody(particleBodies[i])
+                    scene.remove(particles[i])
+                    particles.splice(i, 1)
+                    particleBodies.splice(i, 1)
+                    numParticles--
+                    i--
+                }
+            }
+        }
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Packing Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: sans-serif;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px black;
+            pointer-events: none;
+            /* Allows mouse events to pass through to the canvas */
+            z-index: 10;
+            /* Ensure info is above canvas */
+        }
+
+        #robot-arm-info {
+            position: absolute;
+            top: 150px;
+            left: 10px;
+            color: white;
+            font-family: sans-serif;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px black;
+            pointer-events: none;
+            /* Allows mouse events to pass through to the canvas */
+            z-index: 10;
+            /* Ensure info is above canvas */
+        }
+
+        /* Style for dat.GUI */
+        .dg.main {
+            position: absolute !important;
+            top: 0px !important;
+            right: 0px !important;
+            z-index: 10;
+            /* Ensure GUI is above canvas */
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.157.0/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/",
+                "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+                "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js",
+                "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="info"></div>
+    <div id="robot-arm-info"></div>
+    <div id="container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+        import CannonDebugger from 'cannon-es-debugger';
+        import { GUI } from 'dat.gui';
+
+        // --- Constants ---
+        const GRAVITY = -9.82;
+        const PLANE_SIZE = 50;
+        const CAMERA_POSITION = { x: 0, y: 20, z: 15 };
+        const LIGHT_POSITION = { x: 0, y: 40, z: 0 };
+        const PHYSICS_TIME_STEP = 1 / 60;
+
+        // Arm and Grabber Constants
+        const ARM_COLOR = new THREE.Color(0xa3da); // Gray metallic
+        const ARM_SPAWN_POSITION = new THREE.Vector3(-3, 12, 0); // Position near the objects
+        const ARM_BASE_RADIUS = 0.5;
+        const ARM_BASE_HEIGHT = 2;
+        const ARM_MAIN_LENGTH = 8;
+        const ARM_MAIN_WIDTH = 0.4;
+        const ARM_MAIN_HEIGHT = 0.3;
+        const ARM_GRABBER_SIZE = 1;
+        const ARM_GRABBER_COLOR = new THREE.Color(0xff0000); // Red for visibility
+        const GRABBER_OFFSET = new THREE.Vector3(0, -0.5, 0); // Offset from armGrabber center for object
+        const GRAB_DISTANCE = 2; // Distance threshold for grabbing (slightly increased)
+
+
+
+        // Object Constants
+        const OBJECT_TYPES = ['circle', 'square', 'cylinder'];
+        const OBJECT_SIZE = 1
+        const INITIAL_OBJECT_COUNT = 10; // Total number of objects
+        const OBJECTS_SPAWN_POSITION = new THREE.Vector3(0, 0, -10); // Center the spawn area
+
+        // Packing Constants
+        const CONTAINER_GRID_SIZE = OBJECT_SIZE * 1.25; // Approximate size of grid cells for packing (should be larger than max object size)
+        const MAX_CONTAINER_GRID = { x: 2, y: 3, z: 2 }; // Max grid cells (adjust based on container size and object sizes)
+
+        const containerGrid = () => {
+            const grid = [];
+            // First level: Y (height levels)
+            for (let y = 0; y < MAX_CONTAINER_GRID.y; y++) {
+                const yLevel = [];
+                // Second level: X (width)
+                for (let x = 0; x < MAX_CONTAINER_GRID.x; x++) {
+                    const xRow = [];
+                    // Third level: Z (depth)
+                    for (let z = 0; z < MAX_CONTAINER_GRID.z; z++) {
+                        xRow.push({
+                            currentShape: null
+                        });
+                    }
+                    yLevel.push(xRow);
+                }
+                grid.push(yLevel);
+            }
+            return grid;
+        };
+
+
+
+        // Container Constants
+        const CONTAINER_SIZE = { x: 3, y: 3, z: 3 }; // Adjusted size slightly
+        const CONTAINER_WALL_THICKNESS = 0.01;
+        const CONTAINER_POSITION = new THREE.Vector3(10, CONTAINER_SIZE.y / 2, 0); // Position near the objects
+
+        // --- Global Variables ---
+        let scene, camera, renderer, orbitControls, world, cannonDebugger;
+
+        const objects = [];
+
+        const meshes = []
+        const bodies = []
+        const containerMeshes = [];
+        const containerBodies = [];
+        let grid
+        let groundMesh, groundBody;
+        let armMesh, armBody, armGrabberMesh, armGrabberBody, lockConstraint;
+        let grabbedObject = null; // Cannon body of the grabbed object
+        let grabbedObjectMesh = null;
+
+        grid = containerGrid();
+
+        const simulationParameters = {
+            isRunning: false,
+            startSimulation: () => startSimulation(),
+            stopSimulation: () => stopSimulation(),
+            resetSimulation: () => resetSimulation(),
+            objectCount: INITIAL_OBJECT_COUNT,
+            showSquare: true,
+            showCylinder: true,
+            showCircle: true,
+            updateObjectTypes: function () {
+                OBJECT_TYPES.length = 0; // Clear array
+                if (this.showSquare) OBJECT_TYPES.push('square');
+                if (this.showCylinder) OBJECT_TYPES.push('cylinder');
+                if (this.showCircle) OBJECT_TYPES.push('circle');
+                // Reset simulation to apply changes
+                resetSimulation();
+            },
+            armSpeed: 0.2, // Speed of the arm movement
+            grabDelay: 800, // ms delay after reaching object before grabbing
+            dropDelay: 800, // ms delay after reaching container before dropping
+            showDebugger: false // Toggle for Cannon-es debugger (this is only for code debugging and not added in GUI controls)
+        };
+
+        // Arm State Machine
+        const ARM_STATE = {
+            IDLE: 'IDLE',
+            SEARCHING: 'SEARCHING',
+            MOVING_TO_OBJECT: 'MOVING_TO_OBJECT',
+            GRABBING: 'GRABBING',
+            MOVING_TO_CONTAINER: 'MOVING_TO_CONTAINER',
+            DROPPING: 'DROPPING',
+            RETURNING: 'RETURNING' // Return to home or next search position
+        };
+
+        let isLastActionItemDropped = null
+        let currentArmState = ARM_STATE.IDLE;
+        let targetObjectState = null; // The initial state object the arm is targeting
+        let armTargetPosition = new THREE.Vector3(); // Target position for the arm
+        let safeMovementHeight = CONTAINER_SIZE.y + ARM_GRABBER_SIZE + 1
+        let packingTargetPosition = new THREE.Vector3(); // Target position *inside* the container
+
+        let nextContainerGridPos = { x: 0, y: 0, z: 0 }; // Next available spot in the grid
+
+        let lastTime = performance.now(); // For physics step time delta
+
+        // --- Initialization ---
+        initializeApplication();
+
+        // Main application initialization
+        function initializeApplication() {
+            // Scene setup
+            const { scene: s, camera: c, renderer: r, orbitControls: oc } = setupScene();
+            scene = s; camera = c; renderer = r; orbitControls = oc;
+
+            // Physics setup
+            const { world: w, cannonDebugger: cd } = setupPhysics(scene);
+            world = w; cannonDebugger = cd;
+
+
+            addLighting(scene)
+
+            positionCamera(camera)
+
+            // Create ground plane
+            createGroundPlane(scene, world);
+
+            // Create Container Box
+            createContainer();
+
+            // Create Objects to Pack
+            createObjects();
+
+            // Create Robotic Arm
+            createRoboticArm();
+
+            updateRoboticArmState()
+
+
+            // Setup GUI controls
+            setupGUI();
+
+            // Setup Info Text
+            setupInfoText();
+
+            // Handle Window Resize
+            handleWindowResize(camera, renderer);
+
+            // Start animation loop
+            startAnimationLoop();
+        }
+
+        // Function to set up the scene, camera, and renderer
+        function setupScene() {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xadd8e6); // Light blue background
+
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true; // Enable shadows
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            const orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+            orbitControls.target.set(0, 5, 0); // Point controls at the center of the action
+
+            return { scene, camera, renderer, orbitControls };
+        }
+
+        // Function to setup GUI controls
+        function setupGUI() {
+            const gui = new GUI();
+
+            gui.add(simulationParameters, 'startSimulation').name('Start Simulation');
+            gui.add(simulationParameters, 'stopSimulation').name('Stop Simulation');
+            gui.add(simulationParameters, 'resetSimulation').name('Reset Simulation');
+            gui.add(simulationParameters, 'objectCount', 5, 15).step(1).name('Object Count');
+            gui.add(simulationParameters, 'armSpeed', 0.1, 0.25).name('Arm Speed');
+            gui.add(simulationParameters, 'showSquare').name('Square').onChange(() => simulationParameters.updateObjectTypes());
+            gui.add(simulationParameters, 'showCylinder').name('Cylinder').onChange(() => simulationParameters.updateObjectTypes());
+            gui.add(simulationParameters, 'showCircle').name('Circle').onChange(() => simulationParameters.updateObjectTypes());
+
+
+            return gui;
+        }
+
+        // Function to start the animation loop
+        function startAnimationLoop() {
+            const animate = () => {
+                requestAnimationFrame(animate);
+
+                const currentTime = performance.now();
+                const deltaTime = (currentTime - lastTime) / 1000; // in seconds
+                lastTime = currentTime;
+
+                if (simulationParameters.isRunning) {
+                    // Step the physics world
+                    world.step(PHYSICS_TIME_STEP, deltaTime, 10); // Fixed time step for consistency
+
+                    // Sync Three.js meshes with Cannon-es bodies (only dynamic ones)
+                    // Find the corresponding mesh using the cannonId stored on the mesh
+                    for (let i = 0; i < objects.length; i++) {
+                        const { body, mesh } = objects[i];
+                        // Only sync if the object is not currently grabbed by the kinematic arm
+                        if (mesh && body.type !== CANNON.Body.STATIC && grabbedObject !== body) {
+                            mesh.position.copy(body.position);
+                            mesh.quaternion.copy(body.quaternion);
+                        }
+                    }
+
+                    // Update arm and grabbed object position (kinematic control)
+                    updateRoboticArm(deltaTime);
+                }
+
+                // Update debugger if enabled
+                if (simulationParameters.showDebugger) {
+                    cannonDebugger.update();
+                }
+
+                // Update controls
+                orbitControls.update();
+
+                // Render the scene
+                renderer.render(scene, camera);
+            };
+
+            animate();
+        }
+
+        // Function to set up the physics world
+        function setupPhysics(scene) {
+            const world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+            world.broadphase = new CANNON.NaiveBroadphase(); // Basic broadphase
+            world.solver.iterations = 10; // Increase iterations for stability
+
+
+            const cannonDebugger = new CannonDebugger(scene, world, {
+                color: 0x00ff00, // Green debugger lines
+                scale: 1.0
+            });
+
+            return { world, cannonDebugger };
+        }
+
+        // Function to setup Info Text
+        function setupInfoText() {
+            const infoDiv = document.getElementById('info');
+            infoDiv.innerHTML = `
+                <b>3D Packing Simulation</b><br>
+                Controls:<br>
+                - Left Click + Drag: Rotate Camera<br>
+                - Right Click + Drag: Pan Camera<br>
+                - Scroll Wheel: Zoom Camera<br>
+                - GUI Buttons (top right): Start, Stop, Reset Simulation<br>
+            `;
+        }
+
+        function updateRoboticArmState(state) {
+            const roboticArmInfoDiv = document.getElementById('robot-arm-info');
+            roboticArmInfoDiv.innerHTML = `
+                <b>Arm State:</b> ${state || currentArmState}<br>
+            `;
+        }
+
+
+        // Function to add lighting
+        function addLighting(scene) {
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.5); // Soft white light
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 10);
+            directionalLight.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            // directionalLight.castShadow = true; // Enable shadow casting
+            directionalLight.castShadow = true; // Enable shadow casting
+            directionalLight.shadow.mapSize.width = 2048; // Increase shadow map size for better quality
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -20;
+            directionalLight.shadow.camera.right = 20;
+            directionalLight.shadow.camera.top = 20;
+            directionalLight.shadow.camera.bottom = -20;
+            scene.add(directionalLight);
+        }
+
+        // Function to position the camera
+        function positionCamera(camera) {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, 0, 0); // Look towards the center of the action area
+        }
+
+        // Function to create the ground plane
+        function createGroundPlane(scene, world) {
+            const planeGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513, side: THREE.DoubleSide }); // Brown color
+            groundMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+
+            groundMesh.rotation.x = -Math.PI / 2; // Rotate to lay flat
+            groundMesh.receiveShadow = true; // Ground receives shadows
+            scene.add(groundMesh);
+
+            const planeShape = new CANNON.Plane();
+            groundBody = new CANNON.Body({ mass: 0, shape: planeShape }); // Static body
+            groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0); // Orient to match mesh
+            world.addBody(groundBody);
+
+
+
+            return { plane: groundMesh, planeBody: groundBody };
+        }
+
+        function createContainer() {
+            const containerMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0xaaaaaa, // Grayish color
+                transparent: true,
+                opacity: 0.3,
+                roughness: 0.5,
+                metalness: 0.1,
+                side: THREE.DoubleSide
+            });
+
+            // Floor
+            const floorGeo = new THREE.BoxGeometry(CONTAINER_SIZE.x, CONTAINER_WALL_THICKNESS, CONTAINER_SIZE.z);
+            const floorMesh = new THREE.Mesh(floorGeo, containerMaterial);
+            floorMesh.position.set(CONTAINER_POSITION.x, CONTAINER_POSITION.y - CONTAINER_SIZE.y / 2, CONTAINER_POSITION.z);
+            floorMesh.receiveShadow = true;
+            scene.add(floorMesh);
+            containerMeshes.push(floorMesh);
+
+            const floorShape = new CANNON.Box(new CANNON.Vec3(CONTAINER_SIZE.x / 2, CONTAINER_WALL_THICKNESS / 2, CONTAINER_SIZE.z / 2));
+            const floorBody = new CANNON.Body({ mass: 0, shape: floorShape });
+            floorBody.position.copy(floorMesh.position);
+            world.addBody(floorBody);
+            containerBodies.push(floorBody);
+            floorMesh.userData.cannonId = floorBody.id; // Link mesh and body
+
+
+            // Walls (Simplified - individual thin boxes)
+            const wallHeight = CONTAINER_SIZE.y;
+            const wallDepth = CONTAINER_SIZE.z;
+            const wallWidth = CONTAINER_SIZE.x;
+
+            // Front Wall
+            const frontWallGeo = new THREE.BoxGeometry(wallWidth, wallHeight, CONTAINER_WALL_THICKNESS);
+            const frontWallMesh = new THREE.Mesh(frontWallGeo, containerMaterial);
+            frontWallMesh.position.set(CONTAINER_POSITION.x, CONTAINER_POSITION.y, CONTAINER_POSITION.z + wallDepth / 2 - CONTAINER_WALL_THICKNESS / 2);
+            scene.add(frontWallMesh);
+            containerMeshes.push(frontWallMesh);
+            const frontWallShape = new CANNON.Box(new CANNON.Vec3(wallWidth / 2, wallHeight / 2, CONTAINER_WALL_THICKNESS / 2));
+            const frontWallBody = new CANNON.Body({ mass: 0, shape: frontWallShape });
+            frontWallBody.position.copy(frontWallMesh.position);
+            world.addBody(frontWallBody);
+
+
+            // Back Wall
+            const backWallGeo = new THREE.BoxGeometry(wallWidth, wallHeight, CONTAINER_WALL_THICKNESS);
+            const backWallMesh = new THREE.Mesh(backWallGeo, containerMaterial);
+            backWallMesh.position.set(CONTAINER_POSITION.x, CONTAINER_POSITION.y, CONTAINER_POSITION.z - wallDepth / 2 + CONTAINER_WALL_THICKNESS / 2);
+            scene.add(backWallMesh);
+            const backWallShape = new CANNON.Box(new CANNON.Vec3(wallWidth / 2, wallHeight / 2, CONTAINER_WALL_THICKNESS / 2));
+            const backWallBody = new CANNON.Body({ mass: 0, shape: backWallShape });
+            backWallBody.position.copy(backWallMesh.position);
+            world.addBody(backWallBody);
+
+
+            // Left Wall
+            const leftWallGeo = new THREE.BoxGeometry(CONTAINER_WALL_THICKNESS, wallHeight, wallDepth);
+            const leftWallMesh = new THREE.Mesh(leftWallGeo, containerMaterial);
+            leftWallMesh.position.set(CONTAINER_POSITION.x - wallWidth / 2 + CONTAINER_WALL_THICKNESS / 2, CONTAINER_POSITION.y, CONTAINER_POSITION.z);
+            scene.add(leftWallMesh);
+            containerMeshes.push(leftWallMesh);
+            const leftWallShape = new CANNON.Box(new CANNON.Vec3(CONTAINER_WALL_THICKNESS / 2, wallHeight / 2, wallDepth / 2));
+            const leftWallBody = new CANNON.Body({ mass: 0, shape: leftWallShape });
+            leftWallBody.position.copy(leftWallMesh.position);
+            world.addBody(leftWallBody);
+
+
+            // Right Wall
+            const rightWallGeo = new THREE.BoxGeometry(CONTAINER_WALL_THICKNESS, wallHeight, wallDepth);
+            const rightWallMesh = new THREE.Mesh(rightWallGeo, containerMaterial);
+            rightWallMesh.position.set(CONTAINER_POSITION.x + wallWidth / 2 - CONTAINER_WALL_THICKNESS / 2, CONTAINER_POSITION.y, CONTAINER_POSITION.z);
+            scene.add(rightWallMesh);
+            containerMeshes.push(rightWallMesh);
+            const rightWallShape = new CANNON.Box(new CANNON.Vec3(CONTAINER_WALL_THICKNESS / 2, wallHeight / 2, wallDepth / 2));
+            const rightWallBody = new CANNON.Body({ mass: 0, shape: rightWallShape });
+            rightWallBody.position.copy(rightWallMesh.position);
+            world.addBody(rightWallBody);
+
+        }
+
+        function createObjects() {
+            let prevSize = undefined
+            let prevZ = OBJECTS_SPAWN_POSITION.z
+
+            if (!OBJECT_TYPES.length) return null
+
+            for (let i = 0; i < simulationParameters.objectCount; i++) {
+
+                const type = OBJECT_TYPES[Math.floor(Math.random() * OBJECT_TYPES.length)];
+                const size = OBJECT_SIZE  // Random size within range
+                const color = new THREE.Color(Math.random(), Math.random(), Math.random()); // Vibrant random color
+                const currentZPos = prevZ + ((prevSize ?? size) * 2)
+                const position = new THREE.Vector3(
+                    OBJECTS_SPAWN_POSITION.x,
+                    size / 2, // Start slightly above ground to fall
+                    currentZPos
+                );
+
+                prevZ = currentZPos
+                prevSize = size
+
+
+
+                let mesh, body, shape;
+                let mass = 1; // Give objects mass so they are dynamic
+
+                switch (type) {
+                    case 'square':
+                        const boxSize = size;
+                        mesh = new THREE.Mesh(new THREE.BoxGeometry(boxSize, boxSize, boxSize), new THREE.MeshStandardMaterial({ color }));
+                        shape = new CANNON.Box(new CANNON.Vec3(boxSize / 2, boxSize / 2, boxSize / 2));
+                        break;
+                    case 'cylinder':
+                        const cylinderRadius = size / 2;
+                        const cylinderHeight = size;
+                        mesh = new THREE.Mesh(new THREE.CylinderGeometry(cylinderRadius, cylinderRadius, cylinderHeight, 16), new THREE.MeshStandardMaterial({ color }));
+                        shape = new CANNON.Cylinder(cylinderRadius, cylinderRadius, cylinderHeight, 16);
+                        break;
+                    case 'circle':
+                        const sphereRadius = size / 2;
+                        mesh = new THREE.Mesh(new THREE.SphereGeometry(sphereRadius, 16, 16), new THREE.MeshStandardMaterial({ color }));
+                        shape = new CANNON.Sphere(sphereRadius);
+                        break;
+                }
+
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                mesh.position.copy(position);
+                scene.add(mesh);
+                meshes.push(mesh);
+
+                body = new CANNON.Body({ mass, shape });
+                // Specific rotation for Cylinder body if its default axis doesn't match mesh (Cannon is Y-up, Three.js is Y-up)
+                // No extra rotation needed for body relative to mesh default in this case.
+
+                body.position.copy(position);
+
+                world.addBody(body);
+                bodies.push(body);
+
+                // Store metadata and link body ID on the mesh's userData
+                mesh.userData.cannonId = body.id;
+                mesh.userData.type = type; // Store type
+
+                objects.push({ mesh, body, size, type });
+            }
+
+            // Sort objects for packing priority (Squares > Cylinders > Circles)
+            const priority = { 'square': 1, 'cylinder': 2, 'circle': 3 };
+            objects.sort((a, b) => {
+                const priorityA = priority[a.type] || 99; // Assign low priority if type is unknown
+                const priorityB = priority[b.type] || 99;
+                return priorityA - priorityB; // Lower priority number comes first
+            });
+        }
+
+        function createRoboticArm() {
+            // Base (Cylinder)
+            const baseMesh = new THREE.Mesh(new THREE.CylinderGeometry(ARM_BASE_RADIUS, ARM_BASE_RADIUS, ARM_BASE_HEIGHT, 16), new THREE.MeshStandardMaterial({ color: ARM_COLOR, metalness: 0.8, roughness: 0.3 }));
+            baseMesh.position.copy(ARM_SPAWN_POSITION).add(new THREE.Vector3(0, ARM_BASE_HEIGHT / 2, 0));
+            baseMesh.castShadow = true;
+            baseMesh.receiveShadow = true;
+            scene.add(baseMesh);
+            meshes.push(baseMesh);
+            const baseShape = new CANNON.Cylinder(ARM_BASE_RADIUS, ARM_BASE_RADIUS, ARM_BASE_HEIGHT, 16);
+            const baseBody = new CANNON.Body({ mass: 0, shape: baseShape }); // Static base
+            baseBody.position.copy(baseMesh.position);
+            world.addBody(baseBody);
+            bodies.push(baseBody);
+            baseMesh.userData.cannonId = baseBody.id; // Link mesh and body
+
+            // Main Arm (Box)
+            armMesh = new THREE.Mesh(new THREE.BoxGeometry(ARM_MAIN_LENGTH, ARM_MAIN_HEIGHT, ARM_MAIN_WIDTH), new THREE.MeshStandardMaterial({ color: ARM_COLOR, metalness: 0.8, roughness: 0.3 }));
+            // Position relative to the base
+            armMesh.position.copy(baseMesh.position).add(new THREE.Vector3(0, -ARM_MAIN_LENGTH / 2 - ARM_BASE_HEIGHT / 2, 0)); // Adjusted Y offset
+            armMesh.rotation.z = -Math.PI / 2
+            armMesh.castShadow = true;
+            armMesh.receiveShadow = true;
+            scene.add(armMesh);
+            meshes.push(armMesh);
+            armBody = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(ARM_MAIN_LENGTH / 2, ARM_MAIN_HEIGHT / 2, ARM_MAIN_WIDTH / 2)) });
+            armBody.position.copy(armMesh.position);
+            armBody.quaternion.copy(armMesh.quaternion)
+            world.addBody(armBody);
+            bodies.push(armBody);
+            armMesh.userData.cannonId = armBody.id; // Link mesh and body
+
+            // Grabber (Small Box at the end of the arm)
+            armGrabberMesh = new THREE.Mesh(new THREE.BoxGeometry(ARM_GRABBER_SIZE, ARM_GRABBER_SIZE, ARM_GRABBER_SIZE), new THREE.MeshStandardMaterial({ color: ARM_GRABBER_COLOR, metalness: 0.9, roughness: 0.1 })); // Red for visibility
+            // Position relative to the arm end
+            armGrabberMesh.position.copy(armMesh.position).add(new THREE.Vector3(0, -(ARM_MAIN_LENGTH / 2 + ARM_GRABBER_SIZE / 2), 0));
+            armGrabberMesh.castShadow = true;
+            armGrabberMesh.receiveShadow = true;
+            scene.add(armGrabberMesh);
+            meshes.push(armGrabberMesh);
+            armGrabberBody = new CANNON.Body({ mass: 1, shape: new CANNON.Box(new CANNON.Vec3(ARM_GRABBER_SIZE / 2, ARM_GRABBER_SIZE / 2, ARM_GRABBER_SIZE / 2)) });
+            armGrabberBody.position.copy(armGrabberMesh.position);
+            world.addBody(armGrabberBody);
+            bodies.push(armGrabberBody);
+            armGrabberMesh.userData.cannonId = armGrabberBody.id; // Link mesh and body
+
+            lockConstraint = new CANNON.LockConstraint(
+                armBody, // Body A (arm)
+                armGrabberBody, // Body B (grabber)
+            );
+
+            world.addConstraint(lockConstraint);
+        }
+
+        function startSimulation() {
+            if (!simulationParameters.isRunning) {
+                simulationParameters.isRunning = true;
+                if (currentArmState === ARM_STATE.IDLE) {
+                    currentArmState = ARM_STATE.SEARCHING;
+                }
+                console.log("Simulation Started");
+            }
+        }
+
+        function stopSimulation() {
+            if (simulationParameters.isRunning) {
+                simulationParameters.isRunning = false;
+                // Optionally set arm state to IDLE or pause it
+                // currentArmState = ARM_STATE.IDLE;
+                console.log("Simulation Stopped");
+            }
+        }
+
+        function resetSimulation() {
+            stopSimulation(); // Ensure simulation is stopped first
+
+            // Recreate all objects and arm parts from stored initial states
+            objects.forEach(({ body, mesh }) => {
+                world.removeBody(body);
+                scene.remove(mesh)
+            });
+
+            meshes.forEach(mesh => { scene.remove(mesh) })
+            bodies.forEach(body => { world.removeBody(body) })
+
+            // Clear all tracking arrays
+            meshes.length = 0;
+            bodies.length = 0;
+            objects.length = 0
+            containerMeshes.length = 0;
+            containerBodies.length = 0;
+            nextContainerGridPos = { x: 0, y: 0, z: 0 };
+            grabbedObject = null;
+            grabbedObjectMesh = null
+            targetObjectState = null;
+            currentArmState = ARM_STATE.IDLE;
+            grid = containerGrid()
+
+            createObjects()
+            createRoboticArm()
+            updateRoboticArmState(ARM_STATE.IDLE)
+
+            console.log("Simulation Reset");
+        }
+
+
+        let movementPhases = []
+
+        function updateRoboticArm(deltaTime) {
+            const armSpeed = simulationParameters.armSpeed;
+
+            switch (currentArmState) {
+                case ARM_STATE.IDLE:
+                    // Do nothing, waiting to start or for next command
+                    break;
+
+                case ARM_STATE.SEARCHING:
+                    // Find the next object to pick up from the objects list
+                    targetObjectState = objects.find(obj => !obj.packed);
+
+                    if (targetObjectState) {
+                        // Set arm target position slightly above the object's current position
+                        const { body: targetBody, size: targetSize } = targetObjectState
+                        armTargetPosition.copy(targetBody.position).add(new THREE.Vector3(0, targetSize, 0)); // Aim above the object
+
+                        currentArmState = ARM_STATE.MOVING_TO_OBJECT;
+
+                        if (isLastActionItemDropped) {
+                            movementPhases = [new THREE.Vector3(armGrabberMesh.position.x, safeMovementHeight, armGrabberMesh.position.z), new THREE.Vector3(armTargetPosition.x, safeMovementHeight, armTargetPosition.z), armTargetPosition]
+                        } else {
+                            movementPhases = [armTargetPosition]
+                        }
+
+
+                        updateRoboticArmState("Arm: Searching -> Moving to Object");
+
+                    } else {
+                        // All dynamic objects are packed
+                        currentArmState = ARM_STATE.RETURNING; // Maybe return to home or just idle
+                        updateRoboticArmState("Arm: Searching -> All objects packed. Returning.");
+                        armTargetPosition.set(ARM_SPAWN_POSITION.x, ARM_SPAWN_POSITION.y + ARM_BASE_HEIGHT / 2 + ARM_MAIN_HEIGHT / 2 + ARM_GRABBER_SIZE / 2, ARM_SPAWN_POSITION.z); // Home position above base
+
+                    }
+                    break;
+
+                case ARM_STATE.MOVING_TO_OBJECT:
+                    // Move arm grabber towards the armTargetPosition
+                    const distanceToObjectTarget = movementPhases.length > 0 ? armGrabberMesh.position.distanceTo(movementPhases[0]) : 0
+
+                    if (distanceToObjectTarget > 0.15) {
+                        const direction = movementPhases[0].clone().sub(armGrabberMesh.position).normalize();
+                        const moveStep = direction.multiplyScalar(armSpeed * deltaTime * 60); // Scale by deltaTime and a factor
+                        armGrabberMesh.position.add(moveStep);
+
+                        // Simple arm movement (move main arm with grabber)
+                        armMesh.position.copy(armGrabberMesh.position).add(new THREE.Vector3(0, ARM_MAIN_LENGTH / 2 + ARM_GRABBER_SIZE / 2, 0));
+
+
+                        armGrabberBody.position.copy(armGrabberMesh.position);
+                        armBody.position.copy(armMesh.position);
+
+                    } else if (movementPhases.length > 0) {
+                        movementPhases.shift()
+                    } else {
+                        // Reached the target position above the object, transition to grabbing state
+                        currentArmState = ARM_STATE.GRABBING;
+                        updateRoboticArmState("Arm: Moving to Object -> Grabbing");
+                        // Set a timeout for the grab action
+                        setTimeout(() => performGrab(), simulationParameters.grabDelay);
+                    }
+                    break;
+
+                case ARM_STATE.GRABBING:
+                    // Waiting for the grab delay, then perform the grab action in performGrab()
+                    // Keep arm in place
+                    armGrabberBody.position.copy(armGrabberMesh.position);
+                    armBody.position.copy(armMesh.position);
+                    break;
+
+                case ARM_STATE.MOVING_TO_CONTAINER:
+                    const distanceToTargetPhase = movementPhases.length > 0 ? armGrabberMesh.position.distanceTo(movementPhases[0]) : 0;
+
+                    if (distanceToTargetPhase > OBJECT_SIZE / 2) {
+                        const direction = movementPhases[0].clone().sub(armGrabberMesh.position).normalize();
+                        const moveStep = direction.multiplyScalar(armSpeed * deltaTime * 60);
+                        armGrabberMesh.position.add(moveStep);
+
+                        // Move main arm
+                        armMesh.position.copy(armGrabberMesh.position).add(new THREE.Vector3(0, ARM_MAIN_LENGTH / 2 + ARM_GRABBER_SIZE / 2, 0));
+
+
+                        // Update Cannon body positions
+                        armGrabberBody.position.copy(armGrabberMesh.position);
+                        armBody.position.copy(armMesh.position);
+
+                        const { body, mesh, size } = targetObjectState
+
+                        mesh.position.copy(armGrabberMesh.position.clone().sub(new THREE.Vector3(0, size / 2 + ARM_GRABBER_SIZE / 2, 0)));
+                        body.position.copy(armGrabberMesh.position.clone().sub(new THREE.Vector3(0, size / 2 + ARM_GRABBER_SIZE / 2, 0)))
+                    } else if (movementPhases.length > 0) {
+                        movementPhases.shift()
+                    } else {
+                        // Reached the packing target position, transition to dropping state
+                        currentArmState = ARM_STATE.DROPPING;
+                        updateRoboticArmState("Arm: Moving to Container -> Dropping");
+                        // Set a timeout for the drop action
+                        setTimeout(() => performDrop(), simulationParameters.dropDelay);
+                    }
+                    break;
+
+                case ARM_STATE.DROPPING:
+                    // Waiting for the drop delay, then perform the drop action in performDrop()
+                    // Keep arm and object in place
+                    armGrabberBody.position.copy(armGrabberMesh.position);
+                    armBody.position.copy(armMesh.position);
+                    if (grabbedObject && grabbedObjectMesh) {
+                        grabbedObject.position.copy(packingTargetPosition);
+                        grabbedObject.quaternion.set(0, 0, 0, 1); // Keep upright
+                        grabbedObjectMesh.position.copy(grabbedObject.position);
+                        grabbedObjectMesh.quaternion.copy(grabbedObject.quaternion);
+                        grabbedObject.type = CANNON.STATIC
+                    }
+                    break;
+
+                case ARM_STATE.RETURNING:
+                    // Move arm back to a home position
+                    const homePosition = new THREE.Vector3().copy(ARM_SPAWN_POSITION).sub(new THREE.Vector3(0, ARM_MAIN_LENGTH + ARM_GRABBER_SIZE / 2, 0));
+
+                    const distanceToHome = armGrabberMesh.position.distanceTo(homePosition);
+                    if (distanceToHome > 0.15) {
+                        const direction = homePosition.clone().sub(armGrabberMesh.position).normalize();
+                        const moveStep = direction.multiplyScalar(armSpeed * deltaTime * 60);
+                        armGrabberMesh.position.add(moveStep);
+
+                        // Move main arm
+                        armMesh.position.copy(armGrabberMesh.position).add(new THREE.Vector3(0, ARM_MAIN_LENGTH / 2 + ARM_GRABBER_SIZE / 2, 0));
+
+
+
+                        // Update Cannon body positions
+                        armGrabberBody.position.copy(armGrabberMesh.position);
+                        armBody.position.copy(armMesh.position);
+                        updateRoboticArmState("Arm: Returning -> Idle");
+                    } else {
+                        // Reached home
+                        currentArmState = ARM_STATE.IDLE;
+                        updateRoboticArmState(ARM_STATE.IDLE);
+
+                    }
+                    break;
+            }
+
+
+        }
+
+        function performGrab() {
+            if (!targetObjectState) return
+            // Find the current physics body for the target object state using the cannonId stored on the mesh
+            const { body: objectBody, mesh: grabbedMesh, size } = targetObjectState;
+
+            const distance = armGrabberMesh.position.distanceTo(objectBody.position); // Check distance to physics body
+
+            if (distance <= GRAB_DISTANCE) { // Check if close enough
+                grabbedObject = objectBody;
+                grabbedObjectMesh = grabbedMesh
+
+                const packageObjectTargetPosition = calculatePackingTargetPosition(size); // Use mesh data for size/type
+
+                if (packageObjectTargetPosition) {
+                    packingTargetPosition.copy(packageObjectTargetPosition)
+                } else {
+                    console.warn("No valid packing position found!");
+                    currentArmState = ARM_STATE.RETURNING;
+                    return
+                }
+
+                const yOffset = OBJECT_SIZE / 2 + ARM_GRABBER_SIZE / 2
+                armTargetPosition.copy(packingTargetPosition.clone().add(new THREE.Vector3(0, yOffset, 0))); // Arm will move to this position
+
+                movementPhases = [new THREE.Vector3(armGrabberMesh.position.x, safeMovementHeight, armGrabberMesh.position.z), new THREE.Vector3(armTargetPosition.x, safeMovementHeight, armTargetPosition.z), armTargetPosition]
+
+
+                currentArmState = ARM_STATE.MOVING_TO_CONTAINER;
+                updateRoboticArmState(`Arm: Grabbed object (${grabbedMesh.userData.type}). Moving to container.`);
+
+            } else {
+                // Missed the object, go back to searching
+                console.warn("Arm: Failed to grab object, retrying search.");
+                targetObjectState = null; // Clear target
+                currentArmState = ARM_STATE.SEARCHING;
+            }
+        }
+
+
+        function isValidPlacement(x, y, z) {
+            // If we're at the bottom level, it's valid (placing on floor)
+            if (y === 0) return true;
+
+            // Check if there's support below
+            const supportCell = grid[y - 1][x][z];
+
+            // No support below
+            if (!supportCell.currentShape) return false;
+
+            // Can't stack on circles/spheres (unstable)
+            if (supportCell.currentShape === 'circle') return false;
+
+            return true;
+        }
+
+        function findNextValidPosition() {
+            for (let y = 0; y < MAX_CONTAINER_GRID.y; y++) {
+                for (let x = 0; x < MAX_CONTAINER_GRID.x; x++) {
+                    for (let z = 0; z < MAX_CONTAINER_GRID.z; z++) {
+                        // Check if current position is empty and valid for placement
+                        if (!grid[y][x][z].currentShape && isValidPlacement(x, y, z)) {
+                            return { x, y, z };
+                        }
+                    }
+                }
+            }
+            return null; // Container is full or no valid positions
+        }
+
+        function calculatePackingTargetPosition(objectSize) {
+            const nextPos = findNextValidPosition();
+
+            if (!nextPos) {
+                return null
+            }
+
+            const containerCenter = CONTAINER_POSITION;
+            const containerSize = CONTAINER_SIZE;
+            const containerMin = new THREE.Vector3(
+                containerCenter.x - containerSize.x / 2,
+                containerCenter.y - containerSize.y / 2,
+                containerCenter.z - containerSize.z / 2
+            );
+
+            // Calculate position based on grid cell center and object size
+            const targetX = containerMin.x + (nextPos.x * CONTAINER_GRID_SIZE) + CONTAINER_GRID_SIZE / 2;
+            const targetY = containerMin.y + (nextPos.y * objectSize) + objectSize / 2;
+            const targetZ = containerMin.z + (nextPos.z * CONTAINER_GRID_SIZE) + CONTAINER_GRID_SIZE / 2;
+
+            // Update grid with the new object
+            grid[nextPos.y][nextPos.x][nextPos.z].currentShape = targetObjectState.type;
+
+            const targetPosition = new THREE.Vector3()
+            targetPosition.copy(new THREE.Vector3(targetX, targetY, targetZ));
+
+            return targetPosition
+        }
+
+        function performDrop() {
+            if (grabbedObject) {
+                grabbedObject = null; // Clear grabbed object reference
+                grabbedObjectMesh = null
+                targetObjectState.packed = true
+
+                targetObjectState = null; // Clear the target object state
+
+                isLastActionItemDropped = true
+
+
+
+                updateRoboticArmState("Arm: Dropped object. Searching for next.");
+            } else {
+                console.warn("Arm: Dropping called but no object was grabbed.");
+            }
+
+            // After dropping, go back to searching for the next object
+            currentArmState = ARM_STATE.SEARCHING;
+        }
+
+
+        // Function to handle window resize
+        function handleWindowResize(camera, renderer) {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+
+    </script>
+</body>
+
+</html>

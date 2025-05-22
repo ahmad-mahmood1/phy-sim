@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            /* Prevent scrollbars */
+            font-family: sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 10;
+            /* Ensure it's above the canvas */
+        }
+
+        #info .behavior-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        #info .absorbing {
+            background-color: #ff0000;
+        }
+
+        #info .deflecting {
+            background-color: #fefefe;
+        }
+
+        #info .bouncing {
+            background-color: #20fc06;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+        "imports": {
+            "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.157.0/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+            "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="info">
+        Controls:<br>
+        - Drag with mouse to orbit camera<br>
+        - Scroll to zoom<br>
+        - Right-click drag to pan<br>
+        <br>
+        Simulation Metrics:<br>
+        Particles: <span id="particleCount">0</span>
+
+        <br>
+        Particle Behavior Color Code:<br>
+        <span class="behavior-indicator absorbing"></span>Absorbing<br>
+        <span class="behavior-indicator deflecting"></span>Deflecting<br>
+        <span class="behavior-indicator bouncing"></span>Bouncing<br>
+
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+        import { GUI } from 'dat.gui';
+
+        // Constants
+        const GRAVITY = -9.82;
+        const PLANE_SIZE = 60;
+        const CAMERA_POSITION = { x: 28, y: 43, z: 0 }; // Adjusted camera position for better view
+        const LIGHT_POSITION = { x: 35, y: 40, z: 0 };
+        const PHYSICS_TIME_STEP = 1 / 60;
+        const CONTACT_EQUATION_RELAXATION = 4;
+        const PARTICLE_COUNT = 600; // Number of particles
+        const PARTICLE_RADIUS = 0.5;
+        const OBSTACLE_COUNT = 60; // Number of obstacles
+        const OBSTACLE_SIZE = 4; // Base size for obstacles
+        const OBSTACLES_SPAWN_HEIGHT = 10
+
+
+        const GROUP1 = 1
+        const GROUP2 = 2
+        const GROUP3 = 4
+
+        // Simulation controls
+        const controls = {
+            reset: function () { resetSimulation(); },
+            deflectiveForce: 5, // Initial deflective force
+            bounceFactor: 0.8, // Initial bounce factor (restitution)
+        };
+
+        // Arrays to hold meshes and bodies
+        const particleMeshes = [];
+        const particleBodies = [];
+        const obstacleMeshes = [];
+        const obstacleBodies = [];
+
+        // Physics materials
+        let particleMaterial;
+        let bouncyMaterial;
+        let groundMaterial;
+
+        // GUI instance
+        let gui;
+
+        // Three.js and Cannon-es instances
+        let scene, camera, renderer, orbitControls;
+        let world
+        let plane, planeBody;
+
+        // Info display elements
+        const particleCountSpan = document.getElementById('particleCount');
+
+
+        // Initialize the application
+        initializeApplication();
+
+        // Main application initialization
+        function initializeApplication() {
+            // Scene setup
+            const setupResult = setupScene();
+            scene = setupResult.scene;
+            camera = setupResult.camera;
+            renderer = setupResult.renderer;
+            orbitControls = setupResult.orbitControls;
+
+            // Physics setup
+            const physicsResult = setupPhysics(scene);
+            world = physicsResult.world;
+
+
+            // Setup physics materials
+            setupPhysicsMaterials();
+
+            // Create ground plane
+            const groundResult = createGroundPlane(scene, world);
+            plane = groundResult.plane;
+            planeBody = groundResult.planeBody;
+
+            // Create obstacles
+            createObstacles(scene, world);
+
+            // Create particles
+            createParticles(scene, world);
+
+            // Setup GUI controls
+            gui = setupGUI();
+
+            // Add lighting
+            addLighting(scene);
+
+            // Set camera position
+            positionCamera(camera);
+
+            // Start animation loop
+            startAnimationLoop();
+
+            // Handle window resize
+            handleWindowResize(camera, renderer);
+        }
+
+        // Function to set up the scene, camera, and renderer
+        function setupScene() {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color('#222222'); // Dark background
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true; // Enable shadows
+            document.body.appendChild(renderer.domElement);
+
+            const orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+            orbitControls.screenSpacePanning = false; // Keep the target on the ground plane
+            orbitControls.maxPolarAngle = Math.PI / 2; // Prevent camera from going below the ground
+
+            return { scene, camera, renderer, orbitControls };
+        }
+
+        // Function to setup GUI controls
+        function setupGUI() {
+            const gui = new GUI();
+
+            gui.add(controls, 'reset').name('Reset Simulation');
+            gui.add(controls, 'deflectiveForce', 0, 20).name('Deflective Force'); // Slider for deflective force
+            gui.add(controls, 'bounceFactor', 0, 1).name('Bounce Factor').onChange(updateBounceFactor); // Slider for bounce factor
+
+            return gui;
+        }
+
+        // Function to update the bounce factor for bouncy obstacles
+        function updateBounceFactor(value) {
+            if (bouncyMaterial) {
+                bouncyMaterial.restitution = value;
+            }
+        }
+
+
+        // Function to start the animation loop
+        function startAnimationLoop() {
+            const animate = () => {
+                requestAnimationFrame(animate);
+
+                // Step the physics world
+                world.step(PHYSICS_TIME_STEP);
+
+                // Update mesh positions and rotations from physics bodies
+                for (let i = 0; i < particleMeshes.length; i++) {
+                    particleMeshes[i].position.copy(particleBodies[i].position);
+                    particleMeshes[i].quaternion.copy(particleBodies[i].quaternion);
+                }
+
+                for (let i = 0; i < obstacleMeshes.length; i++) {
+                    obstacleMeshes[i].position.copy(obstacleBodies[i].position);
+                    obstacleMeshes[i].quaternion.copy(obstacleBodies[i].quaternion);
+                }
+
+                // Apply deflection force to particles near deflecting obstacles
+                applyDeflectionForce();
+
+                // Handle absorption for absorbing obstacles
+                handleAbsorption();
+
+                // Remove particles that are out of bounds
+                removeOutOfBoundsParticles();
+
+                // Update info display
+                particleCountSpan.textContent = particleBodies.length;
+
+                renderer.render(scene, camera);
+                orbitControls.update();
+            };
+
+            animate();
+        }
+
+        // Function to set up the physics world
+        function setupPhysics(scene) {
+            const world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+            world.broadphase = new CANNON.NaiveBroadphase(); // Use NaiveBroadphase for simplicity
+            world.solver.iterations = 10; // Increase iterations for better stability
+
+            // Enable contact detection between bodies
+            world.defaultContactMaterial.contactEquationRelaxation = CONTACT_EQUATION_RELAXATION;
+
+            return { world };
+        }
+
+        // Function to setup physics materials
+        function setupPhysicsMaterials() {
+            // Material for particles (low friction, low restitution)
+            particleMaterial = new CANNON.Material('particleMaterial');
+
+            // Material for bouncy obstacles (low friction, high restitution)
+            bouncyMaterial = new CANNON.Material('bouncyMaterial');
+            bouncyMaterial.restitution = controls.bounceFactor; // Set initial bounce factor
+
+            // Material for the ground (high friction, low restitution)
+            groundMaterial = new CANNON.Material('groundMaterial');
+
+
+            // Create contact materials to define interactions between different materials
+            const particleGroundContact = new CANNON.ContactMaterial(particleMaterial, groundMaterial, {
+                friction: 0.3,
+                restitution: 0.1,
+                contactEquationRelaxation: 3,
+            });
+            world.addContactMaterial(particleGroundContact);
+
+            const particleBouncyContact = new CANNON.ContactMaterial(particleMaterial, bouncyMaterial, {
+                friction: 0.1,
+                restitution: controls.bounceFactor, // Use the control value
+                contactEquationRelaxation: CONTACT_EQUATION_RELAXATION,
+            });
+            world.addContactMaterial(particleBouncyContact);
+
+        }
+
+
+        // Function to add lighting
+        function addLighting(scene) {
+            const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            directionalLight.castShadow = true; // Enable shadows for the light
+            directionalLight.shadow.mapSize.width = 1024; // Shadow map size
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5; // Shadow camera frustum
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -PLANE_SIZE / 2;
+            directionalLight.shadow.camera.right = PLANE_SIZE / 2;
+            directionalLight.shadow.camera.top = PLANE_SIZE / 2;
+            directionalLight.shadow.camera.bottom = -PLANE_SIZE / 2;
+            scene.add(directionalLight);
+        }
+
+        // Function to position the camera
+        function positionCamera(camera) {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, 0, 0); // Look at the center of the scene
+        }
+
+        // Function to create the ground plane
+        function createGroundPlane(scene, world) {
+            const planeGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({ color: '#808080', side: THREE.DoubleSide }); // Grey ground
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+            const planeBody = new CANNON.Body({
+                type: CANNON.Body.STATIC, // Static body doesn't move
+                shape: new CANNON.Plane(),
+                material: groundMaterial,
+                collisionFilterGroup: GROUP1,
+                collisionFilterMask: GROUP1
+
+            });
+
+            // Rotate the plane body to be horizontal
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+
+            // Position the mesh to match the body
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.copy(planeBody.position);
+            plane.receiveShadow = true; // Ground receives shadows
+
+            world.addBody(planeBody);
+            scene.add(plane);
+
+            return { plane, planeBody };
+        }
+
+        // Function to create obstacles
+        function createObstacles(scene, world) {
+            const obstacleTypes = ['sphere', 'box', 'cylinder'];
+            const interactionTypes = ['deflect', 'bounce', 'absorb'];
+
+            // Helper function to get a random vibrant color
+            function getInteractionColor(interactionType) {
+                let color
+                switch (interactionType) {
+                    case 'absorb':
+                        color = '#ff0000'
+                        break;
+
+                    case 'deflect':
+                        color = '#fefefe'
+                        break;
+
+                    case 'bounce':
+                        color = '#20fc06'
+                        break;
+                }
+
+
+                return new THREE.Color(color);
+
+            }
+
+            // Helper function to check if a position overlaps with existing obstacles
+            function isPositionValid(position, size) {
+                const minDistance = size * 1.2; // Add some buffer between obstacles
+                for (let i = 0; i < obstacleBodies.length; i++) {
+                    const distance = position.distanceTo(obstacleBodies[i].position);
+                    if (distance < minDistance) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            for (let i = 0; i < OBSTACLE_COUNT; i++) {
+                const type = obstacleTypes[i % obstacleTypes.length];
+                const interaction = interactionTypes[Math.floor(Math.random() * interactionTypes.length)];
+
+                // Try to find a valid position
+                let position
+                let attempts = 0;
+                const maxAttempts = 50; // Prevent infinite loops
+
+                do {
+                    position = new CANNON.Vec3(
+                        (Math.random() - 0.5) * (PLANE_SIZE - OBSTACLE_SIZE * 2),
+                        OBSTACLE_SIZE / 2 + OBSTACLES_SPAWN_HEIGHT,
+                        (Math.random() - 0.5) * (PLANE_SIZE - OBSTACLE_SIZE * 2)
+                    );
+                    attempts++;
+                } while (!isPositionValid(position, OBSTACLE_SIZE) && attempts < maxAttempts);
+
+                // If we couldn't find a valid position after max attempts, skip this obstacle
+                if (attempts >= maxAttempts) {
+                    continue;
+                }
+
+
+                let mesh, body, shape;
+
+                let color = getInteractionColor(interaction)
+
+                switch (type) {
+                    case 'sphere':
+                        const sphereRadius = OBSTACLE_SIZE / 2;
+                        shape = new CANNON.Sphere(sphereRadius);
+                        mesh = new THREE.Mesh(new THREE.SphereGeometry(sphereRadius, 32, 32), new THREE.MeshStandardMaterial({ color }));
+                        break;
+                    case 'box':
+                        const boxSize = OBSTACLE_SIZE;
+                        shape = new CANNON.Box(new CANNON.Vec3(boxSize / 2, boxSize / 2, boxSize / 2));
+                        mesh = new THREE.Mesh(new THREE.BoxGeometry(boxSize, boxSize, boxSize), new THREE.MeshStandardMaterial({ color }));
+                        break;
+                    case 'cylinder':
+                        const cylinderRadius = OBSTACLE_SIZE / 2;
+                        const cylinderHeight = OBSTACLE_SIZE;
+                        shape = new CANNON.Cylinder(cylinderRadius, cylinderRadius, cylinderHeight, 32);
+                        mesh = new THREE.Mesh(new THREE.CylinderGeometry(cylinderRadius, cylinderRadius, cylinderHeight, 32), new THREE.MeshStandardMaterial({ color }));
+                        // Adjust rotation for cylinder mesh to match Cannon.js cylinder orientation
+                        mesh.rotation.x = Math.PI / 2;
+                        break;
+                }
+
+                body = new CANNON.Body({
+                    mass: 0, // Static obstacle
+                    shape: shape,
+                    position: position,
+                    // Assign physics material based on interaction type
+                    ...interaction === 'bounce' && { material: bouncyMaterial },
+                    collisionFilterGroup: interaction === 'absorb' ? GROUP2 : GROUP1,
+                    collisionFilterMask: interaction === 'absorb' ? GROUP2 : GROUP1
+                });
+
+                // Store interaction type with the body for later use
+                body.userData = { interactionType: interaction };
+
+
+                mesh.position.copy(body.position);
+                mesh.castShadow = true; // Obstacles cast shadows
+                mesh.receiveShadow = true; // Obstacles receive shadows
+
+                world.addBody(body);
+                scene.add(mesh);
+                obstacleMeshes.push(mesh);
+                obstacleBodies.push(body);
+            }
+        }
+
+        // Function to create a dense cloud of particles
+        function createParticles(scene, world) {
+            const particleGeometry = new THREE.SphereGeometry(PARTICLE_RADIUS, 16, 16);
+            const particleMaterialMesh = new THREE.MeshLambertMaterial({ color: '#ffffff' }); // White particles
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const mesh = new THREE.Mesh(particleGeometry, particleMaterialMesh);
+                // Helper function to check if position overlaps with other particles
+                function isPositionValid(position) {
+                    const minDistance = PARTICLE_RADIUS * 2.5;
+                    for (let i = 0; i < particleBodies.length; i++) {
+                        const distance = position.distanceTo(particleBodies[i].position);
+                        if (distance < minDistance) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+
+                let position = new CANNON.Vec3(
+                    (Math.random() - 0.5) * (PLANE_SIZE),
+                    OBSTACLES_SPAWN_HEIGHT * 2.5,
+                    (Math.random() - 0.5) * (PLANE_SIZE)
+                );
+
+                // If position overlaps, increase height
+                while (!isPositionValid(position)) {
+                    position.y += PARTICLE_RADIUS * 2;
+                }
+
+                const body = new CANNON.Body({
+                    mass: 0.1,
+                    shape: new CANNON.Sphere(PARTICLE_RADIUS),
+                    position: position,
+                    material: particleMaterial,
+                    collisionFilterGroup: GROUP1,
+                    collisionFilterMask: GROUP1
+                });
+
+                // Add a small random initial velocity
+                body.velocity.set(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                );
+
+
+                mesh.position.copy(body.position);
+                mesh.castShadow = true; // Particles cast shadows
+
+                world.addBody(body);
+                scene.add(mesh);
+                particleMeshes.push(mesh);
+                particleBodies.push(body);
+            }
+        }
+
+        // Function to apply deflection force to particles near deflecting obstacles
+        function applyDeflectionForce() {
+            const deflectForce = controls.deflectiveForce;
+
+            obstacleBodies.forEach(obstacleBody => {
+                if (obstacleBody.userData.interactionType === 'deflect') {
+                    particleBodies.forEach(particleBody => {
+                        const distance = obstacleBody.position.distanceTo(particleBody.position);
+                        const deflectionRadius = OBSTACLE_SIZE * 1.5; // Define a radius for deflection
+
+                        if (distance < deflectionRadius) { // Apply force if within radius and not at the exact center
+                            const direction = new CANNON.Vec3();
+                            particleBody.position.clone().vsub(obstacleBody.position, direction); // Vector from obstacle to particle
+                            direction.normalize();
+
+                            // Apply force away from the obstacle
+                            const forceMagnitude = deflectForce
+                            const force = direction.scale(forceMagnitude);
+                            particleBody.applyForce(force, particleBody.position);
+                        }
+                    });
+                }
+            });
+        }
+
+        // Function to handle absorption for absorbing obstacles
+        function handleAbsorption() {
+            const absorbedParticleIndices = [];
+
+            obstacleBodies.forEach(obstacleBody => {
+                if (obstacleBody.userData.interactionType === 'absorb') {
+                    const obstacleShape = obstacleBody.shapes[0]; // Assuming one shape per body
+
+                    particleBodies.forEach((particleBody, index) => {
+                        const particlePosition = particleBody.position;
+
+                        let isInside = false;
+
+                        // Check if the particle is completely inside the obstacle
+                        if (obstacleShape instanceof CANNON.Sphere) {
+                            const obstacleRadius = obstacleShape.radius;
+                            const distance = obstacleBody.position.distanceTo(particlePosition);
+                            if (distance + particleBody.shapes[0].radius < obstacleRadius) {
+                                isInside = true;
+                            }
+                        } else if (obstacleShape instanceof CANNON.Box) {
+                            const halfExtents = obstacleShape.halfExtents;
+                            const localParticlePosition = new CANNON.Vec3();
+                            // Transform particle position to obstacle's local space
+                            obstacleBody.pointToLocalFrame(particleBody.position, localParticlePosition)
+
+                            if (Math.abs(localParticlePosition.x) < halfExtents.x - particleBody.shapes[0].radius &&
+                                Math.abs(localParticlePosition.y) < halfExtents.y - particleBody.shapes[0].radius &&
+                                Math.abs(localParticlePosition.z) < halfExtents.z - particleBody.shapes[0].radius) {
+                                isInside = true;
+                            }
+                        } else if (obstacleShape instanceof CANNON.Cylinder) {
+                            const cylinderRadius = obstacleShape.radiusTop; // Assuming radiusTop and radiusBottom are the same
+                            const cylinderHeight = obstacleShape.height;
+                            const localParticlePosition = new CANNON.Vec3();
+                            // Transform particle position to obstacle's local space
+                            obstacleBody.pointToLocalFrame(particleBody.position, localParticlePosition)
+
+                            // Check if within cylinder radius and height
+                            const distanceToCylinderAxis = Math.sqrt(localParticlePosition.x * localParticlePosition.x + localParticlePosition.z * localParticlePosition.z);
+                            if (distanceToCylinderAxis < cylinderRadius - particleBody.shapes[0].radius &&
+                                Math.abs(localParticlePosition.y) < cylinderHeight / 2 - particleBody.shapes[0].radius) {
+                                isInside = true;
+                            }
+                        }
+
+
+                        if (isInside) {
+                            absorbedParticleIndices.push(index);
+                        }
+                    });
+                }
+            });
+
+            // Remove absorbed particles (iterate backwards to avoid index issues)
+            for (let i = absorbedParticleIndices.length - 1; i >= 0; i--) {
+                const index = absorbedParticleIndices[i];
+                const mesh = particleMeshes[index];
+                const body = particleBodies[index];
+
+                if (mesh && body) {
+                    scene.remove(mesh);
+                    world.removeBody(body);
+                }
+
+                particleMeshes.splice(index, 1);
+                particleBodies.splice(index, 1);
+            }
+        }
+
+        // Function to remove particles that move too far away from the plane to save memory
+        function removeOutOfBoundsParticles() {
+            const bounds = PLANE_SIZE;
+            const heightLimit = OBSTACLES_SPAWN_HEIGHT * 4;
+
+            const particlesToRemove = [];
+
+            particleBodies.forEach((body, index) => {
+                const position = body.position;
+
+                // Remove angular velocity caused by deflective forces if particle is below obstacle spawn height
+                if (position.y < OBSTACLES_SPAWN_HEIGHT) {
+                    body.angularVelocity.setZero()
+                }
+
+                // Check if particle is out of bounds
+                if (Math.abs(position.x) > bounds / 2 ||
+                    Math.abs(position.z) > bounds / 2 ||
+                    position.y < -heightLimit ||
+                    position.y > heightLimit) {
+                    particlesToRemove.push(index);
+                }
+            });
+
+            // Remove particles (iterate backwards to avoid index issues)
+            for (let i = particlesToRemove.length - 1; i >= 0; i--) {
+                const index = particlesToRemove[i];
+                const mesh = particleMeshes[index];
+                const body = particleBodies[index];
+
+                scene.remove(mesh);
+                world.removeBody(body);
+                particleMeshes.splice(index, 1);
+                particleBodies.splice(index, 1);
+            }
+        }
+
+
+        // Function to reset the simulation
+        function resetSimulation() {
+            // Remove all existing particles and obstacles
+            particleMeshes.forEach(mesh => scene.remove(mesh));
+            particleBodies.forEach(body => world.removeBody(body));
+            obstacleMeshes.forEach(mesh => scene.remove(mesh));
+            obstacleBodies.forEach(body => world.removeBody(body));
+
+            particleMeshes.length = 0;
+            particleBodies.length = 0;
+            obstacleMeshes.length = 0;
+            obstacleBodies.length = 0;
+
+            // Recreate obstacles and particles
+            createObstacles(scene, world);
+            createParticles(scene, world);
+
+            // Reset camera position
+            orbitControls.update();
+        }
+
+
+        // Function to handle window resize
+        function handleWindowResize(camera, renderer) {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Simulation</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.js",
+            "three/examples/jsm/controls/OrbitControls": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/controls/OrbitControls.js",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+            "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js",
+            "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+          }
+    }
+    </script>
+</head>
+
+<body>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+        import * as CANNON from 'cannon-es';
+        import CannonDebugger from 'cannon-es-debugger';
+        import { GUI } from 'dat.gui';
+
+        // Constants
+        const GRAVITY = -9.82;
+        const PLANE_SIZE = 50;
+        const CAMERA_POSITION = { x: 15, y: 40, z: 7 };
+        const LIGHT_POSITION = { x: 10, y: 10, z: 30 };
+        const PHYSICS_TIME_STEP = 1 / 60;
+        const CONTACT_EQUATION_RELAXATION = 4;
+
+        // Cylinder constants
+        const CYLINDER_RADIUS = 10;
+        const CYLINDER_HEIGHT = 20;
+        const CYLINDER_THICKNESS = 1;
+        const CYLINDER_SEGMENTS = 72;
+
+        // Particle constants
+        const PARTICLE_RADIUS = 0.5;
+        const PARTICLE_MASS = 0.05;
+        const PARTICLE_COLOR = 0x00aaff;
+        const INITIAL_PARTICLES = 10;
+        const MAX_PARTICLES = 200;
+        const PARTICLE_ADD_INTERVAL = 100;
+
+        // Liquid properties (real-world based)
+        const LIQUID_DENSITY = 1000; // kg/m³ (water density)
+        const LIQUID_DYNAMIC_VISCOSITY = 0.001; // Pa·s (water dynamic viscosity)
+        const LIQUID_BULK_MODULUS = 2.2e9; // Pa (water bulk modulus)
+        const LIQUID_SURFACE_TENSION = 0.072; // N/m (water surface tension)
+        
+        // Fluid dynamics constants - derived from physical properties
+        const INTERACTION_RADIUS_MULTIPLIER = 2.5;
+        // Pressure strength derived from bulk modulus (resistance to compression)
+        const PRESSURE_STRENGTH = LIQUID_BULK_MODULUS * 1e-10; 
+        // Viscosity strength derived from dynamic viscosity
+        const VISCOSITY_STRENGTH = LIQUID_DYNAMIC_VISCOSITY * 0.1;
+        // Surface tension effect
+        const SURFACE_TENSION_STRENGTH = LIQUID_SURFACE_TENSION * 0.01;
+        
+        // Material properties
+        const PARTICLE_FRICTION = 0.1;
+        const PARTICLE_RESTITUTION = 0.1;
+        const PARTICLE_CYLINDER_FRICTION = 0.05;
+        const PARTICLE_CYLINDER_RESTITUTION = 0.3;
+        const CONTACT_STIFFNESS = 1e6;
+        const CONTACT_RELAXATION = 3;
+
+        // Damping properties
+        const LINEAR_DAMPING = 0.4;
+        const ANGULAR_DAMPING = 0.4;
+
+        // Simulation controls
+        const controls = {
+            base: 0,
+            rotationSpeed: 0.01,
+            showDebugger: false
+        };
+
+        // Initialize the application
+        initializeApplication();
+
+        // Main application initialization
+        function initializeApplication() {
+            // Scene setup
+            const { scene, camera, renderer, orbitControls } = setupScene();
+
+            // Physics setup
+            const { world, cannonDebugger } = setupPhysics(scene);
+
+            // Create ground plane
+            const { plane, planeBody } = createGroundPlane(scene, world);
+
+            // Create hollow cylinder
+            const { updateCylinder, hollowCylinder } = createHollowCylinder(scene, world);
+
+            // Create water particles
+            const { updateParticles } = createWaterParticles(scene, world, hollowCylinder);
+
+            // Setup GUI controls
+            setupGUI();
+
+            // Add lighting
+            addLighting(scene);
+
+            // Set camera position
+            positionCamera(camera);
+
+            // Start animation loop
+            startAnimationLoop(scene, camera, renderer, world, cannonDebugger, orbitControls, updateCylinder, updateParticles);
+
+            // Handle window resize
+            handleWindowResize(camera, renderer);
+        }
+
+        // Function to set up the scene, camera, and renderer
+        function setupScene() {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+
+            return { scene, camera, renderer, orbitControls };
+        }
+
+        // Function to setup GUI controls
+        function setupGUI() {
+            const gui = new GUI();
+            gui.add(controls, 'rotationSpeed', 0, 0.05).name('Cylinder Speed');
+            return gui;
+        }
+
+        // Function to start the animation loop
+        function startAnimationLoop(scene, camera, renderer, world, cannonDebugger, orbitControls, updateCylinder, updateParticles) {
+            const animate = () => {
+                requestAnimationFrame(animate);
+
+                world.step(PHYSICS_TIME_STEP);
+
+                updateCylinder();
+                updateParticles();
+
+                // Only update debugger if enabled
+                if (controls.showDebugger) {
+                    cannonDebugger.update();
+                }
+
+                renderer.render(scene, camera);
+                orbitControls.update();
+            };
+
+            animate();
+        }
+
+        // Function to set up the physics world
+        function setupPhysics(scene) {
+            const world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+
+            // Enable contact detection between bodies
+            world.defaultContactMaterial.contactEquationRelaxation = CONTACT_EQUATION_RELAXATION;
+
+            const cannonDebugger = new CannonDebugger(scene, world, {
+                color: 0x00ff00,
+                scale: 1.0
+            });
+
+            return { world, cannonDebugger };
+        }
+
+
+        // Function to add lighting
+        function addLighting(scene) {
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            scene.add(light);
+        }
+
+        // Function to position the camera
+        function positionCamera(camera) {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, 0, 0);
+        }
+
+        // Function to create the ground plane as terrain using boxes
+        function createGroundPlane(scene, world) {
+            const planeGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff' });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+            const planeBody = new CANNON.Body({
+                type: 'static',
+                shape: new CANNON.Plane(),
+                position: new CANNON.Vec3(0, 0, 0)
+            });
+
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(planeBody);
+
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.copy(planeBody.position);
+            plane.receiveShadow = true;
+
+            scene.add(plane);
+
+            return { plane, planeBody };
+        }
+
+
+        // Function to handle window resize
+        function handleWindowResize(camera, renderer) {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+
+        // Function to create a hollow cylinder using compound shapes
+        function createHollowCylinder(scene, world) {
+            // Parameters
+            const radius = CYLINDER_RADIUS;
+            const height = CYLINDER_HEIGHT;
+            const thickness = CYLINDER_THICKNESS;
+            const segments = CYLINDER_SEGMENTS;
+            const position = new CANNON.Vec3(0, height / 2, 0);
+
+            // Create a compound body
+            const hollowCylinder = new CANNON.Body({
+                mass: 0,
+                position: position
+            });
+
+            // Create a group to hold both cylinders
+            const cylinderGroup = new THREE.Group();
+
+            // Create multiple box shapes arranged in a circle
+            for (let i = 0; i < segments; i++) {
+                const angle = (i / segments) * Math.PI * 2;
+                const x = radius * Math.cos(angle);
+                const z = radius * Math.sin(angle);
+
+                const cylinder = new CANNON.Cylinder(
+                    thickness, thickness, height, 32
+                );
+
+                hollowCylinder.addShape(
+                    cylinder,
+                    new CANNON.Vec3(x, 0, z),
+                );
+            }
+
+            // Create multiple obstacle rods perpendicular to the container walls
+            const numberOfRods = height / (thickness * 2)
+            const rodGeometries = [];
+            const rodMeshes = [];
+
+            for (let i = 0; i < numberOfRods; i++) {
+                // Random angle around the y-axis
+                const randomYRotation = Math.random() * Math.PI * 2;
+                const minHeight = thickness;
+                const obstacleHeight = (minHeight * i)
+
+                // Create the physics shape for the rod
+                const obstacleRod = new CANNON.Cylinder(
+                    thickness, thickness, radius * 2 - thickness * 2, 32
+                );
+
+                // Position the rod to start from the wall and point toward the center
+                // First rotate along x-axis to make it perpendicular to walls
+                // Then rotate along z-axis at random angle
+                const xRotation = new CANNON.Quaternion()
+                const yRotation = new CANNON.Quaternion()
+
+                xRotation.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2);
+
+                yRotation.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), randomYRotation);
+
+                const q = xRotation.mult(yRotation)
+
+                hollowCylinder.addShape(
+                    obstacleRod,
+                    new CANNON.Vec3(0, obstacleHeight, 0),
+                    q
+                );
+
+                // Create visual representation for the rod
+                const rodGeometry = new THREE.CylinderGeometry(thickness, thickness, radius * 2 - thickness * 2, 32);
+                rodGeometries.push(rodGeometry);
+
+                const rodMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xff4444,
+                    side: THREE.DoubleSide
+                });
+
+                const rodMesh = new THREE.Mesh(rodGeometry, rodMaterial);
+
+                // Apply the same rotation to the visual mesh
+                rodMesh.rotation.x = Math.PI / 2;
+                rodMesh.rotation.z = randomYRotation;
+                rodMesh.position.y = obstacleHeight;
+
+                rodMeshes.push(rodMesh);
+                cylinderGroup.add(rodMesh);
+            }
+
+            world.addBody(hollowCylinder);
+
+            // Create visual representation
+            const innerCylinderGeometry = new THREE.CylinderGeometry(radius - thickness, radius - thickness, height, segments, 1, true);
+
+            // Create materials
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x8888ff,
+                side: THREE.DoubleSide
+            });
+
+            // Create meshes
+            const innerCylinder = new THREE.Mesh(innerCylinderGeometry, material);
+
+
+            cylinderGroup.add(innerCylinder);
+
+            // Position the group
+            cylinderGroup.position.copy(position);
+
+            // Add to scene
+            scene.add(cylinderGroup);
+
+            // Update function to sync mesh with physics body
+            const updateCylinder = () => {
+                // Apply rotation to the physics body
+                const rotationAxis = new CANNON.Vec3(0, 1, 0); // Y-axis rotation
+                const rotationAngle = controls.rotationSpeed; // Use the control value
+
+                // Create a quaternion for the rotation
+                const rotationQuaternion = new CANNON.Quaternion();
+                rotationQuaternion.setFromAxisAngle(rotationAxis, rotationAngle);
+
+                // Apply the rotation to the current quaternion
+                hollowCylinder.quaternion = hollowCylinder.quaternion.mult(rotationQuaternion);
+
+                // Update the visual representation
+                cylinderGroup.position.copy(hollowCylinder.position);
+                cylinderGroup.quaternion.copy(hollowCylinder.quaternion);
+            };
+
+
+            return { hollowCylinder, cylinderGroup, updateCylinder };
+        }
+
+
+        // Function to create water particles
+        function createWaterParticles(scene, world, hollowCylinder) {
+            const particles = [];
+            const particleBodies = [];
+
+            // Particle properties - smaller radius for more realistic water
+            const particleRadius = PARTICLE_RADIUS;
+            const particleMass = PARTICLE_MASS;
+            const particleColor = PARTICLE_COLOR;
+
+            // Material for particles - more transparent and reflective
+            const particleMaterial = new THREE.MeshPhongMaterial({
+                color: particleColor,
+                transparent: true,
+                opacity: 0.6,
+                shininess: 150,
+                specular: 0x111111
+            });
+
+            // Geometry for particles
+            const particleGeometry = new THREE.SphereGeometry(particleRadius, 16, 16);
+
+            // Create a contact material for water particles
+            const particleMaterialPhysics = new CANNON.Material('particleMaterial');
+            const cylinderMaterial = new CANNON.Material('cylinderMaterial');
+
+            const particleCylinderContact = new CANNON.ContactMaterial(
+                particleMaterialPhysics,
+                cylinderMaterial,
+                {
+                    friction: 0.05,  // Lower friction for water
+                    restitution: 0.3 // Lower restitution for less bouncy water
+                }
+            );
+
+            // Create particle-to-particle contact material for cohesion
+            const particleParticleContact = new CANNON.ContactMaterial(
+                particleMaterialPhysics,
+                particleMaterialPhysics,
+                {
+                    friction: 0.1,
+                    restitution: 0.1, // Low restitution for less bouncy collisions
+                    contactEquationStiffness: 1e6, // Higher stiffness for more solid-like behavior in groups
+                    contactEquationRelaxation: 3   // Relaxation for stability
+                }
+            );
+
+            world.addContactMaterial(particleCylinderContact);
+            world.addContactMaterial(particleParticleContact);
+
+            // Apply material to cylinder
+            hollowCylinder.material = cylinderMaterial;
+
+            // Function to create a single particle
+            function createParticle() {
+                // Random position above the cylinder
+                const cylinderRadius = CYLINDER_RADIUS;
+                const cylinderHeight = CYLINDER_HEIGHT;
+
+                const x = (Math.random() * cylinderRadius * 0.8) - (cylinderRadius * 0.4);
+                const z = (Math.random() * cylinderRadius * 0.8) - (cylinderRadius * 0.4);
+                const y = cylinderHeight * 1.5; // Start above the cylinder
+
+                // Create physics body
+                const particleBody = new CANNON.Body({
+                    mass: particleMass,
+                    shape: new CANNON.Sphere(particleRadius),
+                    position: new CANNON.Vec3(x, y, z),
+                    material: particleMaterialPhysics,
+                    allowSleep: false // Don't let particles sleep for more realistic motion
+                });
+
+                // Add some damping to make it more water-like
+                particleBody.linearDamping = LINEAR_DAMPING;
+                particleBody.angularDamping = ANGULAR_DAMPING;
+
+                // Add a small random initial velocity for more natural dispersion
+                particleBody.velocity.set(
+                    (Math.random() - 0.5) * 0.5,
+                    0,
+                    (Math.random() - 0.5) * 0.5
+                );
+
+                world.addBody(particleBody);
+                particleBodies.push(particleBody);
+
+                // Create visual representation
+                const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+                scene.add(particle);
+                particles.push(particle);
+
+                return { particle, particleBody };
+            }
+
+            // Create initial batch of particles
+            const initialParticles = INITIAL_PARTICLES;
+            for (let i = 0; i < initialParticles; i++) {
+                createParticle();
+            }
+
+            // Add more particles periodically
+            const maxParticles = MAX_PARTICLES;
+            let particleCount = initialParticles;
+
+            const addParticlesInterval = setInterval(() => {
+                if (particleCount < maxParticles) {
+                    createParticle();
+                    particleCount++;
+                } else {
+                    clearInterval(addParticlesInterval);
+                }
+            }, PARTICLE_ADD_INTERVAL);
+
+            // Function to simulate basic fluid dynamics
+            function simulateFluidDynamics() {
+                // Apply simple SPH-like forces between nearby particles
+                const interactionRadius = particleRadius * INTERACTION_RADIUS_MULTIPLIER;
+                const interactionRadiusSquared = interactionRadius * interactionRadius;
+                
+                // Physical constants derived from liquid properties
+                const particleVolume = (4/3) * Math.PI * Math.pow(particleRadius, 3);
+                const particleDensity = particleMass / particleVolume;
+                const densityRatio = particleDensity / LIQUID_DENSITY;
+                
+                // Scale pressure and viscosity based on density ratio
+                const pressureStrength = PRESSURE_STRENGTH * densityRatio;
+                const viscosityStrength = VISCOSITY_STRENGTH * densityRatio;
+                const surfaceTensionStrength = SURFACE_TENSION_STRENGTH;
+
+                // For each pair of particles
+                for (let i = 0; i < particleBodies.length; i++) {
+                    const bodyA = particleBodies[i];
+                    let neighborCount = 0;
+
+                    for (let j = 0; j < particleBodies.length; j++) {
+                        if (i === j) continue;
+                        
+                        const bodyB = particleBodies[j];
+
+                        // Calculate distance between particles
+                        const dx = bodyB.position.x - bodyA.position.x;
+                        const dy = bodyB.position.y - bodyA.position.y;
+                        const dz = bodyB.position.z - bodyA.position.z;
+                        const distSquared = dx * dx + dy * dy + dz * dz;
+
+                        // Only interact if particles are close enough
+                        if (distSquared < interactionRadiusSquared) {
+                            neighborCount++;
+                            const dist = Math.sqrt(distSquared);
+                            const nx = dx / dist;
+                            const ny = dy / dist;
+                            const nz = dz / dist;
+
+                            // Smoothing kernel (cubic spline) for more realistic force distribution
+                            const q = dist / interactionRadius;
+                            let kernel = 0;
+                            
+                            if (q < 1) {
+                                kernel = 1 - 1.5 * q * q + 0.75 * q * q * q;
+                            } else if (q < 2) {
+                                const term = 2 - q;
+                                kernel = 0.25 * term * term * term;
+                            }
+
+                            // Calculate pressure force (repulsion when too close)
+                            // Pressure follows an equation of state similar to ideal gas law
+                            const pressureFactor = pressureStrength * kernel;
+
+                            // Apply pressure forces
+                            bodyA.applyImpulse(
+                                new CANNON.Vec3(-nx * pressureFactor, -ny * pressureFactor, -nz * pressureFactor),
+                                bodyA.position
+                            );
+
+                            // Apply viscosity (velocity matching)
+                            // Viscosity follows Navier-Stokes equations
+                            const vx = bodyB.velocity.x - bodyA.velocity.x;
+                            const vy = bodyB.velocity.y - bodyA.velocity.y;
+                            const vz = bodyB.velocity.z - bodyA.velocity.z;
+
+                            const viscosityFactor = viscosityStrength * kernel;
+
+                            bodyA.applyImpulse(
+                                new CANNON.Vec3(vx * viscosityFactor, vy * viscosityFactor, vz * viscosityFactor),
+                                bodyA.position
+                            );
+                        }
+                    }
+                    
+                    // Surface tension effect - particles with few neighbors are at the surface
+                    if (neighborCount < 15) {
+                        // Apply a small force toward the center of the cylinder to simulate surface tension
+                        const toCenter = new CANNON.Vec3(
+                            -bodyA.position.x,
+                            0,
+                            -bodyA.position.z
+                        );
+                        const distance = Math.sqrt(toCenter.x * toCenter.x + toCenter.z * toCenter.z);
+                        
+                        if (distance > 0) {
+                            toCenter.normalize();
+                            const surfaceFactor = surfaceTensionStrength * (15 - neighborCount) / 15;
+                            bodyA.applyImpulse(
+                                new CANNON.Vec3(
+                                    toCenter.x * surfaceFactor,
+                                    0,
+                                    toCenter.z * surfaceFactor
+                                ),
+                                bodyA.position
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Function to update particle positions
+            function updateParticles() {
+                // Apply fluid dynamics simulation
+                simulateFluidDynamics();
+
+                for (let i = 0; i < particles.length; i++) {
+                    particles[i].position.copy(particleBodies[i].position);
+                    particles[i].quaternion.copy(particleBodies[i].quaternion);
+
+                    // Remove particles that fall too far below
+                    if (Math.abs(particleBodies[i].position.x) > 10 || Math.abs(particleBodies[i].position.z) > 10) {
+                        // Remove from scene and world
+                        scene.remove(particles[i]);
+                        world.removeBody(particleBodies[i]);
+
+                        // Replace with a new particle
+                        const { particle, particleBody } = createParticle();
+                        particles[i] = particle;
+                        particleBodies[i] = particleBody;
+                    }
+                }
+            }
+
+            return { updateParticles, particles, particleBodies };
+        }
+    </script>
+</body>
+
+</html>

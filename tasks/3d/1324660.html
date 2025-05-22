@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Swinging Platform Simulation</title>
+    <script type="importmap">
+            {
+            "imports": {
+               "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.157.0/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/",
+                "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+                "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+              }
+        }
+        </script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #info {
+            position: absolute;
+            top: 0;
+            left: 0;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            z-index: 100;
+        }
+
+        button {
+            margin: 5px;
+            padding: 8px 12px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 100;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="controls">
+        <button id="reset">Reset Simulation</button>
+        <button id="rearrange">Re-arrange Shapes</button>
+    </div>
+    <div id="info">
+        <h3>Swinging Platform Simulation</h3>
+        <p><strong>Controls:</strong></p>
+        <p>- <strong>Mouse:</strong> Rotate camera view</p>
+        <p>- <strong>Scroll:</strong> Zoom in/out</p>
+        <p>- <strong>Reset Simulation:</strong> Reset to initial state</p>
+        <p>- <strong>Re-arrange Shapes:</strong> Reorganize objects on swing</p>
+        <p>- <strong>Swing Speed:</strong> Adjust maximum swing velocity</p>
+        <div id="metrics"></div>
+    </div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+        import { GUI } from 'dat.gui';
+
+        // Constants
+        const COLORS = {
+            SKY: 0x87CEEB,
+            GROUND: 0x228B22,
+            SWING: 0xFF4500,
+            PLATFORM: 0x4682B4,
+            WIRE: 0xC0C0C0,
+            OBJECT_COLORS: [0x9370DB, 0xFFD700, 0x00CED1, 0xFF6347, 0x32CD32] // Purple, Gold, Turquoise, Tomato, Lime Green
+        };
+
+        const PHYSICS = {
+            GRAVITY: -9.82,
+            ITERATIONS: 10,
+            RESTITUTION: 0.3,
+            FRICTION: 0.3,
+            WIRE_MASS: 0.5,
+            SWING_MASS: 2,
+            OBJECT_MASS: 0.2
+        };
+
+        const SHAPES = ['cube', 'sphere', 'rectangle', 'hexagon'];
+
+        const WIRE_POSITIONS = [
+            { x: -0.9, z: -0.9 },
+            { x: 0.9, z: -0.9 },
+            { x: -0.9, z: 0.9 },
+            { x: 0.9, z: 0.9 }
+        ];
+
+        // Geometry constants
+        const GEOMETRY = {
+            GROUND: {
+                SIZE: 100,
+                Y_POS: -7
+            },
+            SWING: {
+                WIDTH: 2,
+                HEIGHT: 0.1,
+                DEPTH: 2,
+                Y_POS: -5
+            },
+            PLATFORM: {
+                WIDTH: 4,
+                HEIGHT: 0.2,
+                DEPTH: 4,
+                Y_POS: 0
+            },
+            PLATFORM_ROD: {
+                WIDTH: 0.2,
+                Z_POS: -5
+            },
+            WIRE: {
+                RADIUS: 0.03,
+                HEIGHT: 5,
+                SEGMENTS: 16
+            }
+        };
+
+        // Material properties
+        const MATERIALS = {
+            GROUND: {
+                ROUGHNESS: 0.8,
+                METALNESS: 0.2
+            },
+            SWING: {
+                ROUGHNESS: 0.5,
+                METALNESS: 0.3
+            },
+            PLATFORM: {
+                ROUGHNESS: 0.5,
+                METALNESS: 0.5
+            },
+            WIRE: {
+                ROUGHNESS: 0.3,
+                METALNESS: 0.8
+            },
+            OBJECTS: {
+                ROUGHNESS: 0.7,
+                METALNESS: 0.3
+            }
+        };
+
+        // Variables
+        let time = 0;
+        let objects = [];
+        let objectBodies = [];
+        let currentObjectsSpecs = []
+
+        const wires = [];
+        const wireBodies = [];
+
+        // Simulation parameters
+        const params = {
+            swingSpeed: 2,
+            autoSwing: true
+        };
+
+        // Set up scene, camera, and renderer
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(COLORS.SKY);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({
+            antialias: true
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Set up lighting
+        const ambientLight = new THREE.AmbientLight(0x666666);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 10, 7);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 1024;
+        directionalLight.shadow.mapSize.height = 1024;
+        scene.add(directionalLight);
+
+        // Set up camera controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        camera.position.set(0, 5, 10);
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        // Set up Cannon.js world
+        const world = new CANNON.World();
+        world.gravity.set(0, PHYSICS.GRAVITY, 0);
+        world.broadphase = new CANNON.NaiveBroadphase();
+        world.solver.iterations = PHYSICS.ITERATIONS;
+        world.defaultContactMaterial.restitution = PHYSICS.RESTITUTION;
+        world.defaultContactMaterial.friction = PHYSICS.FRICTION;
+
+        // Create a ground plane
+        const groundGeometry = new THREE.PlaneGeometry(GEOMETRY.GROUND.SIZE, GEOMETRY.GROUND.SIZE);
+        const groundMaterial = new THREE.MeshStandardMaterial({
+            color: COLORS.GROUND,
+            roughness: MATERIALS.GROUND.ROUGHNESS,
+            metalness: MATERIALS.GROUND.METALNESS
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = GEOMETRY.GROUND.Y_POS;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Create the swing
+        const swingGeometry = new THREE.BoxGeometry(
+            GEOMETRY.SWING.WIDTH,
+            GEOMETRY.SWING.HEIGHT,
+            GEOMETRY.SWING.DEPTH
+        );
+        const swingMaterial = new THREE.MeshStandardMaterial({
+            color: COLORS.SWING,
+            roughness: MATERIALS.SWING.ROUGHNESS,
+            metalness: MATERIALS.SWING.METALNESS
+        });
+        const swing = new THREE.Mesh(swingGeometry, swingMaterial);
+        swing.position.set(0, GEOMETRY.SWING.Y_POS, 0);
+        swing.castShadow = true;
+        swing.receiveShadow = true;
+        scene.add(swing);
+
+        // Create the platform
+        const platformGeometry = new THREE.BoxGeometry(
+            GEOMETRY.PLATFORM.WIDTH,
+            GEOMETRY.PLATFORM.HEIGHT,
+            GEOMETRY.PLATFORM.DEPTH
+        );
+        const platformMaterial = new THREE.MeshStandardMaterial({
+            color: COLORS.PLATFORM,
+            roughness: MATERIALS.PLATFORM.ROUGHNESS,
+            metalness: MATERIALS.PLATFORM.METALNESS
+        });
+        const platform = new THREE.Mesh(platformGeometry, platformMaterial);
+        platform.position.set(0, GEOMETRY.PLATFORM.Y_POS, 0);
+        platform.castShadow = true;
+        platform.receiveShadow = true;
+        scene.add(platform);
+
+        const platformRodGeometry = new THREE.CylinderGeometry(
+            GEOMETRY.PLATFORM_ROD.WIDTH,
+            GEOMETRY.PLATFORM_ROD.WIDTH,
+            Math.abs(GEOMETRY.GROUND.Y_POS),
+            32
+        );
+
+        const platformRod = new THREE.Mesh(platformRodGeometry, platformMaterial);
+        platformRod.position.set(0, (GEOMETRY.GROUND.Y_POS) / 2, GEOMETRY.PLATFORM_ROD.Z_POS)
+        platformRod.castShadow = true;
+        platformRod.receiveShadow = true;
+
+        scene.add(platformRod)
+
+
+        const connectRodLength = Math.abs(GEOMETRY.PLATFORM_ROD.Z_POS) - GEOMETRY.PLATFORM.WIDTH / 2
+
+        const connectRodGeometry = new THREE.CylinderGeometry(
+            GEOMETRY.PLATFORM_ROD.WIDTH,
+            GEOMETRY.PLATFORM_ROD.WIDTH,
+            connectRodLength,
+            32
+        );
+
+        const connectRod = new THREE.Mesh(connectRodGeometry, platformMaterial);
+        connectRod.position.set(0, 0, GEOMETRY.PLATFORM_ROD.Z_POS + connectRodLength / 2)
+        connectRod.rotation.x = Math.PI / 2
+        connectRod.castShadow = true;
+        connectRod.receiveShadow = true;
+
+        scene.add(connectRod)
+
+
+        // Create ground body
+        const groundBody = new CANNON.Body({
+            type: CANNON.Body.STATIC,
+            shape: new CANNON.Plane()
+        });
+        groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+        groundBody.position.set(0, GEOMETRY.GROUND.Y_POS, 0);
+        world.addBody(groundBody);
+
+        // Add bodies for the swing and platform
+        const swingBody = new CANNON.Body({
+            mass: PHYSICS.SWING_MASS,
+            position: new CANNON.Vec3(0, GEOMETRY.SWING.Y_POS, 0),
+            shape: new CANNON.Box(new CANNON.Vec3(
+                GEOMETRY.SWING.WIDTH / 2,
+                GEOMETRY.SWING.HEIGHT / 2,
+                GEOMETRY.SWING.DEPTH / 2
+            ))
+        });
+        world.addBody(swingBody);
+
+        const platformBody = new CANNON.Body({
+            type: CANNON.Body.STATIC,
+            position: new CANNON.Vec3(0, GEOMETRY.PLATFORM.Y_POS, 0),
+            shape: new CANNON.Box(new CANNON.Vec3(
+                GEOMETRY.PLATFORM.WIDTH / 2,
+                GEOMETRY.PLATFORM.HEIGHT / 2,
+                GEOMETRY.PLATFORM.DEPTH / 2
+            ))
+        });
+        world.addBody(platformBody);
+
+        const platformRodBody = new CANNON.Body({
+            type: CANNON.Body.STATIC,
+            shape: new CANNON.Cylinder(GEOMETRY.PLATFORM_ROD.WIDTH,
+                GEOMETRY.PLATFORM_ROD.WIDTH,
+                Math.abs(GEOMETRY.GROUND.Y_POS),
+                32)
+        });
+
+        platformRodBody.position.set(0, (GEOMETRY.GROUND.Y_POS) / 2, GEOMETRY.PLATFORM_ROD.Z_POS);
+        world.addBody(platformRodBody);
+
+        // Create the wires
+        const wireGeometry = new THREE.CylinderGeometry(
+            GEOMETRY.WIRE.RADIUS,
+            GEOMETRY.WIRE.RADIUS,
+            GEOMETRY.WIRE.HEIGHT,
+            GEOMETRY.WIRE.SEGMENTS
+        );
+        const wireMaterial = new THREE.MeshStandardMaterial({
+            color: COLORS.WIRE,
+            roughness: MATERIALS.WIRE.ROUGHNESS,
+            metalness: MATERIALS.WIRE.METALNESS
+        });
+
+        // Create physical wires with bodies and constraints
+        WIRE_POSITIONS.forEach(pos => {
+            // Create visual wire mesh
+            const wire = new THREE.Mesh(wireGeometry, wireMaterial);
+            wire.castShadow = true;
+            scene.add(wire);
+            wires.push(wire);
+
+            // Create wire physics body
+            const wireBody = new CANNON.Body({
+                mass: PHYSICS.WIRE_MASS,
+                shape: new CANNON.Cylinder(0.03, 0.03, 5, 8),
+                position: new CANNON.Vec3(pos.x, -2.5, pos.z)
+            });
+            world.addBody(wireBody);
+            wireBodies.push(wireBody);
+
+            // Create constraints to connect wire to platform and swing
+            // Top constraint (wire to platform)
+            const topConstraint = new CANNON.PointToPointConstraint(
+                wireBody,
+                new CANNON.Vec3(0, 2.5, 0),  // Top of wire
+                platformBody,
+                new CANNON.Vec3(pos.x, -0.1, pos.z)  // Bottom of platform
+            );
+            world.addConstraint(topConstraint);
+
+            // Bottom constraint (wire to swing)
+            const bottomConstraint = new CANNON.PointToPointConstraint(
+                wireBody,
+                new CANNON.Vec3(0, -2.5, 0),  // Bottom of wire
+                swingBody,
+                new CANNON.Vec3(pos.x, 0.05, pos.z)  // Top of swing
+            );
+            world.addConstraint(bottomConstraint);
+        });
+
+        // Function to create objects on the swing
+        function createObjects(newObjs = true) {
+            // Clear any existing objects
+            objects.forEach(obj => scene.remove(obj));
+            objectBodies.forEach(body => world.removeBody(body));
+            objects = []
+            objectBodies = []
+            if (newObjs) { currentObjectsSpecs = [] }
+
+            for (let i = 0; i < 5; i++) {
+                const shape = newObjs ? SHAPES[Math.floor(Math.random() * SHAPES.length)] : currentObjectsSpecs[i].shape;
+                const width = newObjs ? Math.random() * 0.3 + 0.2 : currentObjectsSpecs[i].width
+                const height = newObjs ? Math.random() * 0.3 + 0.2 : currentObjectsSpecs[i].height
+                const color = newObjs ? COLORS.OBJECT_COLORS[Math.floor(Math.random() * COLORS.OBJECT_COLORS.length)] : currentObjectsSpecs[i].color
+                // Position objects in a balanced way on the swing
+                const x = newObjs ? (Math.random() * 1.6 - 0.8) : currentObjectsSpecs[i].x;
+                const z = newObjs ? (Math.random() * 1.6 - 0.8) : currentObjectsSpecs[i].z;
+                const y = GEOMETRY.SWING.Y_POS + height / 2;
+
+                if (newObjs) {
+                    currentObjectsSpecs.push({
+                        shape: shape,
+                        width: width,
+                        height: height,
+                        color: color,
+                        x: x,
+                        z: z
+                    });
+                }
+
+                let geometry, physicsShape;
+
+
+                if (shape === 'cube') {
+                    geometry = new THREE.BoxGeometry(width, height, width);
+                    physicsShape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, width / 2));
+                } else if (shape === 'sphere') {
+                    const radius = width / 2;
+                    geometry = new THREE.SphereGeometry(radius, 32, 32);
+                    physicsShape = new CANNON.Sphere(radius);
+                } else if (shape === 'rectangle') {
+                    const depth = Math.random() * 0.2 + 0.1;
+                    geometry = new THREE.BoxGeometry(width, height, depth);
+                    physicsShape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2));
+                } else if (shape === 'hexagon') {
+                    const radius = width / 2;
+                    geometry = new THREE.CylinderGeometry(radius, radius, height, 6);
+                    physicsShape = new CANNON.Cylinder(radius, radius, height, 6);
+                }
+
+                const material = new THREE.MeshStandardMaterial({
+                    color: color,
+                    roughness: 0.7,
+                    metalness: 0.3
+                });
+
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+
+                mesh.position.set(x, y, z);
+                scene.add(mesh);
+                objects.push(mesh);
+
+                // Create physics body for the object
+                const body = new CANNON.Body({
+                    mass: PHYSICS.OBJECT_MASS,
+                    position: new CANNON.Vec3(x, y, z),
+                    shape: physicsShape
+                });
+
+                world.addBody(body);
+                objectBodies.push(body);
+            }
+
+
+
+
+
+        }
+
+        // Set up GUI with controls
+        const gui = new GUI();
+        gui.add(params, 'autoSwing').name('Enable Swing');
+        gui.add(params, 'swingSpeed', 0, 5).name('Swing Speed');
+
+        // Function to reset the simulation
+        function resetSimulation(newObjs) {
+            time = 0;
+            swingBody.position.set(0, -5, 0);
+            swingBody.quaternion.set(0, 0, 0, 1);
+            swingBody.angularVelocity.set(0, 0, 0);
+            swingBody.velocity.set(0, 0, 0);
+
+            // Reset wire bodies
+            wireBodies.forEach((wireBody, index) => {
+                const pos = WIRE_POSITIONS[index];
+                wireBody.position.set(pos.x, -2.5, pos.z);
+                wireBody.quaternion.set(0, 0, 0, 1);
+                wireBody.angularVelocity.set(0, 0, 0);
+                wireBody.velocity.set(0, 0, 0);
+            });
+
+            createObjects(newObjs);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Step the physics world
+            world.step(1 / 60);
+            time += 1 / 60;
+
+            // Apply oscillating force to the swing if auto-swing is enabled
+            if (params.autoSwing) {
+                const backPoint = new CANNON.Vec3(-1, 0, 0);
+                const frontPoint = new CANNON.Vec3(1, 0, 0);
+                const dir = swingBody.velocity.x > 0 ? 1 : -1;
+                const force = 0.5 * dir;
+                const pointOfImpulse = dir ? backPoint : frontPoint;
+                const impulse = new CANNON.Vec3(force, 0, 0);
+                const swingVelocity = Math.sqrt(swingBody.velocity.x ** 2 + swingBody.velocity.y ** 2 + swingBody.velocity.z ** 2);
+
+                if (swingBody.position.y < -5 && swingBody.position.y > -5.15) {
+                    if (swingVelocity < params.swingSpeed) {
+                        swingBody.applyImpulse(impulse, pointOfImpulse);
+                    }
+                }
+            }
+
+            // Update swing position and rotation
+            swing.position.copy(swingBody.position);
+            swing.quaternion.copy(swingBody.quaternion);
+
+            // Update wire positions and rotations
+            wires.forEach((wire, index) => {
+                const wireBody = wireBodies[index];
+                wire.position.copy(wireBody.position);
+                wire.quaternion.copy(wireBody.quaternion);
+            });
+
+            // Update objects on the swing
+            for (let i = 0; i < objects.length; i++) {
+                const object = objects[i];
+                const body = objectBodies[i];
+
+                // Update the body position
+                object.position.copy(body.position);
+                object.quaternion.copy(body.quaternion);
+            }
+
+            // Update metrics display
+            document.getElementById('metrics').innerHTML = `
+                <p>Swing Velocity: ${Math.floor(Math.sqrt(swingBody.velocity.x ** 2 + swingBody.velocity.y ** 2 + swingBody.velocity.z ** 2))} m/s</p>
+            `;
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Event listeners for buttons
+        document.getElementById('reset').addEventListener('click', () => resetSimulation(false));
+        document.getElementById('rearrange').addEventListener('click', () => resetSimulation(true));
+
+        // Create initial objects and start animation
+        createObjects(true);
+        animate();
+    </script>
+</body>
+
+</html>

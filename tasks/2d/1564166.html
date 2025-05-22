@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 2D Transformation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            /* Use min-height to ensure visibility on taller screens */
+            background-color: #f0f0f0;
+            /* Slightly off-white background for the page */
+            font-family: 'Roboto Mono', monospace;
+            /* Add some padding around the main content */
+            box-sizing: border-box;
+        }
+
+        #main-content-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-color: #ffffff;
+            /* White background for the app area */
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        #canvas-container {
+            position: relative;
+            /* Important for p5 canvas positioning if needed */
+            border: 2px solid #444;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.15);
+            /* Adjusted shadow from original */
+            /* Width and height will be determined by the p5 canvas */
+            margin-bottom: 20px;
+            margin-left: 10px;
+            margin-right: 20px;
+            /* Space between canvas and controls */
+        }
+
+        #controls-area {
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background-color: #f9f9f9;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            width: auto;
+            /* Fit content */
+            min-width: 250px;
+            /* Minimum width for controls layout */
+        }
+
+        /* Styling for p5.js created DOM elements (sliders and labels) */
+        #controls-area .control-wrapper {
+            /* Each label-slider pair div */
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        #controls-area .control-label {
+            /* Labels for sliders */
+            font-size: 13px;
+            color: #333;
+            min-width: 75px;
+            /* Adjust for alignment */
+            margin-right: 10px;
+        }
+
+        #controls-area input[type="range"] {
+            /* Sliders */
+            width: 180px;
+            cursor: pointer;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="main-content-wrapper">
+        <div id="canvas-container">
+        </div>
+        <div id="controls-area">
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let canvasWidth;
+            let canvasHeight;
+            const displayText = "HELLO P5";
+
+            // Object properties
+            let objX, objY;
+            let objAngle = 0;
+            let objInitialAngle = 0; // For rotation calculation
+            let rotationStartHandleAngle = 0; // For rotation calculation
+
+            // Transformation values from sliders
+            let currentScale = 1;
+            let currentShearX = 0;
+            let currentShearY = 0;
+
+            // Sliders
+            let scaleSlider, shearXSlider, shearYSlider;
+
+            // Interaction state
+            let isDragging = false;
+            let isRotating = false;
+            let dragOffsetX, dragOffsetY;
+            let spaceForControls = 200
+
+            // Function to update canvas dimensions
+            function updateCanvasDimensions() {
+                // Set initial canvas size based on window
+                canvasWidth = window.innerWidth
+                canvasHeight = window.innerHeight - spaceForControls; // Leave space for controls
+
+                // Resize the canvas if it exists
+                if (p.canvas) {
+                    p.resizeCanvas(canvasWidth, canvasHeight);
+                    // Update object position to center of new canvas
+                    objX = canvasWidth / 2;
+                    objY = canvasHeight / 2;
+                }
+            }
+
+            p.setup = () => {
+                // Set initial canvas size based on window
+                canvasWidth = window.innerWidth;
+                canvasHeight = window.innerHeight - spaceForControls; // Leave space for controls
+
+                // Create canvas and add to container
+                const canvas = p.createCanvas(canvasWidth, canvasHeight).parent('canvas-container');
+
+                // Set initial object position
+                objX = canvasWidth / 2;
+                objY = canvasHeight / 2;
+
+                // Font settings
+                p.textFont('Roboto Mono');
+                p.textSize(48);
+                p.textAlign(p.CENTER, p.CENTER);
+
+                // --- Create Sliders ---
+                let controlsContainer = p.select('#controls-area'); // Get the div for controls
+
+                // Helper function to create a label and a slider
+                const addSlider = (label, min, max, defaultValue, step, parentEl) => {
+                    let wrapper = p.createDiv().parent(parentEl);
+                    wrapper.addClass('control-wrapper'); // For styling
+
+                    let lbl = p.createSpan(label).parent(wrapper);
+                    lbl.addClass('control-label'); // For styling
+
+                    let s = p.createSlider(min, max, defaultValue, step).parent(wrapper);
+                    return s;
+                };
+
+                scaleSlider = addSlider('Scale:', 1, 3, 1, 0.01, controlsContainer);
+                shearXSlider = addSlider('Shear X:', -p.PI / 3, p.PI / 3, 0, 0.01, controlsContainer);
+                shearYSlider = addSlider('Shear Y:', -p.PI / 3, p.PI / 3, 0, 0.01, controlsContainer);
+            };
+
+            p.draw = () => {
+                p.background(230, 235, 240); // Light bluish-gray background
+
+                // Update transformation values from sliders
+                currentScale = scaleSlider.value();
+                currentShearX = shearXSlider.value();
+                currentShearY = shearYSlider.value();
+
+                // --- Apply transformations and draw object ---
+                p.push(); // Isolate transformations for the main object
+
+                // 1. Translate to object's current position
+                p.translate(objX, objY);
+                // 2. Rotate
+                p.rotate(objAngle);
+                // 3. Scale
+                p.scale(currentScale);
+                // 4. Shear
+                p.shearX(currentShearX);
+                p.shearY(currentShearY);
+
+                // Draw the object (text) at the transformed origin (0,0)
+                p.fill(60, 80, 200); // Deep blue color for text
+                p.noStroke();
+                p.text(displayText, 0, 0);
+
+                // Optional: Draw a small circle at the pivot point
+                // p.fill(255, 0, 0, 150); // Semi-transparent red
+                // p.ellipse(0, 0, 8, 8);
+
+                p.pop(); // Restore original drawing state
+
+                // --- UI Instructions ---
+                p.push(); // Isolate transformations for UI text
+                p.fill(50); // Dark gray for instruction text
+                p.textSize(13);
+                p.textAlign(p.LEFT, p.TOP);
+                p.textStyle(p.NORMAL);
+                let instructionText = "Drag text to translate.\nHold SHIFT and drag mouse to rotate.";
+                if ('ontouchstart' in window) { // Basic touch device detection
+                    instructionText = "Drag text to translate.\n(Rotation via SHIFT+drag is for mouse)";
+                }
+                p.text(instructionText, 15, p.height - 40);
+                p.pop();
+            };
+
+
+            // Function to ensure text stays within canvas boundaries
+            function ensureTextWithinBounds() {
+                let textWidthApprox = p.textWidth(displayText) * currentScale;
+                let textHeightApprox = p.textSize() * currentScale;
+                let padding = 20;
+
+                // Apply constraints to current position
+                objX = p.constrain(objX, textWidthApprox / 2 + padding, p.width - textWidthApprox / 2 - padding);
+                objY = p.constrain(objY, textHeightApprox / 2 + padding, p.height - textHeightApprox / 2 - padding);
+            }
+
+            p.mousePressed = () => {
+                // Estimate bounding box for interaction
+                let textWidthApprox = p.textWidth(displayText) * currentScale;
+                let textHeightApprox = p.textSize() * currentScale; // textSize is fixed, scale applies
+                let hitRadius = Math.max(textWidthApprox / 2, textHeightApprox / 2);
+
+                if (p.dist(p.mouseX, p.mouseY, objX, objY) < hitRadius) { // Added a small buffer
+                    if (p.keyIsDown(p.SHIFT)) {
+                        isRotating = true;
+                        isDragging = false; // Ensure not both
+                        objInitialAngle = objAngle; // Store current angle of the object
+                        // Store the angle of the mouse relative to the object's center
+                        rotationStartHandleAngle = p.atan2(p.mouseY - objY, p.mouseX - objX);
+                    } else {
+                        isDragging = true;
+                        isRotating = false; // Ensure not both
+                        // Store offset from mouse to object's center
+                        dragOffsetX = objX - p.mouseX;
+                        dragOffsetY = objY - p.mouseY;
+                    }
+                    return; // Interaction started with the object
+                }
+            };
+
+            p.mouseDragged = () => {
+                if (isDragging) {
+                    // Calculate new position
+                    let newX = p.mouseX + dragOffsetX;
+                    let newY = p.mouseY + dragOffsetY;
+
+                    // Calculate approximate boundaries based on text size and transformations
+                    let textWidthApprox = p.textWidth(displayText) * currentScale;
+                    let textHeightApprox = p.textSize() * currentScale;
+                    let padding = 20; // Extra padding to ensure visibility
+
+                    // Constrain position to keep text within canvas boundaries
+                    newX = p.constrain(newX, textWidthApprox / 2 + padding, p.width - textWidthApprox / 2 - padding);
+                    newY = p.constrain(newY, textHeightApprox / 2 + padding, p.height - textHeightApprox / 2 - padding);
+
+                    // Apply the constrained position
+                    objX = newX;
+                    objY = newY;
+                } else if (isRotating) {
+                    // Calculate current angle of mouse relative to object's center
+                    let currentHandleAngle = p.atan2(p.mouseY - objY, p.mouseX - objX);
+                    // Apply the difference in angle to the object's initial angle
+                    objAngle = objInitialAngle + (currentHandleAngle - rotationStartHandleAngle);
+                }
+            };
+
+            p.mouseReleased = () => {
+                isDragging = false;
+                isRotating = false;
+
+                // Additional safety check to ensure text is within bounds after release
+                ensureTextWithinBounds();
+            };
+
+
+            // Add window resize handler
+            p.windowResized = () => {
+                updateCanvasDimensions();
+            };
+        };
+
+        // Ensure the DOM is ready before selecting elements for p5 parenting
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.getElementById('canvas-container');
+            if (container) {
+                new p5(sketch, container);
+            } else {
+                console.error("Canvas container not found for p5.js sketch.");
+            }
+        });
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Bridge Simulation - Enhanced Visuals</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #a0d8ef;
+            /* Light sky blue background */
+            color: #333;
+            /* Default text color */
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(40, 40, 40, 0.85);
+            /* Darker, more opaque panel */
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            /* Modern font */
+            font-size: 14px;
+            z-index: 100;
+            width: 280px;
+            /* Slightly wider */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        #info-panel h3 {
+            margin-top: 0;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #555;
+            padding-bottom: 8px;
+            font-size: 16px;
+        }
+
+        #info-panel p {
+            margin: 6px 0;
+            line-height: 1.4;
+        }
+
+        #info-panel strong {
+            color: #87CEEB;
+            /* Light sky blue for emphasis */
+        }
+
+        #color-red,
+        #color-yellow,
+        #color-orange,
+        #color-default {
+            /* Added default color indicator */
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 6px;
+            vertical-align: middle;
+            border: 1px solid #777;
+            border-radius: 3px;
+            /* Slightly rounded */
+        }
+
+        #color-red {
+            background-color: #e74c3c;
+            /* Flat UI red */
+        }
+
+        #color-yellow {
+            background-color: #f1c40f;
+            /* Flat UI yellow */
+        }
+
+        #color-orange {
+            background-color: #e67e22;
+            /* Flat UI orange */
+        }
+
+        #color-default {
+            background-color: #bdc3c7;
+            /* Flat UI grey for default */
+        }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.js",
+                "three/examples/jsm/controls/OrbitControls": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/controls/OrbitControls.js",
+                "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.17.1/dist/cannon-es.js",
+                "cannon-es-debugger": "https://cdn.jsdelivr.net/npm/cannon-es-debugger@1.0.0/dist/cannon-es-debugger.js",
+                "dat.gui": "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="info-panel">
+        <h3>Bridge Load Simulation</h3>
+        <p><strong>Controls:</strong></p>
+        <p>- Reset: Restart the simulation</p>
+        <p>- Car Mass: Adjust vehicle weight</p>
+        <div>
+            <p><strong>Chain Link Stress:</strong></p>
+            <p><span id="color-default"></span> Normal (&lt;40%)</p>
+            <p><span id="color-orange"></span> Medium (40-60%)</p>
+            <p><span id="color-yellow"></span> High (60-90%)</p>
+            <p><span id="color-red"></span> Critical (&gt;90%)</p>
+        </div>
+        <p><strong>Current Load on Bridge:</strong> <span id="current-load">0</span> kg</p>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+        import * as CANNON from 'cannon-es';
+        import CannonDebugger from 'cannon-es-debugger';
+        import { GUI } from 'dat.gui';
+
+        // --- Constants ---
+        const GRAVITY = -9.82;
+        const PLANE_SIZE = 500;
+        const CAMERA_POSITION = { x: 0, y: 0, z: 75 };
+        const LIGHT_POSITION = { x: 50, y: 60, z: 40 };
+        const PHYSICS_TIME_STEP = 1 / 60;
+        const CONTACT_EQUATION_RELAXATION = 1;
+        const SOLVER_ITERATIONS = 20; // Can reduce if performance is an issue, or increase for stability
+
+        const SHADOW_MAP_SIZE = 2048;
+        const SHADOW_CAMERA_BOUNDS = 70; // Increased to cover more area if bridge is long
+        const SHADOW_CAMERA_NEAR = 10;   // Adjusted near/far for better shadow focus
+        const SHADOW_CAMERA_FAR = 200;
+
+        const AMBIENT_LIGHT_COLOR = 0x707080; // Cooler ambient
+        const AMBIENT_LIGHT_INTENSITY = 0.4;
+        const HEMISPHERE_SKY_COLOR = 0xB1E1FF; // Light blue sky
+        const HEMISPHERE_GROUND_COLOR = 0xB97A20; // Earthy ground
+        const HEMISPHERE_INTENSITY = 0.6;
+
+
+        const BRIDGE_ROAD = {
+            length: 90, height: 0.5, depth: 14,
+            position: { x: 0, y: 38, z: 0 },
+            mass: 5000, color: 0x4a4a4a, // Dark asphalt color
+            materialProps: { roughness: 0.8, metalness: 0.1 }
+        };
+        const BRIDGE_START_BOUND = -BRIDGE_ROAD.length / 2;
+        const BRIDGE_END_BOUND = BRIDGE_ROAD.length / 2;
+
+        const BRIDGE_PILLARS = {
+            length: BRIDGE_ROAD.length + 5, height: 1, depth: 1,
+            color: 0x787A7A, // Concrete grey
+            materialProps: { roughness: 0.9, metalness: 0.2 },
+            supportHeightFactor: 2.5 // How tall the vertical supports are (y: BRIDGE_ROAD.position.y + supportHeightFactor * 10)
+        };
+
+        const CAR = {
+            width: 4.5, height: 1.8, depth: BRIDGE_ROAD.depth * 0.22, // Slightly taller
+            WHEEL_RADIUS: 0.5, acceleration: 0.8, maxSpeed: 2000,
+            colors: [0xe74c3c, 0x2ecc71, 0x3498db, 0xf1c40f, 0x9b59b6, 0x1abc9c], // Flat UI colors
+            materialProps: { roughness: 0.3, metalness: 0.4 }, // Shinier cars
+            mass: 1600, minMass: 1500, maxMass: 3000
+        };
+
+        const CHAIN_CONFIG = {
+            count: 15, // Reduced for potentially better performance
+            radius: 0.20, // Slightly thicker links
+            mass: 80,   // Adjusted mass
+            maxForce: 1e6, // Cannon's error correction force limit
+            materialProps: { color: 0xadb5bd, metalness: 0.8, roughness: 0.4 } // Metallic chain
+        };
+        const CHAIN_START_OFFSET = 5;
+        const GAP_BETWEEN_CHAINS = BRIDGE_ROAD.length / (Math.floor((BRIDGE_PILLARS.length - 2 * CHAIN_START_OFFSET) / 8) + 1); // Dynamic gap
+
+        let G_IS_ROAD_BROKEN = false;
+        let roadFragmentComponents = [];
+        const ROAD_FRAGMENTATION_CONFIG = {
+            numberOfFragments: Math.max(5, Math.floor(BRIDGE_ROAD.length / 10)), // More fragments for longer road
+            fragmentMassFactor: 0.85,
+            breakupImpulseFactor: 1.5,
+            fragmentMaterialProps: { color: 0x4a4a4a, roughness: 0.8, metalness: 0.1 } // Broken concrete/earth
+        };
+
+        const CHAIN_STRENGTH_VARIATION = {
+            enablePillarPositionVariation: true,
+            pillarPositionMaxBonusStrengthFactor: 0.2, // Max 25% stronger
+            pillarChainStartOffset: CHAIN_START_OFFSET,
+            enableIntraChainVariation: true,
+            intraChainStrengthDropFactor: 0.15, // Road-end is 50% weaker
+        };
+
+        const CHAIN_LINK_MATERIAL_PROPERTIES = {
+            crossSectionalArea: 0.0008, // Adjusted for sensitivity
+            initialUltimateStrength: 15e6, // 15 MPa, adjust based on desired breakability
+            damageThresholdFactor: 0.35, // Damage starts at 35% of UTS
+            damageRateFactor: 0.005,     // Slower damage accumulation
+        };
+
+        const CAR_COUNT_ON_EACH_SIDE = 6;
+        const CAR_GAP = 2.5; // Slightly more gap
+
+        let G_TOTAL_CHAIN_SYSTEMS_COUNT = 0;
+        let G_STATIC_ROAD_WEIGHT = 0;
+        let G_CURRENT_CAR_LOAD_WEIGHT = 0;
+
+        let cars = [];
+        let bridgeComponents = [];
+        // let constraints = []; // This was used to push chain.stressableConstraintsData.map(el => el.constraint), might not be needed if chainSystems handles all
+        let chainSystems = [];
+
+        let scene, camera, renderer, orbitControls;
+        let world, cannonDebugger, gui;
+        let plane, planeBody;
+        let lastTime = 0;
+        let loadText = document.getElementById('current-load');
+        let trafficRunning = false;
+
+        const controls = {
+            // Optional: Only for development debugging and not to be shown in gui controls
+            showDebugger: false,
+            reset: function () { },
+            carMass: CAR.mass,
+            updateCarMass: function (value) { if (!trafficRunning) { controls.carMass = value; } }
+        };
+
+        // --- Initialization ---
+        init();
+        baseInitFunction(); // Initial setup of bridge and cars
+        startAnimationLoop();
+
+        function init() {
+            setupScene();
+            setupPhysics();
+            setupGUI();
+            addLighting();
+            createGroundPlane();
+            positionCamera();
+            handleWindowResize();
+        }
+
+
+        function setupScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(HEMISPHERE_SKY_COLOR); // Set background color
+            scene.fog = new THREE.Fog(HEMISPHERE_SKY_COLOR, 100, 300); // Add subtle fog
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000); // Slightly narrower FOV
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping; // Improved tone mapping
+            renderer.outputColorSpace = THREE.SRGBColorSpace; // Correct color space
+            document.body.appendChild(renderer.domElement);
+
+            orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+            orbitControls.maxPolarAngle = Math.PI / 2.1; // Prevent looking from below ground
+            orbitControls.minDistance = 20;
+            orbitControls.maxDistance = 200;
+        }
+
+        function setupGUI() {
+            gui = new GUI();
+            gui.add(controls, 'reset').name('Reset Simulation');
+            gui.add(controls, 'carMass', CAR.minMass, CAR.maxMass, 50).step(50)
+                .name('Car Mass (kg)')
+                .onChange(controls.updateCarMass);
+        }
+
+        function setupPhysics() {
+            world = new CANNON.World();
+            world.gravity.set(0, GRAVITY, 0);
+            world.broadphase = new CANNON.SAPBroadphase(world); // Efficient broadphase
+            world.solver.iterations = SOLVER_ITERATIONS;
+            world.defaultContactMaterial.contactEquationRelaxation = CONTACT_EQUATION_RELAXATION;
+            world.defaultContactMaterial.friction = 0.4; // Default friction
+
+            cannonDebugger = new CannonDebugger(scene, world, {
+                color: 0x00ff00, scale: 1.0, onInit: (body, mesh) => { mesh.visible = controls.showDebugger; }
+            });
+        }
+
+        function addLighting() {
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Slightly softer directional
+            directionalLight.position.set(LIGHT_POSITION.x, LIGHT_POSITION.y, LIGHT_POSITION.z);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = SHADOW_MAP_SIZE;
+            directionalLight.shadow.mapSize.height = SHADOW_MAP_SIZE;
+            directionalLight.shadow.camera.near = SHADOW_CAMERA_NEAR;
+            directionalLight.shadow.camera.far = SHADOW_CAMERA_FAR;
+            directionalLight.shadow.camera.left = -SHADOW_CAMERA_BOUNDS;
+            directionalLight.shadow.camera.right = SHADOW_CAMERA_BOUNDS;
+            directionalLight.shadow.camera.top = SHADOW_CAMERA_BOUNDS;
+            directionalLight.shadow.camera.bottom = -SHADOW_CAMERA_BOUNDS;
+            directionalLight.shadow.bias = -0.0005; // Help with shadow acne
+            scene.add(directionalLight);
+            // scene.add(new THREE.CameraHelper(directionalLight.shadow.camera)); // For debugging shadow camera
+
+            const hemiLight = new THREE.HemisphereLight(HEMISPHERE_SKY_COLOR, HEMISPHERE_GROUND_COLOR, HEMISPHERE_INTENSITY);
+            scene.add(hemiLight);
+
+            const ambientLight = new THREE.AmbientLight(AMBIENT_LIGHT_COLOR, AMBIENT_LIGHT_INTENSITY); // Keep a bit of base ambient
+            scene.add(ambientLight);
+        }
+
+        function positionCamera() {
+            camera.position.set(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z);
+            camera.lookAt(0, BRIDGE_ROAD.position.y, 0); // Look at bridge height
+            orbitControls.target.set(0, BRIDGE_ROAD.position.y + BRIDGE_PILLARS.supportHeightFactor * 10, 0); // Set OrbitControls target
+        }
+
+        function createGroundPlane() {
+            const planeGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
+            const planeMaterial = new THREE.MeshStandardMaterial({
+                color: 0x967960, // Earthy brown
+                roughness: 0.9,
+                metalness: 0.1,
+            });
+            plane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+            planeBody = new CANNON.Body({ type: 'static', shape: new CANNON.Plane() });
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(planeBody);
+
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.copy(planeBody.position);
+            plane.receiveShadow = true;
+            scene.add(plane);
+        }
+
+        function handleWindowResize() {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        /**
+         * Helper function to calculate initial damage and current UTS based on a base stress
+         * and a potentially modified initial ultimate strength.
+         */
+        function calculateInitialDamage(baseStress, effectiveInitialUTS, materialProps) {
+            let damage = 0;
+            let currentUTS = effectiveInitialUTS;
+            const damageThreshold = effectiveInitialUTS * materialProps.damageThresholdFactor;
+
+            if (baseStress > damageThreshold && effectiveInitialUTS > 0) {
+                const denominator = effectiveInitialUTS - damageThreshold;
+                if (denominator > 1e-6) {
+                    const normalizedOverStress = (baseStress - damageThreshold) / denominator;
+                    damage = Math.min(materialProps.damageRateFactor * Math.max(0, normalizedOverStress) * 0.05, 1.0);
+                } else if (baseStress >= effectiveInitialUTS) {
+                    damage = 0.75;
+                }
+            }
+            currentUTS = effectiveInitialUTS * (1 - damage);
+            currentUTS = Math.max(currentUTS, 1e-3);
+            return { damage, currentUTS };
+        }
+
+        /**
+         * Creates a chain of sphere links.
+         */
+        function createChain(anchorBodyA, anchorALocal, anchorBodyB, anchorBLocal) {
+            const startPoint = anchorBodyA.pointToWorldFrame(anchorALocal);
+            const endPoint = anchorBodyB.pointToWorldFrame(anchorBLocal);
+            const linkCount = CHAIN_CONFIG.count;
+            const direction = new CANNON.Vec3();
+            endPoint.vsub(startPoint, direction);
+            const totalLength = direction.length();
+
+            if (totalLength > 1e-6) { direction.normalize(); }
+            else { direction.set(0, -1, 0); console.warn("createChain: Zero length, using default direction."); }
+
+            const actualLinkLength = totalLength > 1e-6 ? (totalLength / linkCount) : (CHAIN_CONFIG.radius * 2.5);
+            const links = []; const stressableConstraintsData = []; const meshes = [];
+
+            const linkMaterial = new CANNON.Material('chainLinkMat_Instance_' + Math.random().toString(36).substring(2, 7)); // More unique
+            const chainMeshMaterial = new THREE.MeshStandardMaterial({
+                color: CHAIN_CONFIG.materialProps.color,
+                metalness: CHAIN_CONFIG.materialProps.metalness,
+                roughness: CHAIN_CONFIG.materialProps.roughness,
+            });
+
+            let previousLinkBody = null;
+            let baseStaticForcePerEndConstraint = 0;
+            let baseStaticStress = 0;
+            if (G_TOTAL_CHAIN_SYSTEMS_COUNT > 0 && CHAIN_LINK_MATERIAL_PROPERTIES.crossSectionalArea > 0) {
+                baseStaticForcePerEndConstraint = G_STATIC_ROAD_WEIGHT / G_TOTAL_CHAIN_SYSTEMS_COUNT;
+                baseStaticStress = baseStaticForcePerEndConstraint / CHAIN_LINK_MATERIAL_PROPERTIES.crossSectionalArea;
+            } else { console.warn("Cannot calculate base static stress."); }
+
+            const chainInstanceId = chainSystems.length;
+            let pillarConnectionBaseUTS = CHAIN_LINK_MATERIAL_PROPERTIES.initialUltimateStrength;
+            if (CHAIN_STRENGTH_VARIATION.enablePillarPositionVariation) {
+                const chainPositionXOnPillar = anchorALocal.x;
+                const pillarHalfLength = BRIDGE_PILLARS.length / 2;
+                const maxDistanceForVariation = pillarHalfLength - CHAIN_STRENGTH_VARIATION.pillarChainStartOffset;
+                if (maxDistanceForVariation > 1e-6) {
+                    const distanceFromPillarCenter = Math.abs(chainPositionXOnPillar);
+                    const normalizedDistance = Math.min(distanceFromPillarCenter / maxDistanceForVariation, 1.0);
+                    const strengthBonus = CHAIN_STRENGTH_VARIATION.pillarPositionMaxBonusStrengthFactor * (1 - normalizedDistance);
+                    pillarConnectionBaseUTS = CHAIN_LINK_MATERIAL_PROPERTIES.initialUltimateStrength * (1.0 + strengthBonus);
+                }
+            }
+
+            for (let i = 0; i < linkCount; i++) {
+                const linkRadius = actualLinkLength / 2;
+                if (linkRadius <= 1e-6) { console.warn(`Link radius too small, skipping link ${i}`); continue; }
+
+                const position = new CANNON.Vec3();
+                startPoint.vadd(direction.clone().scale(i * actualLinkLength + linkRadius), position);
+                const sphereShape = new CANNON.Sphere(linkRadius);
+                const linkBody = new CANNON.Body({
+                    mass: CHAIN_CONFIG.mass, shape: sphereShape, position: position, material: linkMaterial,
+                    linearDamping: 0.2, angularDamping: 0.7, // Adjusted damping
+                });
+                world.addBody(linkBody); links.push(linkBody);
+
+                const sphereGeometry = new THREE.SphereGeometry(linkRadius, 10, 8); // Optimized segments
+                const linkMesh = new THREE.Mesh(sphereGeometry, chainMeshMaterial.clone());
+                linkMesh.castShadow = true; linkMesh.receiveShadow = true;
+                linkMesh.position.copy(linkBody.position); linkMesh.quaternion.copy(linkBody.quaternion);
+                linkBody.mesh = linkMesh; scene.add(linkMesh); meshes.push(linkMesh);
+
+                let currentConstraint;
+                let bodyA_constr, pivotA_constr, bodyB_constr, pivotB_constr;
+                const pivotLocalTop = new CANNON.Vec3(0, linkRadius, 0);
+                const pivotLocalBottom = new CANNON.Vec3(0, -linkRadius, 0);
+                let currentConstraintEffectiveUTS = pillarConnectionBaseUTS;
+
+                if (i === 0) { currentConstraintEffectiveUTS = pillarConnectionBaseUTS; }
+                else if (CHAIN_STRENGTH_VARIATION.enableIntraChainVariation && linkCount > 0) {
+                    const normalizedPosInChain = i / linkCount;
+                    const strengthReduction = normalizedPosInChain * CHAIN_STRENGTH_VARIATION.intraChainStrengthDropFactor;
+                    currentConstraintEffectiveUTS = pillarConnectionBaseUTS * (1.0 - strengthReduction);
+                }
+                currentConstraintEffectiveUTS = Math.max(currentConstraintEffectiveUTS, CHAIN_LINK_MATERIAL_PROPERTIES.initialUltimateStrength * 0.1);
+
+                if (i === 0) {
+                    bodyA_constr = anchorBodyA; pivotA_constr = anchorALocal.clone();
+                    bodyB_constr = linkBody; pivotB_constr = pivotLocalTop.clone();
+                    currentConstraint = new CANNON.PointToPointConstraint(bodyA_constr, pivotA_constr, bodyB_constr, pivotB_constr, CHAIN_CONFIG.maxForce);
+                } else {
+                    bodyA_constr = previousLinkBody; pivotA_constr = pivotLocalBottom.clone();
+                    bodyB_constr = linkBody; pivotB_constr = pivotLocalTop.clone();
+                    currentConstraint = new CANNON.PointToPointConstraint(bodyA_constr, pivotA_constr, bodyB_constr, pivotB_constr, CHAIN_CONFIG.maxForce);
+                }
+
+                if (currentConstraint) {
+                    currentConstraint.collideConnected = false; world.addConstraint(currentConstraint);
+                    let constraintId = `chain${chainInstanceId}_intermediate_${i}`; let isPillarConn = false;
+                    if (i === 0) { isPillarConn = true; constraintId = `chain${chainInstanceId}_pillar_connect`; }
+
+                    const initialDamage = calculateInitialDamage(baseStaticStress, currentConstraintEffectiveUTS, CHAIN_LINK_MATERIAL_PROPERTIES);
+                    stressableConstraintsData.push({
+                        id: constraintId, constraint: currentConstraint,
+                        isPillarConnection: isPillarConn, isRoadConnection: false,
+                        connectedBodyA: bodyA_constr, connectedBodyB: bodyB_constr,
+                        stressProps: {
+                            initialUltimateStrength: currentConstraintEffectiveUTS,
+                            currentUltimateStrength: initialDamage.currentUTS, currentDamage: initialDamage.damage,
+                            isBroken: false, baseStaticStress: baseStaticStress,
+                            currentTotalStress: baseStaticStress, debug_lastCalculatedForce: baseStaticForcePerEndConstraint,
+                        }
+                    });
+                }
+
+                if (i === linkCount - 1 && links.length > 0) {
+                    const lastLinkBodyInChain = links[links.length - 1];
+                    const pivotOnLastSphereForRoad = pivotLocalBottom.clone();
+                    const endConstraintToRoad = new CANNON.PointToPointConstraint(
+                        lastLinkBodyInChain, pivotOnLastSphereForRoad, anchorBodyB, anchorBLocal.clone(), CHAIN_CONFIG.maxForce
+                    );
+                    endConstraintToRoad.collideConnected = false; world.addConstraint(endConstraintToRoad);
+                    let roadConnectionUTS = pillarConnectionBaseUTS;
+                    if (CHAIN_STRENGTH_VARIATION.enableIntraChainVariation && linkCount > 0) {
+                        roadConnectionUTS = pillarConnectionBaseUTS * (1.0 - CHAIN_STRENGTH_VARIATION.intraChainStrengthDropFactor);
+                    }
+                    roadConnectionUTS = Math.max(roadConnectionUTS, CHAIN_LINK_MATERIAL_PROPERTIES.initialUltimateStrength * 0.1);
+                    const initialDamage = calculateInitialDamage(baseStaticStress, roadConnectionUTS, CHAIN_LINK_MATERIAL_PROPERTIES);
+                    stressableConstraintsData.push({
+                        id: `chain${chainInstanceId}_road_connect`, constraint: endConstraintToRoad,
+                        isPillarConnection: false, isRoadConnection: true,
+                        connectedBodyA: lastLinkBodyInChain, connectedBodyB: anchorBodyB,
+                        stressProps: {
+                            initialUltimateStrength: roadConnectionUTS,
+                            currentUltimateStrength: initialDamage.currentUTS, currentDamage: initialDamage.damage,
+                            isBroken: false, baseStaticStress: baseStaticStress,
+                            currentTotalStress: baseStaticStress, debug_lastCalculatedForce: baseStaticForcePerEndConstraint,
+                        }
+                    });
+                }
+                previousLinkBody = linkBody;
+            }
+
+            return {
+                id: `chainInstance_${chainInstanceId}`, links: links, stressableConstraintsData: stressableConstraintsData,
+                meshes: meshes, disconnected: false,
+                updateMeshes: function () {
+                    for (let j = 0; j < this.links.length; j++) {
+                        if (this.links[j] && this.meshes[j]) {
+                            this.meshes[j].position.copy(this.links[j].position);
+                            this.meshes[j].quaternion.copy(this.links[j].quaternion);
+                            let associatedConstraintDataForColor = null;
+                            for (const scd of this.stressableConstraintsData) {
+                                if (scd.connectedBodyB === this.links[j]) { associatedConstraintDataForColor = scd; if (scd.isPillarConnection) break; }
+                                if (j === this.links.length - 1 && scd.isRoadConnection && scd.connectedBodyA === this.links[j]) { associatedConstraintDataForColor = scd; break; }
+                            }
+                            if (!associatedConstraintDataForColor && j > 0) {
+                                for (const scd of this.stressableConstraintsData) {
+                                    if (scd.connectedBodyB === this.links[j] && !scd.isPillarConnection && !scd.isRoadConnection) { associatedConstraintDataForColor = scd; break; }
+                                }
+                            }
+                            if (associatedConstraintDataForColor) {
+                                const props = associatedConstraintDataForColor.stressProps;
+                                const mat = this.meshes[j].material; // Cache material
+                                if (props.isBroken) {
+                                    mat.color.setHex(0x333333); mat.emissive.setHex(0x550000);
+                                } else {
+                                    mat.emissive.setHex(0x000000);
+                                    const stressRatio = props.currentTotalStress / props.currentUltimateStrength;
+                                    if (stressRatio > 0.90) mat.color.setHex(0xe74c3c);      // Flat Red
+                                    else if (stressRatio > 0.60) mat.color.setHex(0xf1c40f); // Flat Yellow
+                                    else if (stressRatio > 0.40) mat.color.setHex(0xe67e22); // Flat Orange
+                                    else mat.color.set(CHAIN_CONFIG.materialProps.color);    // Default chain color
+                                }
+                            } else {
+                                const mat = this.meshes[j].material;
+                                if (mat.color.getHex() !== 0x333333 || mat.emissive.getHex() !== 0x550000) { // Don't override broken color
+                                    mat.color.set(CHAIN_CONFIG.materialProps.color);
+                                    mat.emissive.setHex(0x000000);
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        function createBridge() {
+            (function resetBridge() {
+                bridgeComponents.forEach(c => { if (c.mesh) scene.remove(c.mesh); if (c.body) world.removeBody(c.body); });
+                bridgeComponents = [];
+                chainSystems.forEach(cs => {
+                    cs.meshes.forEach(m => { if (m) scene.remove(m); });
+                    cs.links.forEach(b => { if (b) world.removeBody(b); });
+                    cs.stressableConstraintsData.forEach(scd => { if (world.constraints.includes(scd.constraint)) world.removeConstraint(scd.constraint); });
+                });
+                chainSystems = [];
+                roadFragmentComponents.forEach(f => { if (f.mesh) scene.remove(f.mesh); if (f.body) world.removeBody(f.body); });
+                roadFragmentComponents = [];
+                G_IS_ROAD_BROKEN = false;
+            })();
+
+            const groundLength = PLANE_SIZE * 0.8; // Ground slightly smaller than full plane
+            const groundHeight = 0.2; // Thinner ground visual
+            const groundDepth = PLANE_SIZE * 0.8;
+            // const groundTexture = new THREE.TextureLoader().load('https://placehold.co/1024x1024/a2a2a2/626262.png?text=Ground+Texture');
+            // groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+            // groundTexture.repeat.set(10, 10);
+
+            const groundVisualMaterial = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0.05 });
+            const groundVisualGeometry = new THREE.BoxGeometry(groundLength, groundHeight, groundDepth);
+
+            // Left and Right "terrain" blocks acting as anchors before bridge
+            const sideTerrainYPos = BRIDGE_ROAD.position.y - BRIDGE_ROAD.height / 2 - groundHeight / 2;
+            const sideTerrainWidth = (PLANE_SIZE - BRIDGE_ROAD.length - 2) / 2; // Width for each side terrain
+
+            const groundLeftMesh = new THREE.Mesh(groundVisualGeometry, groundVisualMaterial);
+            groundLeftMesh.scale.set(sideTerrainWidth / groundLength, (BRIDGE_ROAD.position.y + groundHeight) / groundHeight, 1); // Adjust scale for appearance
+            groundLeftMesh.position.set(-(BRIDGE_ROAD.length / 2 + sideTerrainWidth / 2), sideTerrainYPos / 2, 0);
+            groundLeftMesh.receiveShadow = true; scene.add(groundLeftMesh);
+
+            const groundRightMesh = new THREE.Mesh(groundVisualGeometry, groundVisualMaterial);
+            groundRightMesh.scale.copy(groundLeftMesh.scale);
+            groundRightMesh.position.set(BRIDGE_ROAD.length / 2 + sideTerrainWidth / 2, sideTerrainYPos / 2, 0);
+            groundRightMesh.receiveShadow = true; scene.add(groundRightMesh);
+
+            // Physics bodies for these side terrains
+            const sideTerrainShape = new CANNON.Box(new CANNON.Vec3(sideTerrainWidth / 2, BRIDGE_ROAD.position.y / 2, BRIDGE_ROAD.depth / 2));
+            const groundLeftBody = new CANNON.Body({ mass: 0, shape: sideTerrainShape, position: new CANNON.Vec3(-(BRIDGE_ROAD.length / 2 + sideTerrainWidth / 2), BRIDGE_ROAD.position.y / 2, 0) });
+            world.addBody(groundLeftBody);
+            bridgeComponents.push({ mesh: groundLeftMesh, body: groundLeftBody, type: 'left-ground' });
+
+            const groundRightBody = new CANNON.Body({ mass: 0, shape: sideTerrainShape, position: new CANNON.Vec3(BRIDGE_ROAD.length / 2 + sideTerrainWidth / 2, BRIDGE_ROAD.position.y / 2, 0) });
+            world.addBody(groundRightBody);
+            bridgeComponents.push({ mesh: groundRightMesh, body: groundRightBody, type: 'right-ground' });
+
+
+            const roadGeometry = new THREE.BoxGeometry(BRIDGE_ROAD.length, BRIDGE_ROAD.height, BRIDGE_ROAD.depth);
+            const roadMaterial = new THREE.MeshStandardMaterial({ color: BRIDGE_ROAD.color, ...BRIDGE_ROAD.materialProps });
+            const roadMesh = new THREE.Mesh(roadGeometry, roadMaterial);
+            roadMesh.position.set(BRIDGE_ROAD.position.x, BRIDGE_ROAD.position.y, BRIDGE_ROAD.position.z);
+            roadMesh.castShadow = true; roadMesh.receiveShadow = true; scene.add(roadMesh);
+
+            const roadShape = new CANNON.Box(new CANNON.Vec3(BRIDGE_ROAD.length / 2, BRIDGE_ROAD.height / 2, BRIDGE_ROAD.depth / 2));
+            const roadBody = new CANNON.Body({ mass: BRIDGE_ROAD.mass, position: new CANNON.Vec3(BRIDGE_ROAD.position.x, BRIDGE_ROAD.position.y, BRIDGE_ROAD.position.z) });
+            roadBody.addShape(roadShape); world.addBody(roadBody);
+            bridgeComponents.push({ mesh: roadMesh, body: roadBody, type: 'road' });
+
+            const pillarMaterial = new THREE.MeshStandardMaterial({ color: BRIDGE_PILLARS.color, ...BRIDGE_PILLARS.materialProps });
+            const pillarPositions = [
+                { x: BRIDGE_ROAD.position.x, y: BRIDGE_ROAD.position.y + BRIDGE_PILLARS.supportHeightFactor * 10, z: BRIDGE_ROAD.position.z + BRIDGE_ROAD.depth / 2 + BRIDGE_PILLARS.depth / 2 },
+                { x: BRIDGE_ROAD.position.x, y: BRIDGE_ROAD.position.y + BRIDGE_PILLARS.supportHeightFactor * 10, z: BRIDGE_ROAD.position.z - BRIDGE_ROAD.depth / 2 - BRIDGE_PILLARS.depth / 2 }
+            ];
+
+            pillarPositions.forEach((pos, index) => {
+                const pillarGroup = new THREE.Group();
+                const pillarGeom = new THREE.BoxGeometry(BRIDGE_PILLARS.length, BRIDGE_PILLARS.height, BRIDGE_PILLARS.depth);
+                const pillarMesh = new THREE.Mesh(pillarGeom, pillarMaterial);
+                pillarMesh.castShadow = true; pillarMesh.receiveShadow = true; pillarGroup.add(pillarMesh);
+
+                const supportPillarHeight = pos.y - BRIDGE_ROAD.position.y - BRIDGE_PILLARS.height / 2;
+                const supportPillarDimensions = [1.5, supportPillarHeight, 1.5]; // Thicker supports
+                const pillarSupportGeom = new THREE.BoxGeometry(...supportPillarDimensions);
+
+                const createSupport = (xOffset) => {
+                    const supportMesh = new THREE.Mesh(pillarSupportGeom, pillarMaterial);
+                    supportMesh.castShadow = true; supportMesh.receiveShadow = true;
+                    supportMesh.position.set(xOffset, -supportPillarHeight / 2 - BRIDGE_PILLARS.height / 2, 0);
+                    pillarGroup.add(supportMesh);
+                };
+                createSupport(-BRIDGE_PILLARS.length / 2 + supportPillarDimensions[0] / 2); // Left support
+                createSupport(BRIDGE_PILLARS.length / 2 - supportPillarDimensions[0] / 2);  // Right support
+
+                pillarGroup.position.set(pos.x, pos.y, pos.z); // Set group position
+                scene.add(pillarGroup);
+
+                const pillarShape = new CANNON.Box(new CANNON.Vec3(BRIDGE_PILLARS.length / 2, BRIDGE_PILLARS.height / 2, BRIDGE_PILLARS.depth / 2));
+                const pillarBody = new CANNON.Body({ mass: 0, position: new CANNON.Vec3(pos.x, pos.y, pos.z) }); // Use group position
+
+                // Add shapes for supports to pillarBody for more accurate physics if needed, or keep pillar simple
+                pillarBody.addShape(pillarShape);
+                world.addBody(pillarBody);
+                bridgeComponents.push({ mesh: pillarGroup, body: pillarBody, type: index === 0 ? 'pillar-left' : 'pillar-right', position: pos });
+            });
+
+            const pillarLeft = bridgeComponents.find(el => el.type === 'pillar-left');
+            const pillarRight = bridgeComponents.find(el => el.type === 'pillar-right');
+            const road = bridgeComponents.find(el => el.type === 'road');
+
+            const createPillarChains = (pillarComp, roadSideZOffset) => {
+                const pillarBody = pillarComp.body;
+                const pillarWorldPos = pillarComp.position; // Use the stored world position of the pillar top bar
+
+                // anchorALocal.x needs to be relative to pillarBody.position.x (which is world 0)
+                // currentPosX will be world X. So, anchorALocal.x should be currentPosX - pillarBody.position.x
+                const startXWorld = -BRIDGE_PILLARS.length / 2 + CHAIN_START_OFFSET + pillarWorldPos.x;
+                const endXWorld = BRIDGE_PILLARS.length / 2 - CHAIN_START_OFFSET + pillarWorldPos.x;
+
+                let currentXWorld = startXWorld;
+                while (currentXWorld <= endXWorld) { // Use <= to include the last point if it aligns
+                    // Pillar's local pivot X is currentXWorld - pillarBody.position.x (which is world 0 for pillars)
+                    // Pillar's local pivot Y is -BRIDGE_PILLARS.height/2 (bottom surface of horizontal bar)
+                    // Pillar's local pivot Z is 0 (center of depth for the horizontal bar)
+                    const pillarLocalPivot = new CANNON.Vec3(currentXWorld - pillarBody.position.x, -BRIDGE_PILLARS.height / 2, 0);
+
+                    // Road's local pivot X is currentXWorld - road.body.position.x (world 0 for road)
+                    // Road's local pivot Y is BRIDGE_ROAD.height/2 (top surface of road)
+                    // Road's local pivot Z is roadSideZOffset (either +depth/2 or -depth/2)
+                    const roadLocalPivot = new CANNON.Vec3(currentXWorld - road.body.position.x, BRIDGE_ROAD.height / 2, roadSideZOffset);
+
+                    const chain = createChain(pillarBody, pillarLocalPivot, road.body, roadLocalPivot);
+                    // constraints.push(...chain.stressableConstraintsData.map(el => el.constraint)); // Removed as it seems redundant
+                    chainSystems.push(chain);
+                    currentXWorld += GAP_BETWEEN_CHAINS;
+                }
+            };
+
+            if (pillarLeft && road) createPillarChains(pillarLeft, BRIDGE_ROAD.depth / 2);
+            if (pillarRight && road) createPillarChains(pillarRight, -BRIDGE_ROAD.depth / 2);
+
+            return { bridgeComponents };
+        }
+        // Function to create a car and place it on the bridge
+        function createCar(position, direction) {
+            // Build the car chassis
+            // Create physics body for car
+            const carShape = new CANNON.Box(new CANNON.Vec3(
+                CAR.width / 2,
+                CAR.height / 2,
+                CAR.depth / 2
+            ));
+            const carBody = new CANNON.Body({ mass: controls.carMass })
+            carBody.addShape(carShape)
+            carBody.position.copy(position)
+
+
+            // Random color for the car
+            const carColor = CAR.colors[Math.floor(Math.random() * CAR.colors.length)];
+            const carMaterial = new THREE.MeshStandardMaterial({
+                color: carColor,
+            });
+
+            const carGeometry = new THREE.BoxGeometry(
+                CAR.width,
+                CAR.height,
+                CAR.depth
+            );
+
+            // Create THREE.js mesh for car body
+            const carMesh = new THREE.Mesh(carGeometry, carMaterial);
+            carMesh.position.copy(position);
+            carMesh.castShadow = true;
+            carMesh.receiveShadow = true;
+            scene.add(carMesh);
+
+            // Create the vehicle
+            const vehicle = new CANNON.RaycastVehicle({
+                chassisBody: carBody,
+            })
+
+            const wheelRadius = CAR.WHEEL_RADIUS
+            const wheelOptions = {
+                radius: wheelRadius,
+                directionLocal: new CANNON.Vec3(0, -1, 0),
+                suspensionStiffness: 30,
+                suspensionRestLength: 0.3,
+                frictionSlip: 1.4,
+                dampingRelaxation: 2.3,
+                dampingCompression: 4.4,
+                maxSuspensionForce: 1e12,
+                rollInfluence: 0.01,
+                axleLocal: new CANNON.Vec3(0, 0, 1),
+                chassisConnectionPointLocal: new CANNON.Vec3(-1, 0, 1),
+                maxSuspensionTravel: 1,
+            }
+
+            // Adjust wheel positions relative to car size
+            const wheelPositions = [
+                new CANNON.Vec3(-CAR.width / 2 + 0.5, -CAR.height / 2, CAR.depth / 2 + wheelRadius / 2),  // front left
+                new CANNON.Vec3(-CAR.width / 2 + 0.5, -CAR.height / 2, -CAR.depth / 2 - wheelRadius / 2), // front right
+                new CANNON.Vec3(CAR.width / 2 - 0.5, -CAR.height / 2, CAR.depth / 2 + wheelRadius / 2),   // back left
+                new CANNON.Vec3(CAR.width / 2 - 0.5, -CAR.height / 2, -CAR.depth / 2 - wheelRadius / 2)   // back right
+            ];
+
+
+            wheelPositions.forEach(position => {
+                wheelOptions.chassisConnectionPointLocal.copy(position);
+                vehicle.addWheel(wheelOptions);
+            })
+
+            vehicle.addToWorld(world);
+
+            // Add the wheel bodies
+
+            const wheels = vehicle.wheelInfos.map(wheel => {
+                const wheelGeometry = new THREE.CylinderGeometry(
+                    wheel.radius,
+                    wheel.radius,
+                    wheelRadius,
+                    16
+                );
+                const wheelMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x333333,
+                    roughness: 0.7,
+                    metalness: 0.3
+                });
+                const wheelMesh = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheelMesh.castShadow = true;
+                wheelMesh.rotation.x = Math.PI / 2;
+                scene.add(wheelMesh);
+
+                const cylinderShape = new CANNON.Cylinder(wheel.radius, wheel.radius, wheel.radius / 2, 20)
+                const wheelBody = new CANNON.Body({
+                    mass: 2,
+                    material: wheelMaterial,
+                })
+                wheelBody.type = CANNON.Body.KINEMATIC
+                wheelBody.collisionFilterGroup = 0 // turn off collisions
+                const quaternion = new CANNON.Quaternion().setFromEuler(-Math.PI / 2, 0, 0)
+                wheelBody.addShape(cylinderShape, new CANNON.Vec3(), quaternion)
+                world.addBody(wheelBody)
+
+                return { mesh: wheelMesh, body: wheelBody };
+            });
+
+            const wheelMaterial = new CANNON.Material('wheel')
+
+            return {
+                mesh: carMesh,
+                body: carBody,
+                wheels,
+                direction,
+                onBridge: false,
+                updatePosition: function () {
+                    carMesh.position.copy(carBody.position);
+                    carMesh.quaternion.copy(carBody.quaternion);
+
+                    // Update wheel positions
+                    for (let i = 0; i < vehicle.wheelInfos.length; i++) {
+                        vehicle.updateWheelTransform(i);
+                        const transform = vehicle.wheelInfos[i].worldTransform;
+                        wheels[i].mesh.position.copy(transform.position);
+                        // wheels[i].mesh.quaternion.copy(transform.quaternion);
+
+                        wheels[i].body.position.copy(transform.position);
+                        wheels[i].body.quaternion.copy(transform.quaternion);
+                    }
+
+                    if (trafficRunning) {
+                        const speedMagnitude = Math.min(CAR.acceleration * carBody.mass, CAR.maxSpeed)
+                        if (direction.x > 0) {
+                            vehicle.applyEngineForce((speedMagnitude), 0)
+                            vehicle.applyEngineForce((speedMagnitude), 1)
+                            vehicle.applyEngineForce((speedMagnitude), 2)
+                            vehicle.applyEngineForce((speedMagnitude), 3)
+                        }
+
+                        if (direction.x < 0) {
+                            vehicle.applyEngineForce(-(speedMagnitude), 0)
+                            vehicle.applyEngineForce(-(speedMagnitude), 1)
+                            vehicle.applyEngineForce(-(speedMagnitude), 2)
+                            vehicle.applyEngineForce(-(speedMagnitude), 3)
+                        }
+                    }
+
+                    let hasCrossedBridge = false
+
+                    // for car going towards bridge end
+                    if (direction.x > 0) {
+                        // If rear end of car is outside of bridge end bound
+                        if (carBody.position.x - CAR.width / 2 > BRIDGE_END_BOUND + 10) {
+                            hasCrossedBridge = true
+                        }
+
+                        // for car going towards bridge start
+                    } else if (carBody.position.x + CAR.width / 2 < BRIDGE_START_BOUND - 10) {
+                        hasCrossedBridge = true
+                    }
+
+                    return hasCrossedBridge
+                }
+            };
+        }
+
+        function addCars(road) {
+            (function resetCars() {
+                cars.forEach((car, index) => {
+
+                    scene.remove(car.mesh)
+                    world.removeBody(car.body)
+                    car.wheels.forEach(({ mesh, body }) => {
+                        scene.remove(mesh)
+                        world.removeBody(body)
+                    })
+
+                });
+
+                cars = []
+            })()
+
+            if (!road || !road.body) { console.error("Road not available for adding cars."); return; }
+            const roadY = road.body.position.y + BRIDGE_ROAD.height / 2 + CAR.height / 2 + CAR.WHEEL_RADIUS * 0.5;
+
+            for (let i = 0; i < CAR_COUNT_ON_EACH_SIDE; i++) {
+                const startOffset = 15; // Start cars further away
+                const carInstanceGap = CAR.width * CAR_GAP; // Add some randomness to gap
+
+                const car1Pos = new THREE.Vector3(-BRIDGE_ROAD.length / 2 - startOffset - (i * carInstanceGap), roadY, -BRIDGE_ROAD.depth / 4);
+                const car1Dir = { x: 1, z: 0 };
+                cars.push(createCar(car1Pos, car1Dir));
+
+                const car2Pos = new THREE.Vector3(BRIDGE_ROAD.length / 2 + startOffset + (i * carInstanceGap), roadY, BRIDGE_ROAD.depth / 4);
+                const car2Dir = { x: -1, z: 0 };
+                cars.push(createCar(car2Pos, car2Dir));
+            }
+        }
+
+        function initiateRoadBreakup() {
+            console.log("Initiating road breakup!");
+            const originalRoadComponent = bridgeComponents.find(el => el.type === 'road');
+            if (!originalRoadComponent || !originalRoadComponent.body || !originalRoadComponent.mesh) {
+                console.error("Original road component not found for breakup."); return;
+            }
+            const { body: oBody, mesh: oMesh } = originalRoadComponent;
+            const oPos = oBody.position.clone(); const oQuat = oBody.quaternion.clone();
+            const oDims = { length: BRIDGE_ROAD.length, height: BRIDGE_ROAD.height, depth: BRIDGE_ROAD.depth };
+            const oMass = BRIDGE_ROAD.mass;
+
+            world.removeBody(oBody); scene.remove(oMesh);
+            bridgeComponents = bridgeComponents.filter(el => el.type !== 'road');
+            createRoadFragments(oPos, oQuat, oDims, oMass);
+        }
+
+        function createRoadFragments(centerPos, orientation, dims, totalMass) {
+            const numFrags = ROAD_FRAGMENTATION_CONFIG.numberOfFragments;
+            if (numFrags <= 0) return;
+            const fragLen = dims.length / numFrags;
+            const fragMass = (totalMass / numFrags) * ROAD_FRAGMENTATION_CONFIG.fragmentMassFactor;
+            const fragShape = new CANNON.Box(new CANNON.Vec3(fragLen / 2, dims.height / 2, dims.depth / 2));
+            const fragMeshMat = new THREE.MeshStandardMaterial({
+                color: ROAD_FRAGMENTATION_CONFIG.fragmentMaterialProps.color,
+                ...ROAD_FRAGMENTATION_CONFIG.fragmentMaterialProps
+            });
+
+            for (let i = 0; i < numFrags; i++) {
+                const localFragX = -dims.length / 2 + fragLen / 2 + i * fragLen;
+                const localFragPos = new CANNON.Vec3(localFragX, 0, 0);
+                const worldFragPos = centerPos.clone().vadd(localFragPos.clone());
+
+                const fragBody = new CANNON.Body({
+                    mass: fragMass, position: worldFragPos, quaternion: orientation.clone(), shape: fragShape,
+                    linearDamping: 0.1, angularDamping: 0.15 // More damping for fragments
+                });
+                world.addBody(fragBody);
+
+                const fragGeom = new THREE.BoxGeometry(fragLen, dims.height, dims.depth);
+                const fragMesh = new THREE.Mesh(fragGeom, fragMeshMat);
+                fragMesh.position.copy(fragBody.position); fragMesh.quaternion.copy(fragBody.quaternion);
+                fragMesh.castShadow = true; fragMesh.receiveShadow = true; scene.add(fragMesh);
+
+                if (ROAD_FRAGMENTATION_CONFIG.breakupImpulseFactor > 0) {
+                    const impulseMag = fragMass * ROAD_FRAGMENTATION_CONFIG.breakupImpulseFactor * (Math.abs(GRAVITY) * 0.2); // Slightly stronger impulse
+                    const randImpulse = new CANNON.Vec3(
+                        (Math.random() - 0.5) * impulseMag * 0.5, (Math.random() - 0.3) * impulseMag, (Math.random() - 0.5) * impulseMag * 0.5
+                    );
+                    fragBody.applyImpulse(randImpulse, fragBody.position.clone().vadd(new CANNON.Vec3((Math.random() - 0.5) * fragLen, 0, 0))); // Apply at a slightly offset point
+                }
+                roadFragmentComponents.push({ body: fragBody, mesh: fragMesh, type: 'road_fragment' });
+            }
+        }
+
+        /**
+         * Updates the conceptual stress on chain links, accumulates damage, checks for breakage,
+         * and applies a specific Z-axis snap-back impulse to bodyA upon breakage.
+         * @param {object} chainData - The object returned by createChain, containing stressableConstraintsData.
+         */
+        function updateChainStressAndBreakage(chainData) {
+            if (!chainData || !chainData.stressableConstraintsData || G_TOTAL_CHAIN_SYSTEMS_COUNT <= 0 || CHAIN_LINK_MATERIAL_PROPERTIES.crossSectionalArea <= 0) {
+                return;
+            }
+
+            const dt = world.dt; // Time step from the physics world, assuming it's valid (not zero or negative)
+            if (dt <= 0) {
+                // console.warn("world.dt is not valid for stress update, skipping.");
+                return;
+            }
+
+
+            // Define a factor for the snap-back impulse magnitude
+            const SNAP_IMPULSE_FACTOR = 0.15; // User-defined factor. Can be tuned.
+
+            chainData.stressableConstraintsData.forEach((item) => {
+                const props = item.stressProps;
+                const constraint = item.constraint; // Direct reference to the CANNON.Constraint
+
+                // If the whole chain system is marked disconnected, or this specific link is broken, skip.
+                // The chainData.disconnected flag is set when the first link in this chainData breaks.
+                if (chainData.disconnected || props.isBroken) {
+                    return;
+                }
+
+
+                // Update total conceptual stress
+                const additionalDynamicForcePerEndConstraint = (G_TOTAL_CHAIN_SYSTEMS_COUNT > 0) ? (G_CURRENT_CAR_LOAD_WEIGHT / G_TOTAL_CHAIN_SYSTEMS_COUNT) : 0;
+                const additionalDynamicStress = (CHAIN_LINK_MATERIAL_PROPERTIES.crossSectionalArea > 0) ? (additionalDynamicForcePerEndConstraint / CHAIN_LINK_MATERIAL_PROPERTIES.crossSectionalArea) : 0;
+
+                props.currentTotalStress = props.baseStaticStress + additionalDynamicStress;
+                const currentConceptualStress = props.currentTotalStress;
+
+                // Store for debugging
+                props.debug_lastCalculatedStress = currentConceptualStress;
+                props.debug_lastCalculatedForce = currentConceptualStress * CHAIN_LINK_MATERIAL_PROPERTIES.crossSectionalArea;
+
+                // 1. Damage Accumulation (Weakening) based on total conceptual stress
+                const damageThresholdStress = props.initialUltimateStrength * CHAIN_LINK_MATERIAL_PROPERTIES.damageThresholdFactor;
+                if (currentConceptualStress > damageThresholdStress && props.initialUltimateStrength > 0) {
+                    const effectiveInitialUTS = props.initialUltimateStrength;
+                    const denominator = effectiveInitialUTS - damageThresholdStress;
+                    if (denominator > 1e-6) {
+                        const normalizedOverStress = (currentConceptualStress - damageThresholdStress) / denominator;
+                        // Assuming PHYSICS_TIME_STEP is your target fixed step (e.g., 1/60)
+                        const damageIncrement = CHAIN_LINK_MATERIAL_PROPERTIES.damageRateFactor * Math.max(0, normalizedOverStress) * (dt / PHYSICS_TIME_STEP);
+                        if (damageIncrement > 0) {
+                            props.currentDamage = Math.min(props.currentDamage + damageIncrement, 1.0);
+                        }
+                    } else if (currentConceptualStress >= effectiveInitialUTS) {
+                        props.currentDamage = Math.min(props.currentDamage + CHAIN_LINK_MATERIAL_PROPERTIES.damageRateFactor * 0.1, 1.0);
+                    }
+                }
+                props.currentUltimateStrength = props.initialUltimateStrength * (1 - props.currentDamage);
+                props.currentUltimateStrength = Math.max(props.currentUltimateStrength, 1e-3); // Floor value
+
+                // 2. Check for Breakage
+                if (currentConceptualStress >= props.currentUltimateStrength) {
+                    chainData.disconnected = true; // Mark the whole chain system as having a failure
+                    props.isBroken = true;
+
+                    // Ensure constraint is still part of the world before removing
+                    if (world.constraints.includes(constraint)) {
+                        world.removeConstraint(constraint);
+                    }
+
+                    console.log(`MANUAL LOAD: Constraint ${item.id} BROKE! Stress: ${currentConceptualStress.toExponential(2)} Pa, UTS: ${props.currentUltimateStrength.toExponential(2)} Pa, Damage: ${props.currentDamage.toFixed(3)}`);
+                    // ... (other relevant console logs)
+
+                    // --- Apply Snap-Back Impulse (Modified as per request) ---
+                    const bodyA = item.connectedBodyA; // The body to apply impulse to
+
+                    // Check if bodyA is valid, exists in the world, and is dynamic (mass > 0)
+                    if (bodyA && bodyA.world && bodyA.mass > 0) {
+                        // Get the world position of the pivot point on bodyA where the constraint was attached
+                        const worldPivotA = new CANNON.Vec3();
+                        // constraint.pivotA is the local pivot on bodyA.
+                        // Ensure constraint.pivotA is valid before using it.
+                        if (constraint.pivotA) {
+                            bodyA.pointToWorldFrame(constraint.pivotA, worldPivotA);
+                        } else {
+                            // Fallback if pivotA is not defined on constraint (should not happen for P2P)
+                            worldPivotA.copy(bodyA.position); // Apply at center as a fallback
+                            console.warn(`Constraint ${item.id} missing pivotA for snap impulse, applying at body center.`);
+                        }
+
+
+                        // Determine the Z-direction for the impulse based on bodyA's Z position
+                        let zImpulseDirectionScalar = 0;
+                        if (bodyA.position.z < 0) {
+                            zImpulseDirectionScalar = -1; // Move in negative Z
+                        } else {
+                            zImpulseDirectionScalar = 1;  // Move in positive Z (or if bodyA.position.z is 0)
+                        }
+
+                        // Determine the magnitude of the impulse
+                        const impulseMagnitude = props.debug_lastCalculatedForce * SNAP_IMPULSE_FACTOR;
+
+                        if (impulseMagnitude > 0) {
+                            // Create the Z-only impulse vector
+                            const impulseVecZ = new CANNON.Vec3(0, 0, zImpulseDirectionScalar * impulseMagnitude);
+
+                            // Apply impulse to bodyA at its former pivot point
+                            bodyA.applyImpulse(impulseVecZ, worldPivotA);
+                            console.log(`Applied Z-snap impulse to ${item.id} bodyA (mass: ${bodyA.mass.toFixed(2)}):`,
+                                `Impulse Z: ${impulseVecZ.z.toFixed(2)},`,
+                                `at worldPivotA: (${worldPivotA.x.toFixed(2)}, ${worldPivotA.y.toFixed(2)}, ${worldPivotA.z.toFixed(2)})`);
+                        }
+                    } else if (bodyA && bodyA.mass === 0) {
+                        // console.log(`Snap impulse skipped for ${item.id} bodyA because it's static (mass=0).`);
+                    }
+                    // --- End Snap-Back Impulse ---
+                }
+            });
+        }
+
+        function updateInfoPanel() {
+            let totalCarMassOnBridge = 0;
+            cars.forEach(car => {
+                const { body } = car; const carFront = body.position.x + CAR.width / 2; const carBack = body.position.x - CAR.width / 2;
+                if (carBack <= BRIDGE_END_BOUND && carFront >= BRIDGE_START_BOUND) {
+                    const oStart = Math.max(carBack, BRIDGE_START_BOUND); const oEnd = Math.min(carFront, BRIDGE_END_BOUND);
+                    const oLen = oEnd - oStart;
+                    if (oLen > 0) { totalCarMassOnBridge += body.mass * (oLen / CAR.width); }
+                }
+            });
+            loadText.textContent = totalCarMassOnBridge.toFixed(0);
+            G_CURRENT_CAR_LOAD_WEIGHT = totalCarMassOnBridge * Math.abs(GRAVITY);
+        }
+
+        function updateBridgePositions() {
+            bridgeComponents.forEach(c => { if (c.body && c.mesh) { c.mesh.position.copy(c.body.position); c.mesh.quaternion.copy(c.body.quaternion); } });
+            let oneChainDisconnected = false;
+            chainSystems.forEach(chain => {
+                chain.updateMeshes();
+                updateChainStressAndBreakage(chain);
+                if (chain.disconnected) oneChainDisconnected = true;
+            });
+            if (oneChainDisconnected && !G_IS_ROAD_BROKEN) { G_IS_ROAD_BROKEN = true; initiateRoadBreakup(); }
+            if (G_IS_ROAD_BROKEN) {
+                roadFragmentComponents.forEach(f => { if (f.body && f.mesh) { f.mesh.position.copy(f.body.position); f.mesh.quaternion.copy(f.body.quaternion); } });
+            }
+        }
+
+        function toggleTraffic() { trafficRunning = !trafficRunning; }
+
+        function baseInitFunction() {
+            lastTime = performance.now(); trafficRunning = false; G_CURRENT_CAR_LOAD_WEIGHT = 0;
+            G_STATIC_ROAD_WEIGHT = BRIDGE_ROAD.mass * Math.abs(GRAVITY);
+            const pillarEffectiveLength = BRIDGE_PILLARS.length - (2 * CHAIN_START_OFFSET);
+            let numChainsPerPillarSide = 0;
+            if (pillarEffectiveLength >= 0 && GAP_BETWEEN_CHAINS > 1e-6) { // Check GAP_BETWEEN_CHAINS > 0
+                numChainsPerPillarSide = Math.floor(pillarEffectiveLength / GAP_BETWEEN_CHAINS) + 1;
+            } else if (pillarEffectiveLength >= 0) { numChainsPerPillarSide = 1; }
+            G_TOTAL_CHAIN_SYSTEMS_COUNT = 2 * numChainsPerPillarSide;
+            if (G_TOTAL_CHAIN_SYSTEMS_COUNT <= 0) { G_TOTAL_CHAIN_SYSTEMS_COUNT = 1; console.warn("G_TOTAL_CHAIN_SYSTEMS_COUNT was 0, set to 1."); }
+            console.log("Total Chain Systems:", G_TOTAL_CHAIN_SYSTEMS_COUNT);
+
+            const { bridgeComponents: newBridgeComps } = createBridge(); // createBridge returns an object now
+            const roadComp = newBridgeComps.find(el => el.type === 'road'); // Use the returned components
+            if (roadComp) addCars(roadComp); else console.error("Road component not found after createBridge for addCars.");
+
+            toggleTraffic();
+        }
+
+        function startAnimationLoop() {
+            const animate = (time) => {
+                requestAnimationFrame(animate);
+                const currentTime = performance.now();
+                // let dt = (currentTime - lastTime) / 1000; // Variable dt
+                // if (dt > 0.1) dt = 0.1; // Cap dt to prevent large steps if tab was inactive
+                lastTime = currentTime;
+
+                world.step(PHYSICS_TIME_STEP); // Use fixed time step for physics
+                updateBridgePositions();
+                updateInfoPanel();
+                cars.forEach((car, index) => {
+                    const hasCrossed = car.updatePosition();
+                    if (hasCrossed) {
+                        scene.remove(car.mesh);
+                        car.wheels.forEach(w => scene.remove(w)); // Remove wheel meshes
+                        if (car.vehicle) car.vehicle.removeFromWorld(world); else if (car.body) world.removeBody(car.body);
+                        cars.splice(index, 1);
+                    }
+                });
+                if (controls.showDebugger && cannonDebugger) { // Check if debugger exists
+                    cannonDebugger.update();
+                }
+                renderer.render(scene, camera);
+                orbitControls.update();
+            };
+            animate(0);
+        }
+        controls.reset = baseInitFunction;
+
+    </script>
+</body>
+
+</html>
