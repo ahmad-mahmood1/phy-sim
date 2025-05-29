@@ -3,47 +3,35 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>Center of Mass Simulation</title>
     <style>
         body {
             margin: 0;
             display: flex;
-            flex-direction: column;
-            /* Stack elements vertically */
+            flex-direction: column; /* Allow text above canvas */
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #f0f0f0;
-            /* Lighter background for the page */
+            background-color: #f0f0f0; /* Lighter background */
             font-family: 'Roboto Mono', monospace;
-            color: #333;
-            overflow: hidden;
-            /* Prevent scrollbars if canvas is large */
         }
 
         #canvas-container {
             position: relative;
-            border: 2px solid #444;
-            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
-            /* Slightly softer shadow */
-            margin-bottom: 20px;
-            /* Space between canvas and text */
-            /* The canvas itself will be appended here by p5.js */
+            border: 2px solid #333;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            margin-top: 20px; /* Space for text */
         }
-
-        h2 {
-            color: #333;
-            margin-top: 20px;
-            margin-bottom: 10px;
+        #controls {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-
-        p {
-            color: #555;
-            margin-top: 0;
-            margin-bottom: 20px;
-            text-align: center;
-            max-width: 90%;
+        label, input, button {
+            margin-right: 10px;
         }
     </style>
     <script type="importmap">
@@ -53,194 +41,173 @@
             }
         }
     </script>
+
 </head>
 
 <body>
-    <h2>Dynamic 2D Shadow Simulation</h2>
+    <div>
+        <h2>Center of Mass Simulation: L-Shape</h2>
+        <p>An L-shape is pivoted at its top-left corner. Gravity acts on its Center of Mass (CoM).</p>
+        <p>Observe how the position of the CoM (red dot) influences its rotation.</p>
+    </div>
+    <div id="controls">
+        <label for="mass1">Mass of Vertical Bar (1-10):</label>
+        <input type="range" id="mass1" name="mass1" min="1" max="10" value="1">
+        <span id="mass1Val">1</span>
+        <label for="mass2"> Mass of Horizontal Bar (1-10):</label>
+        <input type="range" id="mass2" name="mass2" min="1" max="10" value="1">
+        <span id="mass2Val">1</span>
+        <button id="resetButton">Reset Simulation</button>
+    </div>
     <div id="canvas-container">
     </div>
-    <p>Move the mouse to control the light source. Shapes will cast shadows that interact.</p>
-
     <script type="module">
         import p5 from 'p5';
 
         const sketch = (p) => {
-            let lightPos; // p5.Vector for light position
-            const shapes = []; // Array to hold all shape objects
+            let angle = 0; // Initial angle of the L-shape
+            let angularVelocity = 0;
+            let angularAcceleration = 0;
 
-            // Conceptual heights for perspective projection
-            const H_LIGHT = 250; // Height of the light source
-            const H_OBJ = 40;    // Height of the objects off the "ground"
-            let shadowFactor;    // Calculated factor for shadow scaling and displacement
+            // L-shape properties
+            // Part 1 (vertical bar of L)
+            let r1 = { x: 0, y: 0, w: 40, h: 150, mass: 1 };
+            // Part 2 (horizontal bar of L)
+            let r2 = { x: 0, y: r1.h, w: 120, h: 40, mass: 1 }; // Positioned relative to r1's corner
 
-            // Canvas dimensions
-            const CANVAS_WIDTH = Math.min(800, window.innerWidth - 40);
-            const CANVAS_HEIGHT = Math.min(600, window.innerHeight - 150);
+            let pivot;
+            let com = { x: 0, y: 0 }; // Center of Mass of the L-shape
+
+            const g = 0.1; // Gravity
+
+            function calculateCoM() {
+                // CoM of each rectangle relative to the pivot (0,0 of the L-shape coordinate system)
+                let com1_x = r1.w / 2;
+                let com1_y = r1.h / 2;
+                let com2_x = r2.w / 2;
+                let com2_y = r1.h + r2.h / 2; // r2 is below r1
+
+                let totalMass = r1.mass + r2.mass;
+                com.x = (r1.mass * com1_x + r2.mass * com2_x) / totalMass;
+                com.y = (r1.mass * com1_y + r2.mass * com2_y) / totalMass;
+            }
+
+            function resetSimulation() {
+                angle = p.QUARTER_PI / 2; // Start at a slight angle
+                angularVelocity = 0;
+                angularAcceleration = 0;
+                r1.mass = parseFloat(document.getElementById('mass1').value);
+                r2.mass = parseFloat(document.getElementById('mass2').value);
+                document.getElementById('mass1Val').textContent = r1.mass.toFixed(1);
+                document.getElementById('mass2Val').textContent = r2.mass.toFixed(1);
+                calculateCoM();
+            }
 
             p.setup = () => {
-                p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
-                lightPos = p.createVector(p.width / 2, 50); // Initial light position
+                const canvasWidth = 500;
+                const canvasHeight = 400;
+                p.createCanvas(canvasWidth, canvasHeight);
+                pivot = p.createVector(p.width / 2, p.height / 4); // Pivot point on canvas
+                
+                document.getElementById('mass1').addEventListener('input', (e) => {
+                    document.getElementById('mass1Val').textContent = parseFloat(e.target.value).toFixed(1);
+                    resetSimulation();
+                });
+                document.getElementById('mass2').addEventListener('input', (e) => {
+                    document.getElementById('mass2Val').textContent = parseFloat(e.target.value).toFixed(1);
+                    resetSimulation();
+                });
+                document.getElementById('resetButton').addEventListener('click', resetSimulation);
 
-                // Calculate shadow factor based on heights
-                // Ensure H_LIGHT > H_OBJ and H_OBJ >= 0 for realistic projection
-                if (H_LIGHT <= H_OBJ || H_OBJ < 0) {
-                    console.warn("Warning: H_LIGHT should be greater than H_OBJ, and H_OBJ should be non-negative. Using a default shadowFactor = 2.");
-                    shadowFactor = 2;
-                } else {
-                    shadowFactor = H_LIGHT / (H_LIGHT - H_OBJ);
-                }
-
-                // Initialize shapes with properties
-                shapes.push({
-                    type: 'rect', // Shape type
-                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)), // Initial position
-                    w: 60, // Width
-                    h: 90, // Height
-                    color: p.color(231, 76, 60, 230), // Alizarin (reddish) with some transparency
-                    vel: p5.Vector.random2D().mult(p.random(0.8, 1.5)) // Random initial velocity
-                });
-                shapes.push({
-                    type: 'circle',
-                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)),
-                    r: 40, // Radius
-                    color: p.color(52, 152, 219, 230), // Peter River (blueish)
-                    vel: p5.Vector.random2D().mult(p.random(1.0, 1.8))
-                });
-                shapes.push({
-                    type: 'rect',
-                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)),
-                    w: 100,
-                    h: 50,
-                    color: p.color(46, 204, 113, 230), // Emerald (greenish)
-                    vel: p5.Vector.random2D().mult(p.random(0.7, 1.2))
-                });
-                shapes.push({
-                    type: 'circle',
-                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)),
-                    r: 30,
-                    color: p.color(241, 196, 15, 230), // Sun Flower (yellowish)
-                    vel: p5.Vector.random2D().mult(p.random(1.2, 2.0))
-                });
-                shapes.push({
-                    type: 'rect',
-                    pos: p.createVector(p.random(50, CANVAS_WIDTH - 100), p.random(50, CANVAS_HEIGHT - 100)),
-                    w: 30,
-                    h: 30,
-                    color: p.color(155, 89, 182, 230), // Amethyst (purpleish)
-                    vel: p5.Vector.random2D().mult(p.random(1.5, 2.2))
-                });
+                resetSimulation(); // Initial setup
             };
 
             p.draw = () => {
-                p.background(236, 240, 241); // "Clouds" - a light gray background
+                p.background(240);
 
-                // Update light position to follow the mouse, constrained to canvas
-                lightPos.set(p.constrain(p.mouseX, 0, p.width), p.constrain(p.mouseY, 0, p.height));
+                // Calculate torque: Torque = r * F * sin(theta_rf)
+                // r is the vector from pivot to CoM
+                // F is the force of gravity acting on CoM (F = totalMass * g, downwards)
+                // theta_rf is the angle between r and F
 
-                // --- 1. Draw all shadows first ---
-                p.fill(44, 62, 80, 100); // "Wet Asphalt" - dark, semi-transparent for shadows
-                p.noStroke(); // Shadows typically don't have outlines
-                for (const shape of shapes) {
-                    drawShadow(shape);
-                }
+                // CoM position in world coordinates (rotated)
+                let com_rotated_x = com.x * p.cos(angle) - com.y * p.sin(angle);
+                let com_rotated_y = com.x * p.sin(angle) + com.y * p.cos(angle);
 
-                // --- 2. Update positions and Draw all shapes ---
-                for (const shape of shapes) {
-                    // Update position based on velocity
-                    shape.pos.add(shape.vel);
+                // Force vector (gravity)
+                let F_gravity_y = (r1.mass + r2.mass) * g;
 
-                    // Bounce off canvas walls
-                    if (shape.type === 'rect') {
-                        if (shape.pos.x < 0 || shape.pos.x + shape.w > p.width) {
-                            shape.vel.x *= -1;
-                            shape.pos.x = p.constrain(shape.pos.x, 0, p.width - shape.w); // Prevent sticking
-                        }
-                        if (shape.pos.y < 0 || shape.pos.y + shape.h > p.height) {
-                            shape.vel.y *= -1;
-                            shape.pos.y = p.constrain(shape.pos.y, 0, p.height - shape.h); // Prevent sticking
-                        }
-                    } else if (shape.type === 'circle') {
-                        if (shape.pos.x - shape.r < 0 || shape.pos.x + shape.r > p.width) {
-                            shape.vel.x *= -1;
-                            shape.pos.x = p.constrain(shape.pos.x, shape.r, p.width - shape.r); // Prevent sticking
-                        }
-                        if (shape.pos.y - shape.r < 0 || shape.pos.y + shape.r > p.height) {
-                            shape.vel.y *= -1;
-                            shape.pos.y = p.constrain(shape.pos.y, shape.r, p.height - shape.r); // Prevent sticking
-                        }
-                    }
+                // Lever arm vector (from pivot to CoM in world space, but we need its horizontal component for torque)
+                // Torque = F_gravity_y * (horizontal distance from pivot to CoM)
+                // Horizontal distance = com_rotated_x (since pivot is origin of L-shape's rotation)
+                let torque = F_gravity_y * com_rotated_x;
 
-                    // Draw the shape itself
-                    p.fill(shape.color);
-                    p.stroke(44, 62, 80); // Dark stroke for shapes for definition
-                    p.strokeWeight(1.5);
-                    if (shape.type === 'rect') {
-                        p.rect(shape.pos.x, shape.pos.y, shape.w, shape.h, 5); // Slightly rounded corners for rects
-                    } else if (shape.type === 'circle') {
-                        p.ellipse(shape.pos.x, shape.pos.y, shape.r * 2, shape.r * 2);
-                    }
-                }
+                // Moment of inertia (I) for the L-shape around the pivot
+                // I = I1 + I2, where I_rect_corner = m/3 * (w^2 + h^2) for rotation about a corner
+                // This is complex. For simplicity, approximate I or use a simpler model.
+                // Let's use I = m * r^2 where r is distance from pivot to CoM.
+                // This is a simplification; proper I for a compound shape is sum of I_cm + md^2 for each part.
+                // For a point mass approximation: I = (r1.mass + r2.mass) * p.dist(0,0, com_rotated_x, com_rotated_y)^2
+                // A more accurate I for two rectangles pivoted at (0,0) of r1:
+                // I1 (vertical bar about its top-left corner):
+                // I_center_mass1 = r1.mass * (r1.w*r1.w + r1.h*r1.h) / 12
+                // d1_sq = (r1.w/2)^2 + (r1.h/2)^2
+                // I1_pivot = I_center_mass1 + r1.mass * d1_sq  -- This is incorrect for pivot at corner
+                // For rect pivoted at corner: (1/3) * m * (w^2 + h^2) -- this is if pivot is at corner OF THE RECT
+                // Our pivot is at (0,0) of the L-shape system.
+                // I_rect_about_axis_through_corner = m * (w^2+h^2)/3. This is not quite right.
+                // Parallel axis theorem: I_pivot = I_com + m*d^2
+                // I_com_r1 = r1.mass * (r1.w*r1.w + r1.h*r1.h) / 12;
+                // d1_sq = (com1_x_world - 0)^2 + (com1_y_world - 0)^2 where com1 is CoM of r1 relative to pivot
+                // This gets complicated quickly. Let's use a simpler, somewhat arbitrary moment of inertia for now.
+                // A larger mass or CoM further from pivot should result in larger I.
+                let momentOfInertia = (r1.mass * (r1.w*r1.w + r1.h*r1.h)/3) + 
+                                      (r2.mass * ( (r2.w*r2.w + r2.h*r2.h)/12 + (r2.w/2)*(r2.w/2) + (r1.h + r2.h/2)*(r1.h + r2.h/2) ));
+                // The above I calculation for r2 is I_com2 + m2*d^2 where d is distance from pivot to CoM of r2.
+                // For r1, it's I about its corner.
 
-                // --- 3. Draw the light source ---
-                p.fill(243, 156, 18, 230); // "Orange" - for the light source
-                p.stroke(230, 126, 34);    // "Carrot" - darker orange outline
-                p.strokeWeight(2);
-                p.ellipse(lightPos.x, lightPos.y, 20, 20); // Represent light as a small circle
-            };
+                if (momentOfInertia === 0) momentOfInertia = 1; // Avoid division by zero
 
-            // Function to draw the shadow for a given shape
-            function drawShadow(shape) {
-                if (shape.type === 'rect') {
-                    // For a rectangle, project its four vertices
-                    const vertices = [
-                        p.createVector(shape.pos.x, shape.pos.y),
-                        p.createVector(shape.pos.x + shape.w, shape.pos.y),
-                        p.createVector(shape.pos.x + shape.w, shape.pos.y + shape.h),
-                        p.createVector(shape.pos.x, shape.pos.y + shape.h)
-                    ];
+                angularAcceleration = torque / momentOfInertia;
+                angularVelocity += angularAcceleration;
+                angle += angularVelocity;
 
-                    const shadowVertices = [];
-                    for (const v of vertices) {
-                        // Vector from light to vertex
-                        const lightToVertex = p5.Vector.sub(v, lightPos);
-                        // Project vertex away from light source based on shadowFactor
-                        const shadowVertex = p5.Vector.add(lightPos, p5.Vector.mult(lightToVertex, shadowFactor));
-                        shadowVertices.push(shadowVertex);
-                    }
+                // Apply some damping
+                angularVelocity *= 0.99;
 
-                    // Draw the shadow polygon
-                    p.beginShape();
-                    for (const sv of shadowVertices) {
-                        p.vertex(sv.x, sv.y);
-                    }
-                    p.endShape(p.CLOSE);
+                p.push(); // Save current drawing state
+                p.translate(pivot.x, pivot.y);
+                p.rotate(angle);
 
-                } else if (shape.type === 'circle') {
-                    const center = shape.pos;
-                    const radius = shape.r;
+                // Draw L-shape
+                // Part 1 (vertical)
+                p.fill(100, 100, 200, 200); // Blue-ish
+                p.stroke(50, 50, 100);
+                p.rect(r1.x, r1.y, r1.w, r1.h);
 
-                    // Vector from light to circle's center
-                    const lightToCenter = p5.Vector.sub(center, lightPos);
-                    // Project the center away from light source
-                    const shadowCenter = p5.Vector.add(lightPos, p5.Vector.mult(lightToCenter, shadowFactor));
-                    // Scale the radius by the shadowFactor
-                    const shadowRadius = radius * shadowFactor;
+                // Part 2 (horizontal)
+                p.fill(100, 200, 100, 200); // Green-ish
+                p.stroke(50, 100, 50);
+                p.rect(r2.x, r2.y, r2.w, r2.h); // r2.x is 0, r2.y is r1.h
 
-                    p.ellipse(shadowCenter.x, shadowCenter.y, shadowRadius * 2, shadowRadius * 2);
-                }
-            }
+                // Draw CoM
+                p.fill(255, 0, 0); // Red
+                p.noStroke();
+                p.ellipse(com.x, com.y, 10, 10);
 
-            // Resize canvas when window is resized
-            p.windowResized = () => {
-                const newWidth = Math.min(800, window.innerWidth - 40);
-                const newHeight = Math.min(600, window.innerHeight - 150);
-                p.resizeCanvas(newWidth, newHeight);
+                p.pop(); // Restore drawing state
+
+                // Draw pivot point
+                p.fill(0);
+                p.noStroke();
+                p.ellipse(pivot.x, pivot.y, 8, 8);
+                p.stroke(0);
+                p.fill(255);
+                p.ellipse(pivot.x, pivot.y, 3, 3);
             };
         };
 
-        // Get the container for the p5.js canvas
         const container = window.document.getElementById('canvas-container');
-        // Create the p5 instance
         new p5(sketch, container);
 
     </script>

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Angular Momentum Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            /* Allow text and slider above/below canvas */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+            background-color: #ffffff;
+            margin-bottom: 20px;
+            /* Space for the slider */
+        }
+
+        #info {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 580px;
+            /* Match canvas width roughly */
+        }
+
+        #controls {
+            text-align: center;
+            margin-bottom: 20px;
+            width: 300px;
+        }
+
+        #controls label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        #radiusSlider {
+            width: 100%;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="info">
+        Adjust the slider to change the shape (moment arm) of the rotating body.<br>
+        Observe how its angular velocity changes to conserve angular momentum.
+    </div>
+    <div id="canvas-container">
+    </div>
+    <div id="controls">
+        <label for="radiusSlider">Adjust Moment Arm (Radius Factor)</label>
+        <input type="range" id="radiusSlider" min="0.05" max="1" value="0.5" step="0.01">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let particles = [];
+            let numParticles = 10;
+            let angle = 0;
+            let angularVelocity = 0.02;
+            let momentOfInertia = 0;
+            let angularMomentum = 0;
+
+            let minRadius = 50;
+            let maxRadius = 150;
+            let currentRadiusFactor = 0.5; // Initial value, will be controlled by slider
+
+            const canvasWidth = 600;
+            const canvasHeight = 500;
+            let radiusSlider;
+
+            class Particle {
+                constructor(initialAngle, radius) {
+                    this.mass = 10;
+                    this.radius = radius;
+                    this.angleOffset = initialAngle;
+                    this.currentAngle = 0;
+                    this.pos = p.createVector(0, 0);
+                    this.color = p.color(p.random(100, 255), p.random(100, 200), p.random(200, 255), 220);
+                }
+
+                update(systemAngle, systemRadius) {
+                    this.radius = systemRadius;
+                    this.currentAngle = systemAngle + this.angleOffset;
+                    this.pos.x = this.radius * p.cos(this.currentAngle);
+                    this.pos.y = this.radius * p.sin(this.currentAngle);
+                }
+
+                display() {
+                    // Draw line from center to particle
+                    p.stroke(150, 150, 150, 150); // Light grey line
+                    p.strokeWeight(1.5);
+                    p.line(0, 0, this.pos.x, this.pos.y);
+
+                    p.fill(this.color);
+                    p.noStroke();
+                    p.ellipse(this.pos.x, this.pos.y, 15, 15);
+                }
+
+                getMomentOfInertia() {
+                    return this.mass * p.pow(this.radius, 2);
+                }
+            }
+
+            p.setup = () => {
+                p.createCanvas(canvasWidth, canvasHeight);
+                radiusSlider = p.select('#radiusSlider'); // Select the slider
+                currentRadiusFactor = parseFloat(radiusSlider.value()); // Initialize with slider's value
+
+                for (let i = 0; i < numParticles; i++) {
+                    let initialAngle = p.TWO_PI / numParticles * i;
+                    let r = p.lerp(minRadius, maxRadius, currentRadiusFactor);
+                    particles.push(new Particle(initialAngle, r));
+                }
+                calculateSystemProperties();
+                angularMomentum = momentOfInertia * angularVelocity;
+            };
+
+            function calculateSystemProperties() {
+                momentOfInertia = 0;
+                let r = p.lerp(minRadius, maxRadius, currentRadiusFactor);
+                particles.forEach(particle => {
+                    particle.radius = r;
+                    momentOfInertia += particle.getMomentOfInertia();
+                });
+            }
+
+            p.draw = () => {
+                p.background(255);
+                p.translate(p.width / 2, p.height / 2);
+
+                // Update radius factor from slider
+                let newRadiusFactor = parseFloat(radiusSlider.value());
+                if (newRadiusFactor !== currentRadiusFactor) {
+                    currentRadiusFactor = newRadiusFactor;
+                    calculateSystemProperties();
+                    if (momentOfInertia > 0) {
+                        angularVelocity = angularMomentum / momentOfInertia;
+                    } else {
+                        angularVelocity = 0; // Avoid division by zero if I is somehow 0
+                    }
+                }
+
+                angle += angularVelocity;
+
+                particles.forEach(particle => {
+                    let r = p.lerp(minRadius, maxRadius, currentRadiusFactor);
+                    particle.update(angle, r);
+                    particle.display();
+                });
+
+                p.resetMatrix();
+                p.fill(50);
+                p.textSize(14);
+                p.textAlign(p.LEFT, p.TOP);
+                let radiusDisplay = p.lerp(minRadius, maxRadius, currentRadiusFactor);
+                p.text(`Radius: ${radiusDisplay.toFixed(2)}`, 10, 10);
+                p.text(`Angular Velocity (ω): ${angularVelocity.toFixed(4)} rad/s`, 10, 30);
+                p.text(`Moment of Inertia (I): ${momentOfInertia.toFixed(0)}`, 10, 50);
+                p.text(`Angular Momentum (L): ${angularMomentum.toFixed(0)} (conserved)`, 10, 70);
+            };
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        if (container) {
+            new p5(sketch, container);
+        } else {
+            console.error('Canvas container not found');
+        }
+
+    </script>
+</body>
+
+</html>
