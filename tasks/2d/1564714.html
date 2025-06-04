@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column; /* Align items vertically */
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh; /* Ensure full viewport height */
+            background-color: #f0f0f0; /* Light gray background */
+            font-family: 'Roboto Mono', monospace;
+            padding: 10px; /* Add some padding for smaller screens */
+            box-sizing: border-box;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333; /* Darker border */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); /* Softer shadow */
+            margin-bottom: 15px; /* Space between canvas and controls */
+            max-width: 100%; /* Ensure canvas container is responsive */
+        }
+        canvas { /* Style the canvas directly for p5.js */
+            display: block; /* Removes extra space below canvas */
+            max-width: 100%;
+            height: auto; /* Maintain aspect ratio */
+        }
+
+        #radius-control-container {
+            margin-bottom: 15px; 
+            padding: 10px 15px; 
+            background-color: #fff; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+            max-width: 600px; 
+            width: 90%; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center;
+            box-sizing: border-box;
+        }
+
+        #radius-control-container label {
+            font-size: 0.95em; 
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        #radius-control-container input[type="range"] {
+            width: 100%; 
+            max-width: 300px;
+            cursor: pointer;
+        }
+
+
+        #instructions {
+            font-size: 0.9em;
+            color: #333;
+            padding: 10px 15px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            border-radius: 8px; /* More rounded corners */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            text-align: left;
+            max-width: 600px; /* Match canvas width or adjust as needed */
+            width: 90%; /* Responsive width */
+            box-sizing: border-box;
+        }
+        #instructions ul {
+            list-style-type: none;
+            padding-left: 0;
+            margin-top: 5px;
+        }
+         #instructions li {
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
+        #instructions strong {
+            color: #0056b3; /* Slightly darker blue for better contrast */
+            font-weight: 700;
+        }
+      
+        .boundary-defining-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 0, 0, 0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 1em;
+            text-align: center;
+            pointer-events: none; /* So it doesn't interfere with clicks */
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="canvas-container">
+        </div>
+
+    <div id="radius-control-container">
+        <label for="radiusSlider">Circle Radius: <span id="radiusValueDisplay">20</span></label>
+        <input type="range" id="radiusSlider" min="5" max="50" value="20">
+    </div>
+
+    <div id="instructions">
+        <strong>Controls:</strong>
+        <ul>
+            <li><strong>Left Click:</strong> Add a circle</li>
+            <li><strong>Right Click on Circle:</strong> Remove circle</li>
+            <li><strong>Radius Slider:</strong> Adjust radius & re-initialize circles</li>
+            <li><strong>'S':</strong> Shake circles</li>
+            <li><strong>'R':</strong> Reset all circles (and add initial set)</li>
+            <li><strong>'C':</strong> Toggle Circle / Rectangle Boundary</li>
+            <li><strong>'B':</strong> Start/End defining custom polygon boundary (click to add points, then 'B' again to finish). Circles will be squeezed in.</li>
+            <li><strong>'X':</strong> Reset to default Rectangle Boundary</li>
+        </ul>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        // Global variables for sketch
+        let circles = [];
+        let newCircleRadius = 20; 
+        const minCircleRadius = 10;
+        const maxCircleRadius = 40;
+        const boundaryPadding = 5; 
+        const initialCircleCount = 10;
+
+        // Physics settings
+        const iterations = 8; 
+        const damping = 0.98; 
+
+        let boundaryVertices = []; 
+        let boundaryType = 'rectangle'; 
+        let definingBoundary = false;
+        let tempBoundaryPoints = [];
+
+        let shakeMagnitude = 5;
+        let shaking = false;
+        let shakeSteps = 0;
+        const maxShakeSteps = 30;
+
+        let radiusSlider;
+        let radiusValueDisplay;
+
+
+        const sketch = (p) => {
+            let canvasWidth = 600;
+            let canvasHeight = 400;
+            let canvasElement; 
+
+            p.setup = () => {
+                const canvas = p.createCanvas(canvasWidth, canvasHeight);
+                canvas.parent('canvas-container'); 
+                canvasElement = canvas.elt; 
+                
+                radiusSlider = document.getElementById('radiusSlider');
+                radiusValueDisplay = document.getElementById('radiusValueDisplay');
+
+                if (radiusSlider && radiusValueDisplay) {
+                    radiusSlider.min = minCircleRadius;
+                    radiusSlider.max = maxCircleRadius;
+                    radiusSlider.value = newCircleRadius;
+                    radiusValueDisplay.innerHTML = newCircleRadius;
+
+                    radiusSlider.addEventListener('input', () => {
+                        let newRadius = parseInt(radiusSlider.value);
+                        newCircleRadius = newRadius; 
+                        radiusValueDisplay.innerHTML = newRadius;
+
+                        addInitialCircles();      
+                        ensureCirclesInBounds(); 
+
+                        shaking = true;           
+                        shakeSteps = 0;
+                    });
+                } else {
+                    console.error("Radius slider or display element not found!");
+                }
+                
+                resetBoundaryToRect(); 
+                addInitialCircles();   
+                ensureCirclesInBounds(); 
+                shaking = true; shakeSteps = 0; 
+
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(12);
+                p.textFont('Roboto Mono');
+                console.log("Interactive Circle Packing Initialized. See on-screen controls.");
+
+                if (canvasElement) {
+                    canvasElement.oncontextmenu = (e) => e.preventDefault();
+                }
+            };
+
+            function addInitialCircles() {
+                circles = []; 
+                for (let i = 0; i < initialCircleCount; i++) {
+                    let r = newCircleRadius; 
+                    let x = p.random(boundaryPadding + r, canvasWidth - boundaryPadding - r);
+                    let y = p.random(boundaryPadding + r, canvasHeight - boundaryPadding - r);
+                    
+                    if (boundaryType === 'rectangle') {
+                         x = p.constrain(x, boundaryPadding + r, canvasWidth - boundaryPadding - r);
+                         y = p.constrain(y, boundaryPadding + r, canvasHeight - boundaryPadding - r);
+                    }
+                    
+                    circles.push(new Circle(x, y, r));
+                }
+            }
+
+            function calculatePolygonCentroid(vertices) {
+                if (!vertices || vertices.length === 0) return p.createVector(canvasWidth / 2, canvasHeight / 2); 
+                let centroid = p.createVector(0, 0);
+                let signedArea = 0;
+                let x0, y0, x1, y1, a;
+
+                for (let i = 0; i < vertices.length; i++) {
+                    x0 = vertices[i].x;
+                    y0 = vertices[i].y;
+                    x1 = vertices[(i + 1) % vertices.length].x;
+                    y1 = vertices[(i + 1) % vertices.length].y;
+                    a = x0 * y1 - x1 * y0;
+                    signedArea += a;
+                    centroid.x += (x0 + x1) * a;
+                    centroid.y += (y0 + y1) * a;
+                }
+
+                if (signedArea === 0) { 
+                    if (vertices.length > 0) {
+                        let sumX = 0, sumY = 0;
+                        for(let v_item of vertices) { sumX += v_item.x; sumY += v_item.y; }
+                        return p.createVector(sumX / vertices.length, sumY / vertices.length);
+                    }
+                     return p.createVector(canvasWidth / 2, canvasHeight / 2); 
+                }
+
+                signedArea *= 0.5;
+                centroid.x /= (6 * signedArea);
+                centroid.y /= (6 * signedArea);
+
+                if (isNaN(centroid.x) || isNaN(centroid.y) || !isFinite(centroid.x) || !isFinite(centroid.y)) {
+                    console.warn("Centroid calculation resulted in NaN/Infinity. Falling back.");
+                    return p.createVector(canvasWidth / 2, canvasHeight / 2);
+                }
+                return centroid;
+            }
+
+
+            class Circle {
+                constructor(x, y, r) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(p.random(-0.1, 0.1), p.random(-0.1, 0.1)); 
+                    this.radius = r;
+                    this.color = p.color(p.random(50, 200), p.random(80, 220), p.random(100, 255), 230);
+                    this.id = p.random(1000000); 
+                }
+
+                draw() {
+                    if (isNaN(this.pos.x) || isNaN(this.pos.y) || !isFinite(this.pos.x) || !isFinite(this.pos.y)) {
+                        return;
+                    }
+                    p.fill(this.color);
+                    p.noStroke();
+                    p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
+                }
+
+                update() {
+                    if (shaking) {
+                        this.vel.add(p5.Vector.random2D().mult(shakeMagnitude * 0.2 * (1 - shakeSteps / maxShakeSteps)));
+                    }
+                    this.pos.add(this.vel);
+                    this.vel.mult(damping); 
+                    if (this.vel.magSq() < 0.01) { 
+                        this.vel.set(0, 0);
+                    }
+                }
+
+                contains(px, py) {
+                    return p.dist(px, py, this.pos.x, this.pos.y) < this.radius;
+                }
+            }
+
+            p.draw = () => {
+                p.background(245); 
+                drawBoundary();
+                if (definingBoundary) {
+                    drawTempBoundary();
+                }
+
+                for (let i = 0; i < iterations; i++) {
+                    circles.forEach(circle => {
+                        circle.update(); 
+                        applyBoundaryConstraints(circle); 
+                    });
+                    for (let j = 0; j < circles.length; j++) {
+                        for (let k = j + 1; k < circles.length; k++) {
+                            resolveCollision(circles[j], circles[k]);
+                        }
+                    }
+                }
+                
+                if (shaking) {
+                    shakeSteps++;
+                    if (shakeSteps > maxShakeSteps) {
+                        shaking = false;
+                        shakeSteps = 0;
+                    }
+                }
+
+                circles.forEach(circle => circle.draw());
+
+                p.fill(50);
+                p.noStroke();
+                p.textAlign(p.LEFT, p.TOP);
+                p.textSize(11);
+                p.text(`Global Radius: ${newCircleRadius}`, 10, 10); 
+                p.text(`Circles: ${circles.length}`, 10, 25);
+                p.text(`Boundary: ${boundaryType}`, 10, 40);
+                
+                if (definingBoundary && canvasElement.parentElement) {
+                    let existingMsg = canvasElement.parentElement.querySelector('.boundary-defining-text');
+                    if (!existingMsg) {
+                        const msgDiv = document.createElement('div');
+                        msgDiv.className = 'boundary-defining-text';
+                        msgDiv.innerHTML = "DEFINING BOUNDARY<br>Click to add points. Press 'B' to finish.";
+                        canvasElement.parentElement.appendChild(msgDiv);
+                    }
+                } else if (!definingBoundary && canvasElement.parentElement) {
+                     let existingMsg = canvasElement.parentElement.querySelector('.boundary-defining-text');
+                     if (existingMsg) existingMsg.remove();
+                }
+            };
+
+            function addCircle(x, y, r) {
+                let newCircle = new Circle(x, y, newCircleRadius); 
+                let canAdd = true;
+
+                if (boundaryType === 'custom' && boundaryVertices.length > 2) {
+                    if (!isPointInPolygon(p.createVector(x,y), boundaryVertices)) canAdd = false; 
+                } else if (boundaryType === 'circle') {
+                    let distToCenter = p.dist(x, y, canvasWidth / 2, canvasHeight / 2); 
+                    if (distToCenter > p.min(canvasWidth, canvasHeight) / 2 - boundaryPadding - newCircleRadius) canAdd = false; 
+                } else if (boundaryType === 'rectangle') {
+                    if (x - newCircleRadius < boundaryPadding || x + newCircleRadius > canvasWidth - boundaryPadding ||
+                        y - newCircleRadius < boundaryPadding || y + newCircleRadius > canvasHeight - boundaryPadding) {
+                         if (x < boundaryPadding || x > canvasWidth - boundaryPadding ||
+                             y < boundaryPadding || y > canvasHeight - boundaryPadding) canAdd = false;
+                    }
+                }
+                
+                if (!canAdd) {
+                    console.log("Cannot add circle: initial position outside boundary or too close to edge.");
+                    return false;
+                }
+                circles.push(newCircle);
+                return true;
+            }
+
+            function resolveCollision(circleA, circleB) {
+                let diff = p5.Vector.sub(circleB.pos, circleA.pos);
+                let distSq = diff.magSq(); 
+                let totalRadius = circleA.radius + circleB.radius;
+
+                if (distSq < totalRadius * totalRadius && distSq > 0.001) { 
+                    let dist = p.sqrt(distSq);
+                    let overlap = totalRadius - dist;
+                    
+                    if (dist > 0.0001) diff.setMag(1);
+                    else diff = p5.Vector.random2D(); 
+
+                    let displacementA = diff.copy().mult(-overlap / 2);
+                    let displacementB = diff.copy().mult(overlap / 2);
+
+                    circleA.pos.add(displacementA);
+                    circleB.pos.add(displacementB);
+                    
+                } else if (distSq <= 0.001 && circleA !== circleB) { 
+                    circleB.pos.add(p5.Vector.random2D().mult(0.1));
+                }
+            }
+
+            function applyBoundaryConstraints(circle) {
+                if (isNaN(circle.pos.x) || isNaN(circle.pos.y) || !isFinite(circle.pos.x) || !isFinite(circle.pos.y)) {
+                    // console.warn(`Circle ${circle.id} invalid pos before constraints. Resetting.`);
+                    circle.pos.set(canvasWidth / 2, canvasHeight / 2);
+                    circle.vel.set(0,0);
+                    return; 
+                }
+
+                if (boundaryType === 'rectangle') {
+                    if (circle.pos.x - circle.radius < boundaryPadding) {
+                        circle.pos.x = boundaryPadding + circle.radius;
+                        circle.vel.x *= -0.5; 
+                    }
+                    if (circle.pos.x + circle.radius > canvasWidth - boundaryPadding) {
+                        circle.pos.x = canvasWidth - boundaryPadding - circle.radius;
+                        circle.vel.x *= -0.5;
+                    }
+                    if (circle.pos.y - circle.radius < boundaryPadding) {
+                        circle.pos.y = boundaryPadding + circle.radius;
+                        circle.vel.y *= -0.5;
+                    }
+                    if (circle.pos.y + circle.radius > canvasHeight - boundaryPadding) {
+                        circle.pos.y = canvasHeight - boundaryPadding - circle.radius;
+                        circle.vel.y *= -0.5;
+                    }
+                } else if (boundaryType === 'circle') {
+                    let center = p.createVector(canvasWidth / 2, canvasHeight / 2);
+                    let boundaryRad = p.min(canvasWidth, canvasHeight) / 2 - boundaryPadding;
+                    let distToCenter = p5.Vector.dist(circle.pos, center);
+
+                    if (distToCenter + circle.radius > boundaryRad) {
+                        let overlap = (distToCenter + circle.radius) - boundaryRad;
+                        let correctionDir = p5.Vector.sub(circle.pos, center).normalize();
+                        if (correctionDir.magSq() === 0) correctionDir = p5.Vector.random2D(); 
+                        circle.pos.sub(correctionDir.mult(overlap));
+                    }
+                } else if (boundaryType === 'custom' && boundaryVertices.length > 2) {
+                    // If circle's center is outside the polygon
+                    if (!isPointInPolygon(circle.pos, boundaryVertices)) {
+                        let closestData = closestPointOnPolygon(circle.pos, boundaryVertices);
+                        if (closestData && closestData.point) {
+                            let closestBoundaryPoint = closestData.point;
+                            let polygonCentroid = calculatePolygonCentroid(boundaryVertices);
+                            let inwardDir = p5.Vector.sub(polygonCentroid, closestBoundaryPoint);
+            
+                            if (inwardDir.magSq() < 0.0001) { // Closest point is on/near centroid or line-like boundary
+                                inwardDir = p5.Vector.sub(polygonCentroid, circle.pos); // Try pushing from current circle pos towards centroid
+                                if (inwardDir.magSq() < 0.0001) inwardDir = p5.Vector.random2D(); // Failsafe
+                            }
+                            inwardDir.normalize();
+                            // Place circle's center at closestBoundaryPoint, then move inward by radius + a small margin
+                            let targetPos = p5.Vector.add(closestBoundaryPoint, inwardDir.mult(circle.radius + 0.1)); 
+                            circle.pos.set(targetPos);
+                            circle.vel.mult(-0.1); // Dampen velocity when hitting boundary
+                        } else { 
+                             // Fallback if closestPointOnPolygon fails (should be rare)
+                             circle.pos.x = p.constrain(circle.pos.x, boundaryPadding + circle.radius, canvasWidth - boundaryPadding - circle.radius);
+                             circle.pos.y = p.constrain(circle.pos.y, boundaryPadding + circle.radius, canvasHeight - boundaryPadding - circle.radius);
+                        }
+                    }
+                    // Segment penetration check (pushes out if overlapping segment)
+                    // This runs even if the center is inside, to handle cases where the body pokes out.
+                    for (let i = 0; i < boundaryVertices.length; i++) {
+                        let p1 = boundaryVertices[i];
+                        let p2 = boundaryVertices[(i + 1) % boundaryVertices.length];
+                        let closestPtOnSeg = closestPointOnSegment(circle.pos, p1, p2, false);
+                        if (!closestPtOnSeg || isNaN(closestPtOnSeg.x) || isNaN(closestPtOnSeg.y)) continue; 
+
+                        let distToSeg = p5.Vector.dist(circle.pos, closestPtOnSeg);
+
+                        if (distToSeg < circle.radius) { 
+                            let overlap = circle.radius - distToSeg;
+                            let pushVec;
+                            if (distToSeg < 0.01) { 
+                                let edgeVec = p5.Vector.sub(p2, p1);
+                                let normalToEdge = p.createVector(edgeVec.y, -edgeVec.x); 
+                                if (normalToEdge.magSq() < 0.0001) continue; 
+                                normalToEdge.normalize();
+                                let testPointAway = p5.Vector.add(circle.pos, normalToEdge.copy().mult(0.1));
+                                if (isPointInPolygon(testPointAway, boundaryVertices)) { 
+                                    pushVec = normalToEdge.copy().mult(-1); 
+                                } else { 
+                                    pushVec = normalToEdge;
+                                }
+                            } else { 
+                                pushVec = p5.Vector.sub(circle.pos, closestPtOnSeg);
+                                if (pushVec.magSq() > 0.00001) pushVec.normalize(); 
+                                else continue; 
+                            }
+                            if (pushVec && pushVec.magSq() > 0) { 
+                                circle.pos.add(pushVec.mult(overlap + 0.01)); // Push by overlap + tiny epsilon
+                            }
+                        }
+                    }
+                }
+                if (isNaN(circle.pos.x) || isNaN(circle.pos.y) || !isFinite(circle.pos.x) || !isFinite(circle.pos.y)) {
+                    // console.warn(`Circle ${circle.id} pos invalid AFTER constraints. Resetting.`);
+                    circle.pos.set(canvasWidth / 2, canvasHeight / 2);
+                    circle.vel.set(0,0);
+                }
+            }
+            
+            function ensureCirclesInBounds() {
+                // console.log(`DEBUG: ensureCirclesInBounds called. Boundary type: ${boundaryType}, Circles: ${circles.length}`);
+                const repositionPasses = 10; 
+                let totalCirclesAdjustedInAllPasses = 0;
+                const epsilon = 1.0; 
+
+                for (let pass = 0; pass < repositionPasses; pass++) {
+                    let adjustmentsThisPass = 0;
+                    circles.forEach(circle => {
+                        let oldX = circle.pos.x;
+                        let oldY = circle.pos.y;
+                        let targetPosCalculated = null; 
+                        let needsAdjustment = false;
+
+                        if (boundaryType === 'custom') {
+                            if (boundaryVertices.length <= 2) return; 
+                            let centerIsOutside = !isPointInPolygon(circle.pos, boundaryVertices);
+                            let isPenetratingAnySegment = false;
+                            if (!centerIsOutside) { 
+                                for (let i = 0; i < boundaryVertices.length; i++) {
+                                    let p1 = boundaryVertices[i];
+                                    let p2 = boundaryVertices[(i + 1) % boundaryVertices.length];
+                                    let closestPtOnSeg = closestPointOnSegment(circle.pos, p1, p2, false);
+                                    if (closestPtOnSeg && !isNaN(closestPtOnSeg.x) && !isNaN(closestPtOnSeg.y)) {
+                                        if (p5.Vector.dist(circle.pos, closestPtOnSeg) < circle.radius - 0.01) { 
+                                            isPenetratingAnySegment = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            needsAdjustment = centerIsOutside || isPenetratingAnySegment;
+
+                            if (needsAdjustment) {
+                                let closestData = closestPointOnPolygon(circle.pos, boundaryVertices);
+                                if (closestData && closestData.point && !isNaN(closestData.point.x) && !isNaN(closestData.point.y)) {
+                                    let closestBoundaryPoint = closestData.point;
+                                    let polygonCentroid = calculatePolygonCentroid(boundaryVertices);
+                                    let inwardPushDirection = p5.Vector.sub(polygonCentroid, closestBoundaryPoint);
+
+                                    let targetPosTemp = null;
+                                    if (inwardPushDirection.magSq() < 0.0001) { 
+                                        targetPosTemp = polygonCentroid.copy();
+                                    } else {
+                                        inwardPushDirection.normalize();
+                                        targetPosTemp = p5.Vector.add(closestBoundaryPoint, inwardPushDirection.mult(circle.radius * 1.05)); 
+                                    }
+
+                                    // Iteratively nudge if target is still outside (for complex concavities)
+                                    let attempts = 0;
+                                    targetPosCalculated = targetPosTemp.copy();
+                                    while(!isPointInPolygon(targetPosCalculated, boundaryVertices) && attempts < 5) {
+                                        let dirToCentroid = p5.Vector.sub(polygonCentroid, targetPosCalculated);
+                                        if (dirToCentroid.magSq() < 0.001) break; 
+                                        dirToCentroid.normalize().mult(circle.radius * 0.2); // Nudge by a bit more
+                                        targetPosCalculated.add(dirToCentroid);
+                                        attempts++;
+                                        // if (attempts > 0) console.log(`DEBUG Pass ${pass + 1} Nudge ${attempts} for Circle ${circle.id}`);
+                                    }
+
+
+                                } else { 
+                                    targetPosCalculated = calculatePolygonCentroid(boundaryVertices); 
+                                }
+                            }
+                        } else if (boundaryType === 'rectangle') {
+                            let currentTargetX = circle.pos.x;
+                            let currentTargetY = circle.pos.y;
+                            let adjustedX = false;
+                            let adjustedY = false;
+
+                            if (circle.pos.x - circle.radius < boundaryPadding) { currentTargetX = boundaryPadding + circle.radius + epsilon; adjustedX = true; }
+                            else if (circle.pos.x + circle.radius > canvasWidth - boundaryPadding) { currentTargetX = canvasWidth - boundaryPadding - circle.radius - epsilon; adjustedX = true; }
+                            if (circle.pos.y - circle.radius < boundaryPadding) { currentTargetY = boundaryPadding + circle.radius + epsilon; adjustedY = true; }
+                            else if (circle.pos.y + circle.radius > canvasHeight - boundaryPadding) { currentTargetY = canvasHeight - boundaryPadding - circle.radius - epsilon; adjustedY = true; }
+                            
+                            if(adjustedX || adjustedY){ 
+                                needsAdjustment = true;
+                                targetPosCalculated = p.createVector(currentTargetX, currentTargetY);
+                            }
+
+                        } else if (boundaryType === 'circle') {
+                            let centerVec = p.createVector(canvasWidth / 2, canvasHeight / 2);
+                            let boundaryActualRadius = p.min(canvasWidth, canvasHeight) / 2 - boundaryPadding;
+                            let distToCenter = p5.Vector.dist(circle.pos, centerVec);
+
+                            if (distToCenter + circle.radius > boundaryActualRadius) {
+                                needsAdjustment = true;
+                                let dirFromCenterToCircle = p5.Vector.sub(circle.pos, centerVec);
+                                if (dirFromCenterToCircle.magSq() === 0) { 
+                                     dirFromCenterToCircle = p5.Vector.random2D(); 
+                                }
+                                dirFromCenterToCircle.normalize();
+                                let targetDist = boundaryActualRadius - circle.radius - epsilon; 
+                                if (targetDist < 0) targetDist = 0; 
+                                targetPosCalculated = p5.Vector.add(centerVec, dirFromCenterToCircle.mult(targetDist));
+                            }
+                        }
+                        
+                        if (needsAdjustment && targetPosCalculated && p5.Vector.dist(circle.pos, targetPosCalculated) > 0.001) {
+                            circle.pos.set(targetPosCalculated);
+                            circle.vel.set(0, 0); 
+                            adjustmentsThisPass++;
+                            totalCirclesAdjustedInAllPasses++;
+                            // console.log(`DEBUG Pass ${pass + 1} [${boundaryType}]: Circle ${circle.id} (${p.round(oldX,2)},${p.round(oldY,2)}) -> Target (${p.round(targetPosCalculated.x,2)},${p.round(targetPosCalculated.y,2)}) -> New Pos (${p.round(circle.pos.x,2)}, ${p.round(circle.pos.y,2)})`);
+                        }
+
+                        if (isNaN(circle.pos.x) || isNaN(circle.pos.y) || !isFinite(circle.pos.x) || !isFinite(circle.pos.y)) {
+                            // console.warn(`Circle ${circle.id} invalid pos in ensureCirclesInBounds. Prev: (${p.round(oldX,2)}, ${p.round(oldY,2)}). Resetting.`);
+                            circle.pos.set(canvasWidth / 2, canvasHeight / 2); 
+                            circle.vel.set(0, 0);
+                        }
+                    }); 
+
+                    if (adjustmentsThisPass === 0 && pass > 0) { 
+                        // console.log(`DEBUG: No adjustments in ensureCirclesInBounds pass ${pass + 1}. Breaking.`);
+                        break; 
+                    }
+                } 
+                // console.log(`DEBUG: ensureCirclesInBounds completed. Total adjustments: ${totalCirclesAdjustedInAllPasses}.`);
+            }
+
+
+            p.mousePressed = (event) => {
+                if (event.target !== canvasElement) return;
+                if (definingBoundary) {
+                    if (p.mouseButton === p.LEFT) {
+                        if (p.mouseX >=0 && p.mouseX <= canvasWidth && p.mouseY >=0 && p.mouseY <= canvasHeight) {
+                           tempBoundaryPoints.push(p.createVector(p.mouseX, p.mouseY));
+                        }
+                    }
+                } else { 
+                    if (p.mouseButton === p.LEFT) {
+                        if (p.mouseX > 0 && p.mouseX < canvasWidth && p.mouseY > 0 && p.mouseY < canvasHeight) {
+                           addCircle(p.mouseX, p.mouseY, newCircleRadius);
+                        }
+                    } else if (p.mouseButton === p.RIGHT) {
+                        for (let i = circles.length - 1; i >= 0; i--) {
+                            if (circles[i].contains(p.mouseX, p.mouseY)) {
+                                circles.splice(i, 1);
+                                break; 
+                            }
+                        }
+                    }
+                }
+                 return false; 
+            };
+
+            p.keyPressed = () => {
+                if (p.key === 'r' || p.key === 'R') {
+                    resetBoundaryToRect(); 
+                    addInitialCircles(); 
+                    ensureCirclesInBounds(); 
+                    shaking = true; shakeSteps = 0;
+                } else if (p.key === 's' || p.key === 'S') {
+                    shaking = true;
+                    shakeSteps = 0;
+                    circles.forEach(c => c.vel.add(p5.Vector.random2D().mult(shakeMagnitude * 0.5)));
+                } 
+                else if (p.key === 'c' || p.key === 'C') {
+                    if (boundaryType === 'rectangle') {
+                        boundaryType = 'circle';
+                        boundaryVertices = []; 
+                    } else if (boundaryType === 'circle') {
+                        boundaryType = 'rectangle';
+                        resetBoundaryToRect(); 
+                    } else { 
+                        boundaryType = 'rectangle';
+                        resetBoundaryToRect();
+                    }
+                    ensureCirclesInBounds(); 
+                    shaking = true; shakeSteps = 0;
+                } else if (p.key === 'b' || p.key === 'B') {
+                    if (!definingBoundary) {
+                        definingBoundary = true;
+                        tempBoundaryPoints = []; 
+                        console.log("Started defining custom boundary. Click to add points. Press 'B' again to finish.");
+                    } else {
+                        definingBoundary = false;
+                        if (tempBoundaryPoints.length > 2) {
+                            boundaryVertices = [...tempBoundaryPoints]; 
+                            boundaryType = 'custom';
+                            console.log("Custom boundary defined with " + boundaryVertices.length + " vertices.");
+                            tempBoundaryPoints = []; 
+                            ensureCirclesInBounds(); 
+                        } else {
+                            console.log("Custom boundary definition cancelled: not enough points.");
+                            tempBoundaryPoints = []; 
+                            if (boundaryType === 'custom' && (!boundaryVertices || boundaryVertices.length <= 2) ) {
+                                resetBoundaryToRect(); 
+                                ensureCirclesInBounds();
+                            }
+                        }
+                         shaking = true; shakeSteps = 0; 
+                    }
+                } else if (p.key === 'x' || p.key === 'X') {
+                    resetBoundaryToRect();
+                    ensureCirclesInBounds(); 
+                    shaking = true; shakeSteps = 0;
+                }
+            };
+
+            function resetBoundaryToRect() {
+                boundaryType = 'rectangle';
+                boundaryVertices = [ 
+                    p.createVector(boundaryPadding, boundaryPadding),
+                    p.createVector(canvasWidth - boundaryPadding, boundaryPadding),
+                    p.createVector(canvasWidth - boundaryPadding, canvasHeight - boundaryPadding),
+                    p.createVector(boundaryPadding, canvasHeight - boundaryPadding)
+                ];
+                tempBoundaryPoints = [];
+                definingBoundary = false; 
+            }
+
+            function drawBoundary() {
+                p.stroke(100); 
+                p.strokeWeight(2);
+                p.noFill();
+
+                if (boundaryType === 'rectangle') {
+                    p.rect(boundaryPadding, boundaryPadding, canvasWidth - 2 * boundaryPadding, canvasHeight - 2 * boundaryPadding);
+                } else if (boundaryType === 'circle') {
+                    p.ellipse(canvasWidth / 2, canvasHeight / 2, p.min(canvasWidth, canvasHeight) - 2 * boundaryPadding);
+                } else if (boundaryType === 'custom' && boundaryVertices.length > 2) {
+                    p.beginShape();
+                    boundaryVertices.forEach(v => {
+                        if (v && !isNaN(v.x) && !isNaN(v.y)) { 
+                           p.vertex(v.x, v.y);
+                        }
+                    });
+                    p.endShape(p.CLOSE);
+                }
+            }
+
+            function drawTempBoundary() {
+                p.stroke(0, 150, 255, 150); 
+                p.strokeWeight(2);
+                p.noFill();
+                p.beginShape();
+                tempBoundaryPoints.forEach(pt => {
+                     if (pt && !isNaN(pt.x) && !isNaN(pt.y)) { 
+                        p.vertex(pt.x, pt.y);
+                     }
+                });
+                p.endShape();
+
+                p.fill(0, 150, 255);
+                p.noStroke();
+                tempBoundaryPoints.forEach(pt => {
+                    if (pt && !isNaN(pt.x) && !isNaN(pt.y)) { 
+                        p.ellipse(pt.x, pt.y, 8, 8); 
+                    }
+                }); 
+            }
+            
+            function removeCirclesOutsideBoundary() {
+                let circlesToRemove = 0;
+                circles = circles.filter(circle => {
+                    let keep = true;
+                    if (boundaryType === 'custom' && boundaryVertices.length > 2) {
+                        keep = isPointInPolygon(circle.pos, boundaryVertices);
+                    } else if (boundaryType === 'circle') {
+                        let center = p.createVector(canvasWidth / 2, canvasHeight / 2);
+                        let boundaryRad = p.min(canvasWidth, canvasHeight) / 2 - boundaryPadding;
+                        let distToCenter = p5.Vector.dist(circle.pos, center);
+                        keep = distToCenter + circle.radius <= boundaryRad;
+                    } else if (boundaryType === 'rectangle') {
+                        keep = circle.pos.x - circle.radius >= boundaryPadding &&
+                               circle.pos.x + circle.radius <= canvasWidth - boundaryPadding &&
+                               circle.pos.y - circle.radius >= boundaryPadding &&
+                               circle.pos.y + circle.radius <= canvasHeight - boundaryPadding;
+                    }
+                    if (!keep) circlesToRemove++;
+                    return keep; 
+                });
+                if(circlesToRemove > 0) console.log(`Removed ${circlesToRemove} circles if they were completely outside.`);
+            }
+
+            function isPointInPolygon(point, polygonVertices) {
+                if (!polygonVertices || polygonVertices.length < 3 || !point || isNaN(point.x) || isNaN(point.y)) return false; 
+                let inside = false;
+                for (let i = 0, j = polygonVertices.length - 1; i < polygonVertices.length; j = i++) {
+                    let xi = polygonVertices[i].x, yi = polygonVertices[i].y;
+                    let xj = polygonVertices[j].x, yj = polygonVertices[j].y;
+                    if (isNaN(xi) || isNaN(yi) || isNaN(xj) || isNaN(yj)) continue;
+                    let intersect = ((yi > point.y) !== (yj > point.y)) &&
+                        (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+                    if (intersect) inside = !inside;
+                }
+                return inside;
+            }
+
+            function closestPointOnSegment(p_vec, a_vec, b_vec, onLine = false) {
+                if (!p_vec || !a_vec || !b_vec ||
+                    isNaN(p_vec.x) || isNaN(p_vec.y) || !isFinite(p_vec.x) || !isFinite(p_vec.y) ||
+                    isNaN(a_vec.x) || isNaN(a_vec.y) || !isFinite(a_vec.x) || !isFinite(a_vec.y) ||
+                    isNaN(b_vec.x) || isNaN(b_vec.y) || !isFinite(b_vec.x) || !isFinite(b_vec.y)
+                ) {
+                     const p_coords = p_vec ? `(${p_vec.x},${p_vec.y})` : 'null';
+                     const a_coords = a_vec ? `(${a_vec.x},${a_vec.y})` : 'null';
+                     const b_coords = b_vec ? `(${b_vec.x},${b_vec.y})` : 'null';
+                     // console.warn(`Invalid input to closestPointOnSegment: p:${p_coords}, a:${a_coords}, b:${b_coords}.`);
+                     return p.createVector(canvasWidth/2, canvasHeight/2); 
+                }
+
+                let ap = p5.Vector.sub(p_vec, a_vec);
+                let ab_segment_vector = p5.Vector.sub(b_vec, a_vec); 
+                let abMagSq = ab_segment_vector.magSq();
+
+                if (abMagSq === 0) { return a_vec.copy(); }
+                let t = ap.dot(ab_segment_vector) / abMagSq;
+                if (isNaN(t) || !isFinite(t)) { 
+                    // console.warn(`'t' NaN/Infinity in closestPointOnSegment. Inputs p:${p_vec}, a:${a_vec}, b:${b_vec}.`);
+                    return a_vec.copy(); 
+                }
+                if (!onLine) { t = p.constrain(t, 0, 1); }
+                let projection = ab_segment_vector.copy().mult(t); 
+                return p5.Vector.add(a_vec, projection);
+            }
+            
+            function closestPointOnPolygon(point, polygonVertices) {
+                if (!polygonVertices || polygonVertices.length === 0 || !point || isNaN(point.x) || isNaN(point.y)) return null;
+                if (polygonVertices.length === 1) {
+                     if (isNaN(polygonVertices[0].x) || isNaN(polygonVertices[0].y)) return null;
+                     return { point: polygonVertices[0].copy(), distSq: p5.Vector.sub(point, polygonVertices[0]).magSq() };
+                }
+
+                let closestPt = null;
+                let minDistSq = Infinity;
+
+                for (let i = 0; i < polygonVertices.length; i++) {
+                    let p1 = polygonVertices[i];
+                    let p2 = polygonVertices[(i + 1) % polygonVertices.length]; 
+                    if(!p1 || !p2 || isNaN(p1.x) || isNaN(p1.y) || isNaN(p2.x) || isNaN(p2.y)){
+                        // console.warn("Invalid vertex in closestPointOnPolygon loop"); 
+                        continue; 
+                    }
+                    let currentClosestOnSeg = closestPointOnSegment(point, p1, p2, false);
+                     if (!currentClosestOnSeg || isNaN(currentClosestOnSeg.x) || isNaN(currentClosestOnSeg.y)) {
+                        // console.warn("closestPointOnSegment returned invalid point"); 
+                        continue; 
+                    }
+                    let currentDistSq = p5.Vector.sub(point, currentClosestOnSeg).magSq();
+                     if (isNaN(currentDistSq)) {
+                        // console.warn("currentDistSq is NaN in closestPointOnPolygon"); 
+                        continue;
+                    }
+                    if (currentDistSq < minDistSq) {
+                        minDistSq = currentDistSq;
+                        closestPt = currentClosestOnSeg;
+                    }
+                }
+                 if (!closestPt) { 
+                    // console.warn("Could not find any valid closest point on polygon."); 
+                    return null;
+                }
+                return { point: closestPt, distSq: minDistSq };
+            }
+            
+        }; // End of sketch function
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+</html>
