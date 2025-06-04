@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>Wind Glide Game</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column; /* Allow for title */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0; /* Light gray background */
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #game-title {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: #444;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 3px solid #333; /* Darker border */
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2); /* Softer shadow */
+            border-radius: 8px; /* Rounded corners for the container */
+            overflow: hidden; /* Ensures canvas corners are also rounded if canvas itself isn't */
+        }
+        canvas {
+            display: block; /* Removes extra space below canvas */
+            border-radius: 6px; /* Slightly less rounded than container */
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="game-title">Wind Glide Challenge</div>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // Game dimensions
+            const canvasWidth = 800;
+            const canvasHeight = 450;
+
+            // Game objects
+            let glider;
+            let obstacles = [];
+            let tunnelSegments = []; 
+            let activeBlastParticles = []; 
+
+            // Game state
+            let score = 0;
+            let gameState = 'START'; 
+            let scrollSpeed = 2.5; 
+
+            // Wind settings (user-provided values)
+            const WIND_SETTINGS = {
+                CALM:     { force: 0, color: [15, 15, 25], label: 'Calm Air ' }, 
+                WEAK:     { force: -1, color: [20, 20, 30], label: 'Weak Wind (Downdraft)' },   
+                MODERATE: { force: 0.4 , color: [25, 25, 35], label: 'Moderate Wind (Updraft)' }, 
+                STRONG:   { force: 1.3, color: [30, 30, 40], label: 'Strong Wind (Strong Updraft)' }  
+            };
+            let currentWindKey = 'CALM';
+            let windChangeInterval = 10000; 
+            let lastWindChangeTime = 0;
+
+            // Obstacle properties
+            const MIN_OBSTACLE_BASE_WIDTH = 30; // Adjusted: was 40
+            const MAX_OBSTACLE_BASE_WIDTH = 45; // Adjusted: was 55
+            let obstacleSpawnFrameInterval = 120; 
+
+            // Glider properties
+            const gliderBaseColor = [220, 80, 80];
+            const gliderStrokeColor = [40, 40, 60]; 
+            const canopyColor = [60, 70, 90, 200]; 
+
+            // Tunnel properties
+            let tunnelPathCenterY; 
+            let tunnelPathHeight;  
+            const TUNNEL_WALL_COLOR = [40, 45, 55]; 
+            const TUNNEL_RIB_COLOR = [60, 65, 75, 100]; 
+            
+            p.setup = () => {
+                let canvas = p.createCanvas(canvasWidth, canvasHeight);
+                canvas.parent('canvas-container');
+                p.textFont('Roboto Mono');
+                
+                initializeGameAssets();
+                lastWindChangeTime = p.millis();
+            };
+
+            function initializeGameAssets() {
+                glider = new Glider(100, canvasHeight / 2);
+                obstacles = [];
+                activeBlastParticles = []; 
+                tunnelSegments = []; 
+                
+                tunnelPathCenterY = canvasHeight / 2; 
+                tunnelPathHeight = canvasHeight * 0.75; // Adjusted: was 0.6
+
+
+                let currentX = 0;
+                while (currentX < canvasWidth + 200) { 
+                    let segmentWidth = p.random(60, 120); 
+                    if (currentX + segmentWidth > canvasWidth + 250 && currentX < canvasWidth + 200) { 
+                        segmentWidth = (canvasWidth + 200) - currentX;
+                    }
+                    if (segmentWidth <=0) break; 
+
+                    tunnelSegments.push(new TunnelSegment(currentX, segmentWidth, true));  
+                    tunnelSegments.push(new TunnelSegment(currentX, segmentWidth, false)); 
+                    currentX += segmentWidth;
+                }
+
+                score = 0;
+                currentWindKey = 'CALM';
+            }
+
+            p.draw = () => {
+                let bgWindColor = WIND_SETTINGS[currentWindKey].color;
+                p.background(bgWindColor[0], bgWindColor[1], bgWindColor[2]);
+
+                drawTunnel(); 
+
+                if (gameState === 'START') {
+                    displayStartScreen();
+                } else if (gameState === 'PLAYING') {
+                    handleGamePlaying(); 
+                } else if (gameState === 'GAME_OVER') {
+                    updateAndDisplayObstacles(); 
+                    if (!glider.exploded) glider.display(); 
+                    displayGameOverScreen();
+                }
+
+                updateAndDisplayBlastParticles(); 
+                if (gameState !== 'START') displayHUD(); 
+            };
+            
+            function drawTunnel() {
+                let maxRightEdgeX = 0;
+                if (tunnelSegments.length > 0) {
+                    for (let i = 0; i < tunnelSegments.length; i++) {
+                        if (tunnelSegments[i].x + tunnelSegments[i].width > maxRightEdgeX) {
+                            maxRightEdgeX = tunnelSegments[i].x + tunnelSegments[i].width;
+                        }
+                    }
+                }
+
+                if (maxRightEdgeX < canvasWidth + 200) { 
+                    let segmentWidth = p.random(60, 120);
+                    tunnelSegments.push(new TunnelSegment(maxRightEdgeX, segmentWidth, true));
+                    tunnelSegments.push(new TunnelSegment(maxRightEdgeX, segmentWidth, false));
+                }
+
+                for (let i = tunnelSegments.length - 1; i >= 0; i--) {
+                    let segment = tunnelSegments[i];
+                    segment.update();
+                    segment.display(tunnelPathCenterY, tunnelPathHeight); 
+                    if (segment.isOffscreen()) {
+                        tunnelSegments.splice(i, 1);
+                    }
+                }
+            }
+
+
+            function handleGamePlaying() {
+                if (p.millis() - lastWindChangeTime > windChangeInterval) {
+                    changeWind();
+                    lastWindChangeTime = p.millis();
+                }
+                
+                glider.update(); 
+                glider.applyWindInfluence(WIND_SETTINGS[currentWindKey].force);
+                
+                let actualTunnelTop = tunnelPathCenterY - tunnelPathHeight / 2;
+                let actualTunnelBottom = tunnelPathCenterY + tunnelPathHeight / 2;
+                if (!glider.exploded) { 
+                    glider.constrainToTunnel(actualTunnelTop, actualTunnelBottom);
+                }
+
+                if (!glider.exploded) glider.display(); 
+
+                if (p.frameCount % obstacleSpawnFrameInterval === 0 && gameState === 'PLAYING' && !glider.exploded) {
+                    spawnRandomObstacle(); 
+                }
+                updateAndDisplayObstacles(); 
+            }
+
+            function spawnRandomObstacle() {
+                let obsWidth = p.random(MIN_OBSTACLE_BASE_WIDTH, MAX_OBSTACLE_BASE_WIDTH);
+                let obsHeight = p.random(canvasHeight * 0.10, canvasHeight * 0.30); // Adjusted: was 0.15, 0.40
+                
+                let currentTopEdgeY = tunnelPathCenterY - tunnelPathHeight / 2;
+                let currentBottomEdgeY = tunnelPathCenterY + tunnelPathHeight / 2;
+                let availableSpace = currentBottomEdgeY - currentTopEdgeY - obsHeight;
+                
+                let obsY;
+                if (availableSpace > obsHeight * 0.2) { 
+                    obsY = p.random(currentTopEdgeY + obsHeight * 0.1, currentBottomEdgeY - obsHeight * 1.1);
+                } else { 
+                    obsY = currentTopEdgeY + (currentBottomEdgeY - currentTopEdgeY - obsHeight) / 2; 
+                }
+                obsY = p.constrain(obsY, currentTopEdgeY, currentBottomEdgeY - obsHeight); 
+                
+                obstacles.push(new Obstacle(canvasWidth, obsY, obsWidth, obsHeight));
+            }
+
+            function updateAndDisplayObstacles() {
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    obstacles[i].update(scrollSpeed);
+                    obstacles[i].display();
+
+                    if (!glider.exploded && glider.checkCollision(obstacles[i])) { 
+                        gameState = 'GAME_OVER';
+                        glider.isCrashing = true; 
+                        glider.explode(activeBlastParticles); 
+                    }
+
+                    if (obstacles[i].isOffscreen()) {
+                        obstacles.splice(i, 1);
+                        if (gameState === 'PLAYING') { 
+                           score++; 
+                        }
+                    }
+                }
+            }
+
+            function updateAndDisplayBlastParticles() {
+                for (let i = activeBlastParticles.length - 1; i >= 0; i--) {
+                    activeBlastParticles[i].update();
+                    activeBlastParticles[i].display();
+                    if (activeBlastParticles[i].isDead()) {
+                        activeBlastParticles.splice(i, 1);
+                    }
+                }
+            }
+            
+            function changeWind() {
+                let windKeys = Object.keys(WIND_SETTINGS);
+                let currentWindIndex = windKeys.indexOf(currentWindKey);
+                let nextWindIndex = (currentWindIndex + 1) % windKeys.length;
+                currentWindKey = windKeys[nextWindIndex];
+            }
+
+            function displayHUD() {
+                p.fill(230, 230, 240); 
+                p.textSize(18);
+                p.textAlign(p.LEFT, p.TOP);
+                p.text(`Score: ${score}`, 20, 20);
+                p.textAlign(p.RIGHT, p.TOP);
+                p.text(`Wind: ${WIND_SETTINGS[currentWindKey].label}`, canvasWidth - 20, 20);
+            }
+
+            function displayStartScreen() {
+                p.textAlign(p.CENTER, p.CENTER);
+                p.fill(230,230,240);
+                p.textSize(32);
+                p.text("Wind Glide Challenge", canvasWidth / 2, canvasHeight / 2 - 40);
+                p.textSize(20);
+                p.text("Use UP/DOWN Arrows to Fly", canvasWidth / 2, canvasHeight / 2 + 10);
+                p.text("Press SPACEBAR to Start", canvasWidth / 2, canvasHeight / 2 + 50);
+            }
+
+            function displayGameOverScreen() {
+                p.textAlign(p.CENTER, p.CENTER);
+                p.fill(230,230,240);
+                p.textSize(48);
+                p.text("Game Over!", canvasWidth / 2, canvasHeight / 2 - 60);
+                p.textSize(28);
+                p.text(`Final Score: ${score}`, canvasWidth / 2, canvasHeight / 2);
+                p.textSize(20);
+                p.text("Press SPACEBAR to Restart", canvasWidth / 2, canvasHeight / 2 + 50);
+            }
+
+            p.keyPressed = () => {
+                if (p.key === ' ') {
+                    if (gameState === 'START' || gameState === 'GAME_OVER') {
+                        initializeGameAssets(); 
+                        gameState = 'PLAYING';
+                        lastWindChangeTime = p.millis();
+                    }
+                }
+            };
+
+            class Glider {
+                constructor(x, y) {
+                    this.position = p.createVector(x, y);
+                    this.size = 20; 
+                    this.continuousMoveSpeed = 3.5; 
+                    this.isCrashing = false; 
+                    this.exploded = false;   
+                    this.bobAngle = 0;
+                    this.bobSpeed = 0.06; 
+                    this.bobAmplitude = 1.5; 
+                    this.currentRoll = 0;
+                    this.targetRoll = 0;
+                    this.rollLerpSpeed = 0.08; 
+                    this.maxRollAngle = p.radians(10); 
+                }
+                update() { 
+                    if (this.exploded) return; 
+                    if (gameState === 'PLAYING' && !this.isCrashing) { 
+                        if (p.keyIsDown(p.UP_ARROW)) {
+                            this.position.y -= this.continuousMoveSpeed;
+                            this.targetRoll = -this.maxRollAngle;
+                        } else if (p.keyIsDown(p.DOWN_ARROW)) {
+                            this.position.y += this.continuousMoveSpeed;
+                            this.targetRoll = this.maxRollAngle;
+                        }
+                    }
+                    this.currentRoll = p.lerp(this.currentRoll, this.targetRoll, this.rollLerpSpeed);
+                    if (!p.keyIsDown(p.UP_ARROW) && !p.keyIsDown(p.DOWN_ARROW)) {
+                        this.targetRoll = p.lerp(this.targetRoll, 0, this.rollLerpSpeed * 0.75); 
+                    }
+                    this.bobAngle += this.bobSpeed;
+                }
+                applyWindInfluence(windForceValue) {
+                    if (this.exploded) return; 
+                    let windEffectPerFrame = windForceValue * 2.5; 
+                    this.position.y -= windEffectPerFrame; 
+                }
+                explode(particleArray) {
+                    if (this.exploded) return;
+                    this.exploded = true;
+                    let numParticles = p.floor(p.random(40, 60)); 
+                    let yEmitterOffset = p.sin(this.bobAngle) * this.bobAmplitude; 
+                    for (let i = 0; i < numParticles; i++) {
+                        particleArray.push(new Particle(this.position.x, this.position.y + yEmitterOffset));
+                    }
+                }
+                display() {
+                    if (this.exploded) return; 
+                    p.push();
+                    let yDisplayOffset = p.sin(this.bobAngle) * this.bobAmplitude;
+                    let currentDisplayRotation = this.currentRoll;
+                    p.translate(this.position.x, this.position.y + yDisplayOffset);
+                    p.rotate(currentDisplayRotation); 
+                    p.fill(gliderBaseColor[0], gliderBaseColor[1], gliderBaseColor[2]);
+                    p.stroke(gliderStrokeColor[0], gliderStrokeColor[1], gliderStrokeColor[2]); 
+                    p.strokeWeight(1.5);
+                    let s = this.size;
+                    p.beginShape(); // Fuselage
+                    p.vertex(s * 0.8, 0); p.vertex(s * 0.2, -s * 0.2); p.vertex(-s * 0.75, -s * 0.2);
+                    p.vertex(-s * 0.85, 0); p.vertex(-s * 0.75, s * 0.2); p.vertex(s * 0.2, s * 0.2); 
+                    p.endShape(p.CLOSE);
+                    p.beginShape(); // Right Wing
+                    p.vertex(s * 0.25, -s * 0.15); p.vertex(s * 0.6, -s * 0.5);   
+                    p.vertex(s * 0.35, -s * 0.6); p.vertex(-s * 0.3, -s * 0.18); 
+                    p.endShape(p.CLOSE);
+                    p.beginShape(); // Left Wing
+                    p.vertex(s * 0.25, s * 0.15); p.vertex(s * 0.6, s * 0.5);    
+                    p.vertex(s * 0.35, s * 0.6); p.vertex(-s * 0.3, s * 0.18);  
+                    p.endShape(p.CLOSE);
+                    p.beginShape(); // Tail Fin
+                    p.vertex(-s * 0.65, 0); p.vertex(-s * 0.9, 0); p.vertex(-s * 0.8, -s * 0.45); 
+                    p.endShape(p.CLOSE);
+                    let hStabWidth = s*0.35; let hStabDepth = s*0.25; let hStabYOffset = s*0.05; let hStabXPos = -s*0.75; 
+                    p.beginShape(); // Right H-Stab
+                    p.vertex(hStabXPos+hStabDepth*0.3, -hStabYOffset-hStabWidth*0.1); p.vertex(hStabXPos+hStabDepth*0.2, -hStabYOffset-hStabWidth*0.5);
+                    p.vertex(hStabXPos-hStabDepth*0.7, -hStabYOffset-hStabWidth*0.4); p.vertex(hStabXPos-hStabDepth*0.6, -hStabYOffset-hStabWidth*0.05);
+                    p.endShape(p.CLOSE);
+                    p.beginShape(); // Left H-Stab
+                    p.vertex(hStabXPos+hStabDepth*0.3, hStabYOffset+hStabWidth*0.1); p.vertex(hStabXPos+hStabDepth*0.2, hStabYOffset+hStabWidth*0.5);
+                    p.vertex(hStabXPos-hStabDepth*0.7, hStabYOffset+hStabWidth*0.4); p.vertex(hStabXPos-hStabDepth*0.6, hStabYOffset+hStabWidth*0.05);
+                    p.endShape(p.CLOSE);
+                    p.fill(canopyColor[0], canopyColor[1], canopyColor[2], canopyColor[3]);
+                    p.noStroke(); p.ellipse(s * 0.3, 0, s * 0.45, s * 0.25); 
+                    p.pop();
+                }
+                
+                constrainToTunnel(tunnelTopY, tunnelBottomY) {
+                    if (this.exploded) return;
+                    let gliderEffectiveY = this.position.y + (p.sin(this.bobAngle) * this.bobAmplitude);
+                    // Using the more forgiving collision box for tunnel constraint as well
+                    let gliderCollisionTop = gliderEffectiveY - (this.size * 0.25); 
+                    let gliderCollisionBottom = gliderEffectiveY + (this.size * 0.15);
+                    let bobOffset = p.sin(this.bobAngle) * this.bobAmplitude;
+
+                    if (gliderCollisionTop < tunnelTopY) {
+                        this.position.y = tunnelTopY + (this.size * 0.25) - bobOffset;
+                    } else if (gliderCollisionBottom > tunnelBottomY) {
+                        this.position.y = tunnelBottomY - (this.size * 0.15) - bobOffset;
+                    }
+                }
+
+                checkCollision(obstacle) { 
+                    if (this.exploded) return false; 
+                    let currentObstacleWidth = obstacle.baseWidth;
+                    let currentObstacleHeight = obstacle.baseHeight;
+                    let gliderEffectiveY = this.position.y + (p.sin(this.bobAngle) * this.bobAmplitude);
+                    let gliderLeft = this.position.x - (this.size * 0.75); 
+                    let gliderRight = this.position.x + (this.size * 0.7);  
+                    let gliderTop = gliderEffectiveY - (this.size * 0.25); 
+                    let gliderBottom = gliderEffectiveY + (this.size * 0.15); 
+                    let obsLeft = obstacle.x; let obsRight = obstacle.x + currentObstacleWidth;
+                    let obsTop = obstacle.y; let obsBottom = obstacle.y + currentObstacleHeight;
+                    return (gliderRight > obsLeft && gliderLeft < obsRight && gliderBottom > obsTop && gliderTop < obsBottom);
+                }
+            }
+
+            class Obstacle {
+                constructor(x, y, baseW, baseH) {
+                    this.x = x; this.y = y; 
+                    this.baseWidth = baseW; this.baseHeight = baseH;
+                    this.color = [100, 90, 80]; 
+                    this.shapePoints = [];
+                    let numPoints = p.floor(p.random(6, 10)); 
+                    for (let i = 0; i < numPoints; i++) {
+                        let angle = p.map(i, 0, numPoints, 0, p.TWO_PI);
+                        let radiusVariation = p.random(0.6, 1.1); 
+                        let rX, rY;
+                        if (i % 2 === 0) { 
+                            rX = (this.baseWidth/2)*p.random(0.6,1.0)*radiusVariation; rY = (this.baseHeight/2)*p.random(0.7,1.0)*radiusVariation;
+                        } else {
+                            rX = (this.baseWidth/2)*p.random(0.5,0.9)*radiusVariation; rY = (this.baseHeight/2)*p.random(0.6,0.9)*radiusVariation;
+                        }
+                        this.shapePoints.push(p.createVector(p.cos(angle)*rX, p.sin(angle)*rY));
+                    }
+                }
+                update(speed) { this.x -= speed; }
+                display() {
+                    p.push();
+                    p.translate(this.x + this.baseWidth/2, this.y + this.baseHeight/2); 
+                    p.fill(this.color[0], this.color[1], this.color[2]);
+                    p.noStroke();
+                    p.beginShape(); this.shapePoints.forEach(pt => { p.vertex(pt.x, pt.y); }); p.endShape(p.CLOSE);
+                    p.pop();
+                }
+                isOffscreen() { return (this.x + this.baseWidth < 0); }
+            }
+            
+            class TunnelSegment {
+                constructor(x, segmentWidth, isTopWall) {
+                    this.x = x;
+                    this.width = segmentWidth;
+                    this.isTopWall = isTopWall;
+                    this.speed = scrollSpeed * 0.9; 
+                    this.color = TUNNEL_WALL_COLOR;
+                    this.y_offsets = []; 
+                    let numJagPoints = p.floor(this.width / 20) + 2; 
+                    for (let i = 0; i < numJagPoints; i++) {
+                        this.y_offsets.push(p.random(-10, 10));
+                    }
+                }
+
+                update() {
+                    this.x -= this.speed;
+                }
+
+                display(pathCenterY, pathHeight) { 
+                    let visualInnerEdgeY; 
+                    if (this.isTopWall) {
+                        visualInnerEdgeY = pathCenterY - pathHeight / 2;
+                    } else { 
+                        visualInnerEdgeY = pathCenterY + pathHeight / 2;
+                    }
+
+                    p.fill(this.color[0], this.color[1], this.color[2]);
+                    p.noStroke();
+                    
+                    p.beginShape();
+                    if (this.isTopWall) {
+                        p.vertex(this.x, 0); 
+                        p.vertex(this.x + this.width, 0); 
+                        for (let i = this.y_offsets.length - 1; i >= 0; i--) {
+                            let jagX = this.x + (this.width / (this.y_offsets.length -1)) * i;
+                            p.vertex(jagX, visualInnerEdgeY + this.y_offsets[i]); 
+                        }
+                    } else { 
+                        for (let i = 0; i < this.y_offsets.length; i++) {
+                            let jagX = this.x + (this.width / (this.y_offsets.length -1)) * i;
+                            p.vertex(jagX, visualInnerEdgeY + this.y_offsets[i]); 
+                        }
+                        p.vertex(this.x + this.width, canvasHeight); 
+                        p.vertex(this.x, canvasHeight); 
+                    }
+                    p.endShape(p.CLOSE);
+
+                    p.stroke(TUNNEL_RIB_COLOR[0], TUNNEL_RIB_COLOR[1], TUNNEL_RIB_COLOR[2], TUNNEL_RIB_COLOR[3]); 
+                    p.strokeWeight(2); 
+                    let numRibs = 5;
+                    for (let i = 1; i < numRibs; i++) {
+                        let ribX = this.x + (this.width / numRibs) * i;
+                        if (this.isTopWall) {
+                            p.line(ribX, 0, ribX, visualInnerEdgeY + p.random(-5,5) ); 
+                        } else {
+                            p.line(ribX, visualInnerEdgeY + p.random(-5,5), ribX, canvasHeight);
+                        }
+                    }
+                }
+                isOffscreen() { return this.x + this.width < 0;}
+            }
+
+            class Particle { // For explosion
+                constructor(x, y) {
+                    this.position = p.createVector(x, y);
+                    let angle = p.random(p.TWO_PI);
+                    let speed = p.random(2, 7); 
+                    this.velocity = p5.Vector.fromAngle(angle, speed);
+                    this.acceleration = p.createVector(0, 0.08); 
+                    this.lifespan = 255; 
+                    this.size = p.random(3, 10); 
+                    let r = p.random([p.color(255,100,0),p.color(255,165,0),p.color(255,255,0),p.color(200,0,0),p.color(80,80,80),p.color(120,120,120)]);
+                    this.color = r;
+                }
+                update() { this.velocity.add(this.acceleration); this.position.add(this.velocity); this.lifespan -= 4;}
+                display() { p.noStroke(); let cF=this.color; cF.setAlpha(this.lifespan); p.fill(cF); p.ellipse(this.position.x,this.position.y,this.size,this.size); }
+                isDead() { return this.lifespan < 0; }
+            }
+        };
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+    </script>
+</body>
+</html>

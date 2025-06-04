@@ -1,216 +1,343 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="utf-8" />
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <title>Center of Mass Simulation</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wind Glide Game</title>
+    <script type="importmap">
+        {
+          "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"
+          }
+        }
+    </script>
     <style>
         body {
             margin: 0;
+            padding: 0;
             display: flex;
-            flex-direction: column; /* Allow text above canvas */
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #f0f0f0; /* Lighter background */
-            font-family: 'Roboto Mono', monospace;
+            background-color: #f0f0f0;
         }
-
-        #canvas-container {
-            position: relative;
-            border: 2px solid #333;
-            box-shadow: 0 0 15px rgba(0,0,0,0.2);
-            margin-top: 20px; /* Space for text */
-        }
-        #controls {
-            margin-bottom: 15px;
-            padding: 10px;
-            background-color: #fff;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        label, input, button {
-            margin-right: 10px;
+        canvas {
+            display: block;
+            border: 1px solid #ccc;
         }
     </style>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-            }
-        }
-    </script>
-
 </head>
-
 <body>
-    <div>
-        <h2>Center of Mass Simulation: L-Shape</h2>
-        <p>An L-shape is pivoted at its top-left corner. Gravity acts on its Center of Mass (CoM).</p>
-        <p>Observe how the position of the CoM (red dot) influences its rotation.</p>
-    </div>
-    <div id="controls">
-        <label for="mass1">Mass of Vertical Bar (1-10):</label>
-        <input type="range" id="mass1" name="mass1" min="1" max="10" value="1">
-        <span id="mass1Val">1</span>
-        <label for="mass2"> Mass of Horizontal Bar (1-10):</label>
-        <input type="range" id="mass2" name="mass2" min="1" max="10" value="1">
-        <span id="mass2Val">1</span>
-        <button id="resetButton">Reset Simulation</button>
-    </div>
-    <div id="canvas-container">
-    </div>
     <script type="module">
-        import p5 from 'p5';
+        import 'p5';
 
-        const sketch = (p) => {
-            let angle = 0; // Initial angle of the L-shape
-            let angularVelocity = 0;
-            let angularAcceleration = 0;
+        /**
+         * @param {p5} p - The p5.js instance.
+         */
+        let sketch = function(p) {
+            /** @type {Glider} */
+            let glider;
+            /** @type {Array<Obstacle>} */
+            let obstacles = [];
+            /** @type {number} */
+            let score = 0;
+            /** @type {boolean} */
+            let gameOver = false;
+            /** @type {boolean} */
+            let gameStarted = false;
+            /** @type {number} */
+            let windStrength = 0;
+            /** @type {number} */
+            let windTimer = 0;
+            /** @type {number} */
+            let obstacleTimer = 0;
+            /** @type {number} */
+            let canopyHeight = 150;
+            /** @type {number} */
+            let groundHeight = 100;
+            /** @type {p5.Font | null} */
+            let font;
+            /** @type {number} */
+            let fontSize = 32;
 
-            // L-shape properties
-            // Part 1 (vertical bar of L)
-            let r1 = { x: 0, y: 0, w: 40, h: 150, mass: 1 };
-            // Part 2 (horizontal bar of L)
-            let r2 = { x: 0, y: r1.h, w: 120, h: 40, mass: 1 }; // Positioned relative to r1's corner
+            /**
+             * @typedef {Object} Glider
+             * @property {number} x - The x-coordinate of the glider.
+             * @property {number} y - The y-coordinate of the glider.
+             * @property {number} velocityY - The vertical velocity of the glider.
+             * @property {number} size - The size of the glider.
+             * @property {p5.Color} color - The color of the glider.
+             */
 
-            let pivot;
-            let com = { x: 0, y: 0 }; // Center of Mass of the L-shape
+            /**
+             * @typedef {Object} Obstacle
+             * @property {number} x - The x-coordinate of the obstacle.
+             * @property {number} y - The y-coordinate of the obstacle.
+             * @property {number} size - The size of the obstacle.
+             * @property {p5.Color} color - The color of the obstacle.
+             * @property {number} gapSize - The size of the gap in the obstacle.
+             * @property {number} topHeight - The height of the top part of the obstacle.
+             */
 
-            const g = 0.1; // Gravity
-
-            function calculateCoM() {
-                // CoM of each rectangle relative to the pivot (0,0 of the L-shape coordinate system)
-                let com1_x = r1.w / 2;
-                let com1_y = r1.h / 2;
-                let com2_x = r2.w / 2;
-                let com2_y = r1.h + r2.h / 2; // r2 is below r1
-
-                let totalMass = r1.mass + r2.mass;
-                com.x = (r1.mass * com1_x + r2.mass * com2_x) / totalMass;
-                com.y = (r1.mass * com1_y + r2.mass * com2_y) / totalMass;
+            /**
+             * Creates a new Glider instance.
+             * @returns {Glider} The created glider.
+             */
+            function createGlider() {
+                return {
+                    x: p.width / 4,
+                    y: p.height / 2,
+                    velocityY: 0,
+                    size: 40,
+                    color: p.color(255, 100, 100)
+                };
             }
 
-            function resetSimulation() {
-                angle = p.QUARTER_PI / 2; // Start at a slight angle
-                angularVelocity = 0;
-                angularAcceleration = 0;
-                r1.mass = parseFloat(document.getElementById('mass1').value);
-                r2.mass = parseFloat(document.getElementById('mass2').value);
-                document.getElementById('mass1Val').textContent = r1.mass.toFixed(1);
-                document.getElementById('mass2Val').textContent = r2.mass.toFixed(1);
-                calculateCoM();
+            /**
+             * Creates a new Obstacle instance.
+             * @param {number} x - The x-coordinate of the obstacle.
+             * @param {number} height - The height of the canvas.
+             * @returns {Obstacle} The created obstacle.
+             */
+            function createObstacle(x, height) {
+                const gapSize = p.random(60, 120);
+                const availableHeight = height - canopyHeight - groundHeight - gapSize;
+                const topHeight = p.random(20, availableHeight - 20);
+                return {
+                    x: x,
+                    y: canopyHeight + topHeight,
+                    size: 40,
+                    color: p.color(100, 255, 100),
+                    gapSize: gapSize,
+                    topHeight: topHeight
+                };
             }
 
-            p.setup = () => {
-                const canvasWidth = 500;
-                const canvasHeight = 400;
-                p.createCanvas(canvasWidth, canvasHeight);
-                pivot = p.createVector(p.width / 2, p.height / 4); // Pivot point on canvas
-                
-                document.getElementById('mass1').addEventListener('input', (e) => {
-                    document.getElementById('mass1Val').textContent = parseFloat(e.target.value).toFixed(1);
-                    resetSimulation();
-                });
-                document.getElementById('mass2').addEventListener('input', (e) => {
-                    document.getElementById('mass2Val').textContent = parseFloat(e.target.value).toFixed(1);
-                    resetSimulation();
-                });
-                document.getElementById('resetButton').addEventListener('click', resetSimulation);
+            /**
+             * Handles user input for the glider.
+             */
+            function handleInput() {
+                if (p.keyIsDown(p.UP_ARROW)) {
+                    glider.velocityY -= 0.2;
+                }
+                if (p.keyIsDown(p.DOWN_ARROW)) {
+                    glider.velocityY += 0.2;
+                }
+            }
 
-                resetSimulation(); // Initial setup
+            /**
+             * Updates the glider's position and physics.
+             */
+            function updateGlider() {
+                glider.velocityY += 0.05; // Gravity
+                glider.velocityY *= 0.98; // Air resistance
+                glider.y += glider.velocityY;
+
+                // Wind effect
+                glider.y += windStrength * 0.1;
+
+                // Keep glider within bounds
+                if (glider.y < canopyHeight + glider.size / 2) {
+                    glider.y = canopyHeight + glider.size / 2;
+                    glider.velocityY = 0;
+                }
+                if (glider.y > p.height - groundHeight - glider.size / 2) {
+                    glider.y = p.height - groundHeight - glider.size / 2;
+                    glider.velocityY = 0;
+                }
+            }
+
+            /**
+             * Updates the obstacles' positions and generates new ones.
+             */
+            function updateObstacles() {
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    obstacles[i].x -= 2;
+                    if (obstacles[i].x < -obstacles[i].size) {
+                        obstacles.splice(i, 1);
+                        score++;
+                    }
+                }
+
+                obstacleTimer++;
+                if (obstacleTimer > 120) {
+                    obstacles.push(createObstacle(p.width, p.height));
+                    obstacleTimer = 0;
+                }
+            }
+
+            /**
+             * Changes the wind strength at random intervals.
+             */
+            function updateWind() {
+                windTimer++;
+                if (windTimer > p.random(300, 600)) {
+                    windStrength = p.random(-2, 2);
+                    windTimer = 0;
+                }
+            }
+
+            /**
+             * Checks for collisions between the glider and obstacles.
+             */
+            function checkCollisions() {
+                for (let obstacle of obstacles) {
+                    if (glider.x + glider.size / 2 > obstacle.x &&
+                        glider.x - glider.size / 2 < obstacle.x + obstacle.size) {
+                        // Check if glider is in the gap
+                        if (!(glider.y - glider.size / 2 > obstacle.y &&
+                            glider.y + glider.size / 2 < obstacle.y + obstacle.gapSize)) {
+                            gameOver = true;
+                        }
+                    }
+                }
+            }
+
+            /**
+             * Draws the game canopy.
+             */
+            function drawCanopy() {
+                p.fill(34, 139, 34); // Forest green
+                p.noStroke();
+                p.rect(0, 0, p.width, canopyHeight);
+            }
+
+            /**
+             * Draws the game ground.
+             */
+            function drawGround() {
+                p.fill(139, 69, 19); // Saddle brown
+                p.noStroke();
+                p.rect(0, p.height - groundHeight, p.width, groundHeight);
+            }
+
+            /**
+             * Draws the wind indicator.
+             */
+            function drawWindIndicator() {
+                p.push();
+                p.translate(p.width - 50, 50);
+                p.noFill();
+                p.stroke(0);
+                p.strokeWeight(2);
+                p.line(0, 0, windStrength * 10, 0);
+                p.triangle(windStrength * 10, 0, windStrength * 10 - 5, 5, windStrength * 10 + 5, 5);
+                p.pop();
+            }
+
+            /**
+             * Draws the glider.
+             */
+            function drawGlider() {
+                p.push();
+                p.translate(glider.x, glider.y);
+                p.fill(glider.color);
+                p.stroke(0);
+                p.strokeWeight(1);
+                p.triangle(0, -glider.size / 2, 0, glider.size / 2, glider.size, 0);
+                p.pop();
+            }
+
+            /**
+             * Draws the obstacles.
+             */
+            function drawObstacles() {
+                for (let obstacle of obstacles) {
+                    p.fill(obstacle.color);
+                    p.stroke(0);
+                    p.strokeWeight(1);
+                    // Draw top part
+                    p.rect(obstacle.x, 0, obstacle.size, obstacle.y);
+                    // Draw bottom part
+                    p.rect(obstacle.x, obstacle.y + obstacle.gapSize, obstacle.size, p.height - (obstacle.y + obstacle.gapSize));
+                }
+            }
+
+            /**
+             * Draws the game UI, including score and game over screen.
+             */
+            function drawUI() {
+                p.fill(0);
+                p.textSize(fontSize);
+                p.textAlign(p.LEFT);
+                p.text(`Score: ${score}`, 20, 40);
+
+                if (gameOver) {
+                    p.push();
+                    p.fill(255, 0, 0);
+                    p.textSize(48);
+                    p.textAlign(p.CENTER);
+                    p.text("Game Over!", p.width / 2, p.height / 2);
+                    p.textSize(24);
+                    p.text(`Press SPACE to restart`, p.width / 2, p.height / 2 + 40);
+                    p.pop();
+                } else if (!gameStarted) {
+                    p.push();
+                    p.fill(0);
+                    p.textSize(36);
+                    p.textAlign(p.CENTER);
+                    p.text("Wind Glide Game", p.width / 2, p.height / 2 - 60);
+                    p.textSize(24);
+                    p.text("Use UP and DOWN arrows to navigate", p.width / 2, p.height / 2);
+                    p.textSize(20);
+                    p.text("Press SPACE to start", p.width / 2, p.height / 2 + 40);
+                    p.pop();
+                }
+            }
+
+            /**
+             * p5.js setup function. Initializes the canvas, font, and game state.
+             */
+            p.setup = function() {
+                p.createCanvas(800, 600);
+                font = p.loadFont('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+                p.textFont(font);
+                fontSize = 32;
+                glider = createGlider();
+                obstacles = [];
+                score = 0;
+                gameOver = false;
+                gameStarted = false;
+                windStrength = 0;
+                windTimer = 0;
+                obstacleTimer = 0;
             };
 
-            p.draw = () => {
-                p.background(240);
+            /**
+             * p5.js draw function. Called repeatedly to update and render the game.
+             */
+            p.draw = function() {
+                p.background(135, 206, 235); // Sky blue
 
-                // Calculate torque: Torque = r * F * sin(theta_rf)
-                // r is the vector from pivot to CoM
-                // F is the force of gravity acting on CoM (F = totalMass * g, downwards)
-                // theta_rf is the angle between r and F
+                if (gameStarted && !gameOver) {
+                    handleInput();
+                    updateWind();
+                    updateGlider();
+                    updateObstacles();
+                    checkCollisions();
+                }
 
-                // CoM position in world coordinates (rotated)
-                let com_rotated_x = com.x * p.cos(angle) - com.y * p.sin(angle);
-                let com_rotated_y = com.x * p.sin(angle) + com.y * p.cos(angle);
+                drawCanopy();
+                drawGround();
+                drawWindIndicator();
+                drawObstacles();
+                drawGlider();
+                drawUI();
+            };
 
-                // Force vector (gravity)
-                let F_gravity_y = (r1.mass + r2.mass) * g;
-
-                // Lever arm vector (from pivot to CoM in world space, but we need its horizontal component for torque)
-                // Torque = F_gravity_y * (horizontal distance from pivot to CoM)
-                // Horizontal distance = com_rotated_x (since pivot is origin of L-shape's rotation)
-                let torque = F_gravity_y * com_rotated_x;
-
-                // Moment of inertia (I) for the L-shape around the pivot
-                // I = I1 + I2, where I_rect_corner = m/3 * (w^2 + h^2) for rotation about a corner
-                // This is complex. For simplicity, approximate I or use a simpler model.
-                // Let's use I = m * r^2 where r is distance from pivot to CoM.
-                // This is a simplification; proper I for a compound shape is sum of I_cm + md^2 for each part.
-                // For a point mass approximation: I = (r1.mass + r2.mass) * p.dist(0,0, com_rotated_x, com_rotated_y)^2
-                // A more accurate I for two rectangles pivoted at (0,0) of r1:
-                // I1 (vertical bar about its top-left corner):
-                // I_center_mass1 = r1.mass * (r1.w*r1.w + r1.h*r1.h) / 12
-                // d1_sq = (r1.w/2)^2 + (r1.h/2)^2
-                // I1_pivot = I_center_mass1 + r1.mass * d1_sq  -- This is incorrect for pivot at corner
-                // For rect pivoted at corner: (1/3) * m * (w^2 + h^2) -- this is if pivot is at corner OF THE RECT
-                // Our pivot is at (0,0) of the L-shape system.
-                // I_rect_about_axis_through_corner = m * (w^2+h^2)/3. This is not quite right.
-                // Parallel axis theorem: I_pivot = I_com + m*d^2
-                // I_com_r1 = r1.mass * (r1.w*r1.w + r1.h*r1.h) / 12;
-                // d1_sq = (com1_x_world - 0)^2 + (com1_y_world - 0)^2 where com1 is CoM of r1 relative to pivot
-                // This gets complicated quickly. Let's use a simpler, somewhat arbitrary moment of inertia for now.
-                // A larger mass or CoM further from pivot should result in larger I.
-                let momentOfInertia = (r1.mass * (r1.w*r1.w + r1.h*r1.h)/3) + 
-                                      (r2.mass * ( (r2.w*r2.w + r2.h*r2.h)/12 + (r2.w/2)*(r2.w/2) + (r1.h + r2.h/2)*(r1.h + r2.h/2) ));
-                // The above I calculation for r2 is I_com2 + m2*d^2 where d is distance from pivot to CoM of r2.
-                // For r1, it's I about its corner.
-
-                if (momentOfInertia === 0) momentOfInertia = 1; // Avoid division by zero
-
-                angularAcceleration = torque / momentOfInertia;
-                angularVelocity += angularAcceleration;
-                angle += angularVelocity;
-
-                // Apply some damping
-                angularVelocity *= 0.99;
-
-                p.push(); // Save current drawing state
-                p.translate(pivot.x, pivot.y);
-                p.rotate(angle);
-
-                // Draw L-shape
-                // Part 1 (vertical)
-                p.fill(100, 100, 200, 200); // Blue-ish
-                p.stroke(50, 50, 100);
-                p.rect(r1.x, r1.y, r1.w, r1.h);
-
-                // Part 2 (horizontal)
-                p.fill(100, 200, 100, 200); // Green-ish
-                p.stroke(50, 100, 50);
-                p.rect(r2.x, r2.y, r2.w, r2.h); // r2.x is 0, r2.y is r1.h
-
-                // Draw CoM
-                p.fill(255, 0, 0); // Red
-                p.noStroke();
-                p.ellipse(com.x, com.y, 10, 10);
-
-                p.pop(); // Restore drawing state
-
-                // Draw pivot point
-                p.fill(0);
-                p.noStroke();
-                p.ellipse(pivot.x, pivot.y, 8, 8);
-                p.stroke(0);
-                p.fill(255);
-                p.ellipse(pivot.x, pivot.y, 3, 3);
+            /**
+             * p5.js keyPressed function. Handles keyboard input.
+             */
+            p.keyPressed = function() {
+                if (p.key === ' ' && (gameOver || !gameStarted)) {
+                    p.setup(); // Reset game
+                    gameStarted = true;
+                    gameOver = false;
+                }
             };
         };
 
-        const container = window.document.getElementById('canvas-container');
-        new p5(sketch, container);
-
+        let myp5 = new window.p5(sketch);
     </script>
 </body>
-
 </html>
