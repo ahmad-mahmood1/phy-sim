@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tether Swing Game - Infinite Runner</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"
+            }
+        }
+    </script>
+    <style>
+        body {
+            margin: 0;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            /* Align items vertically */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a2e;
+            /* Darker space blue */
+            color: #e0e1dd;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            margin-bottom: 1rem;
+        }
+
+        canvas {
+            display: block;
+            border: 2px solid #0f3460;
+            /* Deep blue border */
+            box-shadow: 0 0 20px rgba(72, 202, 228, 0.4);
+            /* Cyan glow */
+        }
+
+        .instructions {
+            margin-top: 1rem;
+            text-align: center;
+            max-width: 800px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Tether Swing Game</h1>
+
+    <div id="canvas-container"></div>
+
+    <div class="instructions">
+        <p><strong>How to Play:</strong></p>
+        <p><strong>Left-Click:</strong> Attach to the nearest anchor point to clicked position to swing, or detach if
+            already swinging.</p>
+        <p><strong>Right-Click (while swinging):</strong> Get a momentum boost!</p>
+        <p>Travel as far as you can to the right, avoiding the cacti and lasers.</p>
+    </div>
+
+    <script type="module">
+        import 'p5';
+
+        /**
+         * @param {p5} p - The p5.js instance.
+         */
+        let sketch = function (p) {
+            const CANVAS_HEIGHT = 800
+            const CANVAS_WIDTH = 600
+            /** @type {TetherSwingGame} */
+            let game;
+
+            p.setup = function () {
+                p.createCanvas(CANVAS_HEIGHT, CANVAS_WIDTH);
+                p.frameRate(60);
+                game = new TetherSwingGame(p);
+                // Disable the default right-click context menu
+                document.oncontextmenu = () => false;
+            };
+
+            p.draw = function () {
+                game.update();
+                game.render();
+            };
+
+            p.mousePressed = function (event) {
+                if (game) game.handleMousePress(event);
+            };
+
+            /**
+             * Main game class for the Tether Swing infinite runner.
+             */
+            class TetherSwingGame {
+                constructor(p5Instance) {
+                    this.p = p5Instance;
+                    this.initializeGame();
+                }
+
+                initializeGame() {
+                    this.player = new Player(this.p, 30, this.p.height / 3);
+                    this.tether = null; // Only one tether at a time
+                    this.obstacles = [];
+                    this.powerUps = [];
+                    this.tetherPoints = [];
+                    this.scoreSystem = new ScoreSystem();
+                    this.state = "title"; // "title", "playing", "gameOver"
+                    this.cameraX = 0;
+                    this.farthestX = 0; // Tracks player's max distance
+
+                    this.gameOver = false;
+                    this.restartTimer = 0;
+                    this.message = "Tether Swing";
+                    this.messageTimer = 120;
+
+                    // Initial tether points for the start of the game
+                    this.lastGeneratedX = 0;
+                    this.generateWorldChunk(0, this.p.width * 2, (this.p.width * 2) / 4);
+
+                }
+
+                // Generates tether points and obstacles
+                generateWorldChunk(startX, endX, tetherGap) {
+                    // Generate Tether Points
+                    for (let x = startX; x < endX; x += tetherGap) {
+                        let y = this.p.height / 4
+                        this.tetherPoints.push(new TetherPoint(this.p, x, y));
+                    }
+                    // Generate Obstacles
+                    for (let x = startX + tetherGap / 2; x < endX; x += tetherGap) {
+                        let y = this.p.random(this.p.height * 0.1, this.p.height * 0.9);
+                        this.obstacles.push(new Obstacle(this.p, x, y, this.p.random() < 0.5 ? "spike" : "laser", this.farthestX / 2000));
+                    }
+                }
+
+                update() {
+                    if (this.state === "title") {
+                        if (this.p.mouseIsPressed) this.state = "playing";
+                        this.updateMessages();
+                        return;
+                    }
+                    if (this.state === "gameOver") {
+                        if (this.p.mouseIsPressed && this.restartTimer <= 0) this.initializeGame();
+                        this.restartTimer--;
+                        this.updateMessages();
+                        return;
+                    }
+
+                    // --- PLAYING STATE ---
+                    this.player.applyForce(this.p.createVector(0, 0.2 * this.player.mass)); // Gravity
+
+                    if (this.tether) {
+                        this.tether.update();
+                        if (this.tether.isBroken) this.tether = null;
+                    }
+
+                    this.player.integrate();
+
+                    // Update camera to follow player but always move forward
+                    let targetCameraX = this.player.x - this.p.width / 4;
+                    this.cameraX = this.p.lerp(this.cameraX, targetCameraX, 0.08);
+
+                    // Update score and farthest distance
+                    this.farthestX = Math.max(this.farthestX, this.player.x);
+                    this.scoreSystem.setScore(Math.floor(this.farthestX / 10));
+
+                    // Infinite world generation
+                    if (this.player.x > this.lastGeneratedX - this.p.width) {
+                        let start = this.lastGeneratedX;
+                        let end = this.lastGeneratedX + this.p.width * 2;
+                        let tetherGap = (end - start) / 4
+                        this.generateWorldChunk(start, end, tetherGap);
+                        this.lastGeneratedX = end;
+                    }
+
+                    this.updateObstacles();
+
+                    // Cleanup off-screen objects (left of camera)
+                    this.tetherPoints = this.tetherPoints.filter(tp => tp.x > this.cameraX - 50);
+                    this.obstacles = this.obstacles.filter(o => o.x > this.cameraX - 100);
+
+                    // Check for game over
+                    if (this.player.y > this.p.height + this.player.radius || this.player.x < this.cameraX - this.player.radius) {
+                        this.triggerGameOver("You got left behind!");
+                    }
+                }
+
+                updateObstacles() {
+                    for (let i = this.obstacles.length - 1; i >= 0; i--) {
+                        this.obstacles[i].update();
+                        if (this.obstacles[i].collidesWithPlayer(this.player)) {
+                            this.triggerGameOver(`Hit a ${this.obstacles[i].type}!`);
+                        }
+                    }
+                }
+
+                triggerGameOver(reason) {
+                    if (this.gameOver) return;
+                    this.gameOver = true;
+                    this.state = "gameOver";
+                    this.message = reason;
+                    this.messageTimer = 1800;
+                    this.restartTimer = 60;
+                }
+
+                updateMessages() {
+                    if (this.messageTimer > 0) this.messageTimer--;
+                }
+
+                render() {
+                    this.p.background(26, 26, 46); // 0x1a1a2e
+
+                    // --- Game World Rendering (affected by camera) ---
+                    this.p.push();
+                    this.p.translate(-this.cameraX, 0);
+
+                    this.tetherPoints.forEach(tp => tp.render());
+                    this.obstacles.forEach(o => o.render());
+                    if (this.tether) this.tether.render();
+                    this.player.render();
+
+                    this.p.pop();
+
+                    // --- UI Rendering (not affected by camera) ---
+                    this.renderUI();
+                }
+
+                renderUI() {
+                    this.p.fill(224, 225, 221); // #e0e1dd
+                    this.p.textSize(24);
+                    this.p.textAlign(this.p.LEFT, this.p.TOP);
+                    this.p.text(`Score: ${this.scoreSystem.score}`, 20, 20);
+
+                    if (this.state === "title") {
+                        this.p.textAlign(this.p.CENTER, this.p.CENTER);
+                        this.p.textSize(56);
+                        this.p.text("Tether Swing", this.p.width / 2, this.p.height / 2 - 50);
+                        this.p.textSize(28);
+                        this.p.text("Click to Start", this.p.width / 2, this.p.height / 2 + 20);
+                    }
+                    if (this.state === "gameOver" && this.messageTimer > 0) {
+                        this.p.textAlign(this.p.CENTER, this.p.CENTER);
+                        this.p.fill(255, 100, 100);
+                        this.p.textSize(48);
+                        this.p.text("Game Over", this.p.width / 2, this.p.height / 2 - 80);
+                        this.p.textSize(32);
+                        this.p.text(this.message, this.p.width / 2, this.p.height / 2 - 30);
+                        this.p.fill(224, 225, 221);
+                        this.p.textSize(24);
+                        this.p.text(`Final Score: ${this.scoreSystem.score}`, this.p.width / 2, this.p.height / 2 + 20);
+                        if (this.restartTimer <= 0) {
+                            this.p.text("Click to Restart", this.p.width / 2, this.p.height / 2 + 60);
+                        }
+                    }
+                }
+
+                handleMousePress(event) {
+                    if (this.state !== "playing") return;
+
+                    // Left Click: Attach/Detach
+                    if (this.p.mouseButton === this.p.LEFT) {
+                        if (this.tether) {
+                            this.tether.isBroken = true;
+                            this.tether = null;
+                        } else {
+                            let closestPoint = null;
+                            let min_dist = Infinity;
+                            // Find closest tether point to the mouse
+                            let mouseWorldX = this.p.mouseX + this.cameraX;
+                            this.tetherPoints.forEach(tp => {
+                                let d = this.p.dist(mouseWorldX, this.p.mouseY, tp.x, tp.y);
+                                if (d < min_dist && d < 200) { // Only connect if mouse is reasonably close
+                                    min_dist = d;
+                                    closestPoint = tp;
+                                }
+                            });
+
+                            if (closestPoint) {
+                                this.tether = new Tether(this.p, this.player, closestPoint);
+                            }
+                        }
+                    }
+                    // Right Click: Boost
+                    else if (this.p.mouseButton === this.p.RIGHT) {
+                        if (this.tether) {
+                            this.player.boost(this.tether);
+                        }
+                    }
+                }
+            }
+
+            class Player {
+                constructor(p5Instance, x, y) {
+                    this.p = p5Instance;
+                    this.x = x;
+                    this.y = y;
+                    this.mass = 1.2;
+                    this.velocity = this.p.createVector(1, 0); // Start with some forward momentum
+                    this.acceleration = this.p.createVector(0, 0);
+                    this.radius = 12;
+                    this.maxSpeed = 15;
+                }
+
+                applyForce(force) {
+                    this.acceleration.add(p5.Vector.div(force, this.mass));
+                }
+
+                boost(tether) {
+                    // Apply a force tangential to the swing arc
+                    let tetherDir = p5.Vector.sub(this.p.createVector(this.x, this.y), tether.anchor.pos);
+                    if (tetherDir.magSq() === 0) return;
+
+                    // Get a perpendicular vector for the tangent
+                    let tangent = tetherDir.copy().rotate(this.p.HALF_PI);
+                    tangent.normalize();
+
+                    // Ensure boost is applied in the direction of velocity
+                    if (tangent.dot(this.velocity) < 0) {
+                        tangent.mult(-1);
+                    }
+
+                    tangent.mult(15); // Boost strength
+                    this.applyForce(tangent);
+                }
+
+                integrate() {
+                    this.velocity.add(this.acceleration);
+                    this.velocity.limit(this.maxSpeed);
+                    this.x += this.velocity.x;
+                    this.y += this.velocity.y;
+                    this.acceleration.mult(0); // Clear acceleration after applying
+                }
+
+                render() {
+                    this.p.push();
+                    this.p.translate(this.x, this.y);
+                    this.p.fill(72, 202, 228); // #48cae4
+                    this.p.noStroke();
+                    this.p.ellipse(0, 0, this.radius * 2);
+                    this.p.pop();
+                }
+            }
+
+            // New Tether Point class
+            class TetherPoint {
+                constructor(p5Instance, x, y) {
+                    this.p = p5Instance;
+                    this.x = x;
+                    this.y = y;
+                    this.radius = 8;
+                }
+                render() {
+                    this.p.fill(230, 230, 230, 150);
+                    this.p.stroke(255, 200);
+                    this.p.strokeWeight(2);
+                    this.p.ellipse(this.x, this.y, this.radius * 2);
+                }
+            }
+
+
+            // Tether is now a rigid constraint
+            class Tether {
+                constructor(p5Instance, player, anchorTetherPoint) {
+                    this.p = p5Instance;
+                    this.player = player;
+                    this.anchor = anchorTetherPoint; // Reference to TetherPoint object
+                    this.isBroken = false;
+                    this.length = this.p.dist(this.player.x, this.player.y, this.anchor.x, this.anchor.y);
+                }
+
+                update() {
+                    if (this.isBroken) return;
+
+                    const playerPos = this.p.createVector(this.player.x, this.player.y);
+                    const anchorPos = this.p.createVector(this.anchor.x, this.anchor.y);
+                    const vecToAnchor = p5.Vector.sub(playerPos, anchorPos);
+                    const currentDist = vecToAnchor.mag();
+
+                    const error = currentDist - this.length;
+
+                    if (Math.abs(error) > 0.1) { // If player is not on the circle's edge
+                        // 1. Correct the position
+                        vecToAnchor.setMag(this.length);
+                        const correctPos = p5.Vector.add(anchorPos, vecToAnchor);
+                        this.player.x = correctPos.x;
+                        this.player.y = correctPos.y;
+
+                        // 2. Correct the velocity to be tangential
+                        const tetherNormal = vecToAnchor.copy().normalize();
+                        const velocityComponent = this.player.velocity.dot(tetherNormal);
+                        const velocityCorrection = tetherNormal.mult(velocityComponent);
+
+                        this.player.velocity.sub(velocityCorrection);
+                    }
+                }
+
+                render() {
+                    if (this.isBroken) return;
+                    this.p.stroke(255, 255, 255, 220);
+                    this.p.strokeWeight(2);
+                    this.p.line(this.anchor.x, this.anchor.y, this.player.x, this.player.y);
+                }
+            }
+
+            class Obstacle {
+                constructor(p5Instance, x, y, type = "spike", difficulty = 0) {
+                    this.p = p5Instance;
+                    this.x = x;
+                    this.y = y;
+                    this.type = type;
+                    this.radius = (type === "spike") ? 20 : 10;
+                    this.velocity = p.createVector(0, 1).mult(1 + difficulty);
+                    this.rotation = this.p.random(this.p.TWO_PI);
+                    this.angularVelocity = (this.p.random() - 0.5) * 0.05;
+
+                    this.spikePoints = [];
+                    const numSpikes = 12;
+                    for (let i = 0; i < numSpikes; i++) {
+                        this.spikePoints.push({
+                            angle: i * p.TWO_PI / numSpikes,
+                            length: this.p.random(4, 8)
+                        });
+                    }
+                }
+                update() {
+                    this.x += this.velocity.x;
+                    this.y += this.velocity.y;
+                    this.rotation += this.angularVelocity;
+
+                    // Bounce off top/bottom of screen
+                    if (this.y < this.radius || this.y > this.p.height - this.radius) {
+                        this.velocity.y *= -1;
+                    }
+                }
+                render() {
+                    this.p.push();
+                    this.p.translate(this.x, this.y);
+                    this.p.rotate(this.rotation);
+                    if (this.type === "spike") {
+                        // --- NEW: Draw circular cactus ---
+                        // Cactus Body
+                        this.p.fill(85, 140, 90); // Cactus green color
+                        this.p.noStroke();
+                        this.p.ellipse(0, 0, this.radius * 2);
+
+                        // Tiny white spikes
+                        this.p.stroke(255); // White spikes
+                        this.p.strokeWeight(1.5);
+                        this.spikePoints.forEach(spike => {
+                            const startX = this.p.cos(spike.angle) * this.radius;
+                            const startY = this.p.sin(spike.angle) * this.radius;
+                            const endX = this.p.cos(spike.angle) * (this.radius + spike.length);
+                            const endY = this.p.sin(spike.angle) * (this.radius + spike.length);
+                            this.p.line(startX, startY, endX, endY);
+                        });
+                        // --- END of new cactus code ---
+                    } else { // Laser
+                        this.p.stroke(255, 202, 58, 200); // #ffca3a
+                        this.p.strokeWeight(this.radius * 0.8 + this.p.sin(this.p.frameCount * 0.2 + this.x) * 2);
+                        this.p.line(0, 0, 50, 0);
+                        this.p.fill(131, 56, 236); // #8338ec
+                        this.p.noStroke();
+                        this.p.ellipse(0, 0, this.radius);
+                    }
+                    this.p.pop();
+                }
+                collidesWithPlayer(player) {
+                    if (this.type === "spike") {
+                        // Simple circle collision for cactus is sufficient
+                        return this.p.dist(this.x, this.y, player.x, player.y) < this.radius + player.radius;
+                    } else { // Laser collision
+                        // 1. Check collision with the base circle first (it's cheaper)
+                        let baseCollision = this.p.dist(this.x, this.y, player.x, player.y) < this.radius + player.radius;
+                        if (baseCollision) return true;
+
+                        // 2. Check collision with the line segment (the beam)
+                        const playerPos = this.p.createVector(player.x, player.y);
+                        const laserStart = this.p.createVector(this.x, this.y);
+
+                        // Calculate the laser's end point in world space
+                        const laserVector = this.p.createVector(this.laserLength, 0);
+                        laserVector.rotate(this.rotation);
+                        const laserEnd = p5.Vector.add(laserStart, laserVector);
+
+                        // Use a point-to-line-segment distance check
+                        const lineVec = p5.Vector.sub(laserEnd, laserStart);
+                        const playerToStart = p5.Vector.sub(playerPos, laserStart);
+                        const lenSq = lineVec.magSq();
+
+                        // This handles the case where laser has zero length (shouldn't happen)
+                        if (lenSq === 0) return playerPos.dist(laserStart) < player.radius;
+
+                        // Project the player's position onto the line defined by the laser
+                        let t = this.p.constrain(playerToStart.dot(lineVec) / lenSq, 0, 1);
+
+                        // Find the closest point on the line segment to the player
+                        const closestPoint = p5.Vector.add(laserStart, lineVec.mult(t));
+
+                        // Check if the distance from the player to this closest point is less than the player's radius
+                        return playerPos.dist(closestPoint) < player.radius;
+                    }
+                }
+            }
+
+            class ScoreSystem {
+                constructor() { this.score = 0; }
+                setScore(newScore) { this.score = newScore; }
+            }
+        };
+        new window.p5(sketch);
+    </script>
+</body>
+
+</html>

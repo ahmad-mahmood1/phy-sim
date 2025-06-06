@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            /* Allow button to be below canvas */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            /* Light gray background */
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            /* Darker border */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            /* Softer shadow */
+            background-color: #fff;
+            /* White background for canvas area */
+            margin-bottom: 20px;
+            /* Space for reset button */
+        }
+
+        canvas {
+            display: block;
+            /* Prevents extra space below canvas */
+        }
+
+        .info-text {
+            margin-top: 15px;
+            font-size: 14px;
+            text-align: center;
+            padding: 0 10px;
+        }
+
+        .control-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            font-family: 'Roboto Mono', monospace;
+            background-color: #4CAF50;
+            /* Green */
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+        }
+
+        .control-button:hover {
+            background-color: #45a049;
+        }
+
+        .control-button:active {
+            background-color: #3e8e41;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="canvas-container">
+        <!-- p5.js canvas will be created here -->
+    </div>
+    <button id="resetButton" class="control-button">Reset Simulation</button>
+    <div class="info-text">
+        Character automatically navigates obstacles using pre-defined gravity flips.
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Game Constants ---
+            const CANVAS_WIDTH = 1200;
+            const CANVAS_HEIGHT = 400;
+            const PLAYER_SIZE = 20;
+            const PLAYER_SPEED_X = 3; // Constant horizontal speed
+            const GRAVITY_FORCE = 3;
+            const MESSAGE_DURATION = 180; // Frames to show win/lose message (3 seconds at 60fps)
+            const GRAVITY_DIRECTION = {
+                UP: -1,
+                DOWN: 1
+            }
+
+            const OBSTACLE_COUNT = 6
+
+            // --- Flappy Bird Style Level Parameters ---
+            const GAP_HEIGHT = 120; // Vertical opening for the player
+            const OBSTACLE_WIDTH = 60; // Width of each obstacle part
+            const OBSTACLE_START_X = 100; // X-coordinate where the first obstacle starts
+            const OBSTACLE_SPACING_X = 180; // Horizontal distance between the start of consecutive obstacles
+            const PLAYER_START_X = 50
+            const PLAYER_START_Y = CANVAS_HEIGHT / 2 - PLAYER_SIZE / 2
+
+            // --- Game Variables ---
+            let player;
+            let platforms = []; // Will store obstacles
+            let goal;
+            let gravityDirection; // 1 for down, -1 for up
+
+            let flipCommands = [];
+            let currentFlipCommandIndex;
+
+            let gameState; // 'playing', 'won', 'failed'
+            let messageTimer;
+
+            // --- Player Object ---
+            class Player {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.w = PLAYER_SIZE;
+                    this.h = PLAYER_SIZE;
+                    this.vx = PLAYER_SPEED_X;
+                    this.vy = 0;
+                    this.color = p.color(255, 230, 10);
+                    this.onPlatform = false;
+                }
+
+                applyGravity() {
+                    this.vy = GRAVITY_FORCE * gravityDirection;
+                }
+
+                update() {
+                    this.x += this.vx
+                    this.y += this.vy;
+
+                    console.log(this.x, this.y, this.vy)
+                }
+
+                draw() {
+                    p.fill(this.color);
+                    p.noStroke();
+                    p.rect(this.x, this.y, this.w, this.h);
+
+                    // Draw arrow indicating gravity
+                    p.push();
+                    p.translate(this.x + this.w / 2, this.y + this.h / 2);
+                    p.stroke(0);
+                    p.strokeWeight(2);
+                    if (gravityDirection === GRAVITY_DIRECTION.DOWN) { // DOWN
+                        p.line(0, -this.h / 3, 0, this.h / 3);
+                        p.line(0, this.h / 3, -3, this.h / 3 - 5);
+                        p.line(0, this.h / 3, 3, this.h / 3 - 5);
+                    } else { // UP
+                        p.line(0, this.h / 3, 0, -this.h / 3);
+                        p.line(0, -this.h / 3, -3, -this.h / 3 + 5);
+                        p.line(0, -this.h / 3, 3, -this.h / 3 + 5);
+                    }
+                    p.pop();
+                }
+            }
+
+            // --- Platform Object (used for obstacles) ---
+            class Platform {
+                constructor(x, y, w, h) {
+                    this.x = x;
+                    this.y = y;
+                    this.w = w;
+                    this.h = h;
+                    this.color = p.color(100, 200, 100); // Greenish obstacles
+                }
+
+                draw() {
+                    p.fill(this.color);
+                    p.noStroke();
+                    p.rect(this.x, this.y, this.w, this.h);
+                }
+            }
+
+            // --- Goal Object ---
+            class Goal {
+                constructor(width) {
+                    this.x = CANVAS_WIDTH - width;
+                    this.y = 0;
+                    this.width = width;
+                    this.color = p.color(255, 0, 50, 180); // Goldish goal
+                }
+
+                draw() {
+                    p.fill(this.color);
+                    p.noStroke();
+                    p.rect(this.x, this.y, this.width, CANVAS_HEIGHT);
+
+                    // Add vertical text labelled "Goal"
+                    p.push()
+                    p.fill(255); // Black text
+                    p.textSize(58);
+                    p.textFont('Roboto Mono');
+                    p.translate(this.x, CANVAS_HEIGHT / 2);
+                    p.rotate(-p.HALF_PI); // 90 degrees counterclockwise
+                    p.text("Goal", -55, 55);
+                    p.pop();
+                }
+            }
+
+            // --- Game Initialization / Reset ---
+            function initializeGame() {
+                player = new Player(PLAYER_START_X, PLAYER_START_Y); // Start on the first platform
+                currentFlipCommandIndex = 0;
+                gravityDirection = 0; // Start with gravity pulling down
+                gameState = 'playing';
+                messageTimer = 0;
+                player.vx = PLAYER_SPEED_X; // Ensure player moves right on reset
+                platforms = []; // Clear existing platforms/obstacles
+                flipCommands = [];
+
+                for (let i = 0; i < OBSTACLE_COUNT; i++) {
+                    let isTopObstalce = i % 2 === 0;
+                    platforms.push(new Platform(
+                        OBSTACLE_START_X + i * OBSTACLE_SPACING_X, // x-position
+                        0 + (isTopObstalce ? 0 : CANVAS_HEIGHT / 2), // y-position (starts from top of canvas)
+                        OBSTACLE_WIDTH, // width
+                        CANVAS_HEIGHT / 2
+                    ));
+
+                    flipCommands.push({
+                        xPosition: OBSTACLE_START_X + i * OBSTACLE_SPACING_X + OBSTACLE_WIDTH / 2,
+                        newGravity: isTopObstalce ? GRAVITY_DIRECTION.DOWN : GRAVITY_DIRECTION.UP
+                    });
+                }
+
+                // last flip to reach the goal
+                flipCommands.push({
+                    xPosition: CANVAS_WIDTH - OBSTACLE_WIDTH / 2,
+                    newGravity: GRAVITY_DIRECTION.DOWN
+                })
+
+
+                goal = new Goal(
+                    OBSTACLE_WIDTH * 1.2
+                );
+            }
+
+
+            // --- Collision Detection ---
+            function handleCollisions() {
+                player.onPlatform = false;
+                let onAnyPlatformThisFrame = false;
+
+                for (let platform of platforms) {
+                    if (player.x < platform.x + platform.w &&
+                        player.x + player.w > platform.x &&
+                        player.y < platform.y + platform.h &&
+                        player.y + player.h > platform.y) {
+
+                        if (gravityDirection === 1) {
+                            if (player.vy >= 0) {
+                                if (player.y + player.h - player.vy <= platform.y + 1) {
+                                    player.y = platform.y - player.h;
+                                    player.vy = 0;
+                                    onAnyPlatformThisFrame = true;
+                                }
+                            }
+                        } else {
+                            if (player.vy <= 0) {
+                                if (player.y - player.vy >= platform.y + platform.h - 1) {
+                                    player.y = platform.y + platform.h;
+                                    player.vy = 0;
+                                    onAnyPlatformThisFrame = true;
+                                }
+                            }
+                        }
+
+                        // Check for horizontal collision (hitting the side of an obstacle)
+                        // This checks if player is moving right and has just entered the platform's x-range
+                        let prevPlayerRightEdge = player.x + player.w - player.vx;
+                        if (player.vx > 0 && prevPlayerRightEdge <= platform.x && (player.x + player.w) > platform.x) {
+                            // Check for vertical overlap to confirm it's a side hit, not just passing above/below
+                            if (player.y + player.h > platform.y && player.y < platform.y + platform.h) {
+                                player.x = platform.x - player.w; // Position player just before hitting
+                                player.vx = 0; // Stop horizontal movement
+                                gameState = 'failed';
+                            }
+                        }
+                    }
+                }
+                player.onPlatform = onAnyPlatformThisFrame;
+            }
+
+            // --- Check for Gravity Flips ---
+            function checkGravityFlips() {
+                if (gameState !== 'playing') return; // Only process flips if playing
+
+                if (currentFlipCommandIndex < flipCommands.length) {
+                    let command = flipCommands[currentFlipCommandIndex];
+                    gravityDirection = command.newGravity;
+
+                    if (player.x + player.w / 2 >= command.xPosition) {
+                        // Reset player's vertical velocity when gravity changes
+                        player.vy = 0;
+                        currentFlipCommandIndex++;
+                    }
+                }
+            }
+
+            // --- Check Win/Lose Conditions ---
+            function checkGameStatus() {
+                if (gameState !== 'playing') return;
+
+                if (player.x > goal.x) {
+                    gameState = 'won';
+                    messageTimer = MESSAGE_DURATION;
+                    player.vx = 0; // Stop player on win
+                }
+
+            }
+
+            // --- p5.js Setup Function ---
+            p.setup = () => {
+                let canvas = p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+                canvas.parent('canvas-container');
+                initializeGame();
+
+                const resetButton = document.getElementById('resetButton');
+                resetButton.onclick = () => {
+                    initializeGame();
+                };
+            };
+
+            // --- p5.js Draw Function (Game Loop) ---
+            p.draw = () => {
+                p.background(200, 225, 255); // Lighter blue sky
+                if (gameState === 'playing') {
+                    player.applyGravity();
+                    player.update();
+                    checkGravityFlips();
+                    handleCollisions();
+                    checkGameStatus();
+                }
+
+                for (let platform of platforms) {
+                    platform.draw();
+                }
+                goal.draw();
+                player.draw();
+
+                if (gameState === 'won') {
+                    p.push()
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.textSize(48);
+                    p.fill(0, 0, 0, messageTimer > 0 ? 200 : 0);
+                    p.text("SUCCESS!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+                    p.pop()
+                    messageTimer--;
+                    // Auto-restart is removed, manual reset button is primary
+                } else {
+                    p.push()
+                    p.textAlign(p.LEFT, p.TOP);
+                    p.textSize(16);
+                    p.fill(50);
+                    let gravityText = gravityDirection === GRAVITY_DIRECTION.DOWN ? "Gravity: DOWN" : "Gravity: UP";
+                    p.textFont('Roboto Mono');
+                    p.text(gravityText, 10, 10);
+                    p.pop()
+                }
+            };
+        };
+
+        new p5(sketch);
+
+    </script>
+</body>
+
+</html>
