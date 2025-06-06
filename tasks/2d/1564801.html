@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2D Physics Simulation: Autonomous Magnet Maze</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #1a1a2e; /* Dark navy blue background */
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      overflow: hidden;
+    }
+    .container {
+      position: relative;
+      width: 800px;
+      height: 600px;
+      border: 3px solid #e0e0e0;
+      border-radius: 12px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+      background-color: #0f0f1a;
+    }
+    #p5-canvas-container {
+        width: 100%;
+        height: 100%;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    .reset-button {
+      position: absolute;
+      top: 15px;
+      left: 15px;
+      z-index: 10;
+      padding: 10px 18px;
+      font-size: 16px;
+      font-weight: bold;
+      background: linear-gradient(145deg, #f05053, #e11d21);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+      transition: all 0.3s ease;
+    }
+    .reset-button:hover {
+      background: linear-gradient(145deg, #e11d21, #c81a1d);
+      box-shadow: 0 6px 15px rgba(0, 0, 0, 0.6);
+      transform: translateY(-2px);
+    }
+    .info-text {
+        position: absolute;
+        bottom: 15px;
+        width: 100%;
+        text-align: center;
+        color: #a0a0b0;
+        font-size: 14px;
+        pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="p5-canvas-container"></div>
+    <button class="reset-button" id="resetButton">Reset</button>
+    <div class="info-text" id="infoText">A non-interactive simulation. The hexagon will move automatically.</div>
+  </div>
+
+  <script>
+    /**
+     * Main p5.js sketch for the magnet maze simulation.
+     * This simulation features a metal hexagon that autonomously navigates a static maze.
+     * It is guided by fixed-position magnets and influenced by magnetic zones.
+     * The simulation is non-interactive once started.
+     */
+    const sketch = (p) => {
+      // --- Constants ---
+      const PUCK_RADIUS = 15;
+      const MAGNET_SIZE = 12;
+      const WALL_THICKNESS = 10;
+      const DAMPING = 0.98; // Simulates friction/air resistance
+
+      // --- Maze and Object Variables ---
+      let puck;
+      let magnets = [];
+      let walls = [];
+      let magneticZones = [];
+      let path = [];
+      let isNavigating = false;
+      let hasReachedGoal = false;
+
+      // --- Maze Layout ---
+      // 0 = empty space, 1 = wall
+      const mazeLayout = [
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1],
+        [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1],
+        [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1],
+        [1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+      ];
+
+      const MAZE_COLS = mazeLayout[0].length;
+      const MAZE_ROWS = mazeLayout.length;
+      let cellWidth, cellHeight;
+
+      /**
+       * p5.js setup function. Initializes canvas and all simulation objects.
+       */
+      p.setup = () => {
+        const canvasContainer = document.getElementById('p5-canvas-container');
+        const canvas = p.createCanvas(canvasContainer.offsetWidth, canvasContainer.offsetHeight);
+        canvas.parent(canvasContainer);
+
+        cellWidth = p.width / MAZE_COLS;
+        cellHeight = p.height / MAZE_ROWS;
+
+        initializeSimulation();
+
+        document.getElementById('resetButton').addEventListener('click', resetSimulation);
+        
+        // Start the simulation automatically after a short delay
+        setTimeout(() => {
+          isNavigating = true;
+          document.getElementById('infoText').innerText = "Navigating the maze...";
+        }, 1500);
+      };
+      
+      /**
+       * Initializes or re-initializes all simulation elements.
+       */
+      function initializeSimulation() {
+          // Create Puck
+          puck = createPuck(1.5 * cellWidth, 1.5 * cellHeight);
+
+          // Clear existing objects
+          magnets = [];
+          walls = [];
+          magneticZones = [];
+          path = [];
+          hasReachedGoal = false;
+
+          // Define Magnets (positions are in grid coordinates)
+          magnets.push(createMagnet(3.5, 3.5, 80));
+          magnets.push(createMagnet(6.5, 1.5, 90));
+          magnets.push(createMagnet(6.5, 5.5, 85));
+          magnets.push(createMagnet(1.5, 5.5, 95));
+          magnets.push(createMagnet(1.5, 8.5, 100));
+          magnets.push(createMagnet(6.5, 9.5, 110));
+          magnets.push(createMagnet(14.5, 1.5, 120));
+          magnets.push(createMagnet(14.5, 10.5, 150, true)); // Goal Magnet
+
+          // Define Magnetic Zones (grid coordinates: x, y, width, height, forceMultiplier)
+          // Positive multiplier = attractive, negative = repulsive
+          magneticZones.push(createMagneticZone(5, 4, 3, 3, 1.8));   // Strong attraction
+          magneticZones.push(createMagneticZone(1, 7, 3, 3, -1.2));  // Repulsive zone
+          magneticZones.push(createMagneticZone(9, 8, 4, 2, 1.5));   // Moderate attraction
+          
+          // Create Walls from layout
+          buildWallsFromLayout();
+      }
+
+      /**
+       * Resets the simulation to its initial state.
+       */
+      function resetSimulation() {
+          isNavigating = false;
+          initializeSimulation();
+          setTimeout(() => {
+            isNavigating = true;
+            document.getElementById('infoText').innerText = "Navigating the maze...";
+          }, 500);
+      }
+
+      /**
+       * Creates walls based on the mazeLayout grid.
+       */
+      function buildWallsFromLayout() {
+        for (let r = 0; r < MAZE_ROWS; r++) {
+          for (let c = 0; c < MAZE_COLS; c++) {
+            if (mazeLayout[r][c] === 1) {
+              walls.push({
+                x: c * cellWidth,
+                y: r * cellHeight,
+                w: cellWidth,
+                h: cellHeight
+              });
+            }
+          }
+        }
+      }
+
+      /**
+       * p5.js draw loop. Called on every frame to update and render the simulation.
+       */
+      p.draw = () => {
+        p.background('#0f0f1a');
+        
+        drawMagneticZones();
+        drawWalls();
+        drawMagnets();
+        drawPath();
+
+        if (isNavigating && !hasReachedGoal) {
+          updatePuck();
+        }
+        
+        drawPuck();
+        
+        if (hasReachedGoal) {
+          drawGoalMessage();
+        }
+      };
+      
+      /**
+       * Creates a puck object.
+       */
+      function createPuck(x, y) {
+        return {
+          pos: p.createVector(x, y),
+          vel: p.createVector(0, 0),
+          acc: p.createVector(0, 0),
+          radius: PUCK_RADIUS,
+          mass: 1.0
+        };
+      }
+
+      /**
+       * Creates a magnet object.
+       */
+      function createMagnet(gridX, gridY, force, isGoal = false) {
+        return {
+          pos: p.createVector(gridX * cellWidth, gridY * cellHeight),
+          force: force,
+          isGoal: isGoal
+        };
+      }
+
+      /**
+       * Creates a magnetic zone object.
+       */
+      function createMagneticZone(gridX, gridY, gridW, gridH, multiplier) {
+        return {
+          x: gridX * cellWidth,
+          y: gridY * cellHeight,
+          w: gridW * cellWidth,
+          h: gridH * cellHeight,
+          forceMultiplier: multiplier
+        };
+      }
+      
+      /**
+       * Updates the puck's physics state.
+       */
+      function updatePuck() {
+        // --- Apply Forces ---
+        let totalForce = p.createVector(0, 0);
+
+        // Magnet forces
+        for (const magnet of magnets) {
+          let forceDir = p5.Vector.sub(magnet.pos, puck.pos);
+          let distSq = forceDir.magSq();
+          if (distSq > 1) {
+            let strength = magnet.force / distSq;
+            forceDir.normalize().mult(strength);
+            totalForce.add(forceDir);
+          }
+        }
+
+        // Magnetic zone forces
+        for (const zone of magneticZones) {
+          if (puck.pos.x > zone.x && puck.pos.x < zone.x + zone.w &&
+              puck.pos.y > zone.y && puck.pos.y < zone.y + zone.h) {
+              // Apply the zone's multiplier to the current total force
+              totalForce.mult(zone.forceMultiplier);
+              break; // Apply only one zone effect at a time
+          }
+        }
+        
+        puck.acc.add(totalForce);
+
+        // --- Update Velocity and Position ---
+        puck.vel.add(puck.acc);
+        puck.vel.limit(4); // Max speed
+        puck.vel.mult(DAMPING);
+        puck.pos.add(puck.vel);
+        puck.acc.mult(0); // Reset acceleration
+
+        // --- Handle Collisions ---
+        handleWallCollisions();
+
+        // --- Update Path ---
+        if (p.frameCount % 2 === 0) {
+           path.push(puck.pos.copy());
+           if (path.length > 200) {
+               path.shift();
+           }
+        }
+        
+        // --- Check for Goal ---
+        const goalMagnet = magnets.find(m => m.isGoal);
+        if (goalMagnet && p.dist(puck.pos.x, puck.pos.y, goalMagnet.pos.x, goalMagnet.pos.y) < puck.radius + MAGNET_SIZE) {
+            hasReachedGoal = true;
+            isNavigating = false;
+            document.getElementById('infoText').innerText = "Goal Reached! Press Reset to run again.";
+        }
+      }
+
+      /**
+       * Handles collisions between the puck and the maze walls.
+       */
+      function handleWallCollisions() {
+        for (const wall of walls) {
+          let closestX = p.constrain(puck.pos.x, wall.x, wall.x + wall.w);
+          let closestY = p.constrain(puck.pos.y, wall.y, wall.y + wall.h);
+          
+          let distance = p.dist(puck.pos.x, puck.pos.y, closestX, closestY);
+
+          if (distance < puck.radius) {
+            let overlap = puck.radius - distance;
+            let normal = p5.Vector.sub(puck.pos, p.createVector(closestX, closestY));
+            normal.normalize();
+            
+            // Resolve penetration
+            puck.pos.add(p5.Vector.mult(normal, overlap));
+            
+            // Reflect velocity
+            let dot = puck.vel.dot(normal);
+            let reflection = p5.Vector.mult(normal, 2 * dot);
+            puck.vel.sub(reflection);
+            puck.vel.mult(0.6); // Lose energy on impact
+          }
+        }
+      }
+
+      // --- Drawing Functions ---
+
+      function drawWalls() {
+        p.noStroke();
+        p.fill(40, 60, 100);
+        for (const wall of walls) {
+          p.rect(wall.x, wall.y, wall.w, wall.h, 2);
+        }
+      }
+
+      function drawMagneticZones() {
+        p.noStroke();
+        for (const zone of magneticZones) {
+          let zoneFillColor;
+          if (zone.forceMultiplier > 0) {
+            zoneFillColor = p.color(0, 255, 150, 25); // Greenish for attractive
+          } else {
+            zoneFillColor = p.color(255, 100, 100, 25); // Reddish for repulsive
+          }
+          p.fill(zoneFillColor);
+          p.rect(zone.x, zone.y, zone.w, zone.h);
+          
+          p.strokeWeight(1.5);
+          // FIX: Use the color components from the stored p5.Color object
+          p.stroke(p.red(zoneFillColor), p.green(zoneFillColor), p.blue(zoneFillColor), 60);
+          p.noFill();
+          p.rect(zone.x, zone.y, zone.w, zone.h, 5);
+        }
+      }
+
+      function drawMagnets() {
+        for (const magnet of magnets) {
+          p.strokeWeight(2);
+          let magnetStrokeColor;
+          if (magnet.isGoal) {
+            magnetStrokeColor = p.color(255, 223, 0); // Goal color
+            p.fill(150, 120, 0, 150);
+          } else {
+            magnetStrokeColor = p.color(100, 180, 255); // Regular magnet color
+            p.fill(50, 90, 150, 150);
+          }
+          p.stroke(magnetStrokeColor);
+          p.circle(magnet.pos.x, magnet.pos.y, MAGNET_SIZE * 2);
+
+          // Pulsing animation
+          let pulseSize = MAGNET_SIZE + p.sin(p.frameCount * 0.05 + magnet.pos.x) * 3;
+          p.noFill();
+          // FIX: Use the color components from the stored p5.Color object
+          p.stroke(p.red(magnetStrokeColor), p.green(magnetStrokeColor), p.blue(magnetStrokeColor), 80);
+          p.circle(magnet.pos.x, magnet.pos.y, pulseSize * 2);
+        }
+      }
+
+      function drawPath() {
+        p.noFill();
+        p.strokeWeight(2.5);
+        p.beginShape();
+        for (let i = 0; i < path.length; i++) {
+          let alpha = p.map(i, 0, path.length, 0, 100);
+          p.stroke(255, 80, 80, alpha);
+          p.vertex(path[i].x, path[i].y);
+        }
+        p.endShape();
+      }
+
+      function drawPuck() {
+        p.push();
+        p.translate(puck.pos.x, puck.pos.y);
+        // Rotate towards velocity direction for a dynamic effect
+        if (puck.vel.mag() > 0.1) {
+          p.rotate(puck.vel.heading() + p.PI / 2);
+        }
+
+        // Draw hexagon
+        p.strokeWeight(2);
+        p.stroke(240, 240, 255);
+        p.fill(200, 200, 220); // Metallic gray
+        
+        p.beginShape();
+        for (let i = 0; i < 6; i++) {
+          let angle = p.TWO_PI / 6 * i;
+          let x = p.cos(angle) * puck.radius;
+          let y = p.sin(angle) * puck.radius;
+          p.vertex(x, y);
+        }
+        p.endShape(p.CLOSE);
+
+        // Add a simple metallic shine
+        p.noStroke();
+        p.fill(255, 255, 255, 70);
+        p.arc(0, 0, puck.radius * 1.5, puck.radius * 1.5, -p.PI * 0.8, -p.PI * 0.2);
+        
+        p.pop();
+      }
+
+      function drawGoalMessage() {
+        p.push();
+        p.textAlign(p.CENTER, p.CENTER);
+        p.textSize(50);
+        p.fill(255, 223, 0);
+        p.stroke(0);
+        p.strokeWeight(4);
+        p.text("SUCCESS!", p.width / 2, p.height / 2);
+        p.pop();
+      }
+      
+      p.windowResized = () => {
+        const canvasContainer = document.getElementById('p5-canvas-container');
+        p.resizeCanvas(canvasContainer.offsetWidth, canvasContainer.offsetHeight);
+        cellWidth = p.width / MAZE_COLS;
+        cellHeight = p.height / MAZE_ROWS;
+        // Re-initialize to scale all elements correctly
+        isNavigating = false;
+        initializeSimulation();
+        setTimeout(() => { isNavigating = true; }, 500);
+      };
+
+    };
+
+    // Create the p5 instance
+    new p5(sketch);
+  </script>
+</body>
+</html>
