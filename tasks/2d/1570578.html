@@ -94,7 +94,7 @@
             const CANVAS_HEIGHT = 400;
             const PLAYER_SIZE = 20;
             const PLAYER_SPEED_X = 3; // Constant horizontal speed
-            const GRAVITY_FORCE = 3;
+            const GRAVITY_FORCE = 4.2;
             const MESSAGE_DURATION = 180; // Frames to show win/lose message (3 seconds at 60fps)
             const GRAVITY_DIRECTION = {
                 UP: -1,
@@ -108,7 +108,7 @@
             const OBSTACLE_WIDTH = 60; // Width of each obstacle part
             const OBSTACLE_START_X = 100; // X-coordinate where the first obstacle starts
             const OBSTACLE_SPACING_X = 180; // Horizontal distance between the start of consecutive obstacles
-            const PLAYER_START_X = 50
+            const PLAYER_START_X = 20
             const PLAYER_START_Y = CANVAS_HEIGHT / 2 - PLAYER_SIZE / 2
 
             // --- Game Variables ---
@@ -224,13 +224,16 @@
                 platforms = []; // Clear existing platforms/obstacles
                 flipCommands = [];
 
+
                 for (let i = 0; i < OBSTACLE_COUNT; i++) {
                     let isTopObstalce = i % 2 === 0;
+                    let heightVariance = p.random(0, 40);
+
                     platforms.push(new Platform(
                         OBSTACLE_START_X + i * OBSTACLE_SPACING_X, // x-position
-                        0 + (isTopObstalce ? 0 : CANVAS_HEIGHT / 2), // y-position (starts from top of canvas)
+                        0 + (isTopObstalce ? 0 : CANVAS_HEIGHT / 2) + (!isTopObstalce ? -heightVariance : 0), // y-position (starts from top of canvas)
                         OBSTACLE_WIDTH, // width
-                        CANVAS_HEIGHT / 2
+                        CANVAS_HEIGHT / 2 + heightVariance
                     ));
 
                     flipCommands.push({

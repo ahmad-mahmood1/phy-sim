@@ -84,16 +84,16 @@
             // Maze layout (1 = wall, 0 = empty space)
             const mazeLayout = [
                 [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
+                [1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 1],
+                [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 1],
+                [1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1],
+                [1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1],
+                [1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1],
+                [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1],
+                [1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 1],
+                [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1],
                 [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
             ];
 
@@ -160,26 +160,31 @@
              */
             function createWalls() {
                 const wallSegments = [];
-                for (let row = 0; row < MAZE_HEIGHT; row++) {
-                    for (let col = 0; col < MAZE_WIDTH; col++) {
-                        if (mazeLayout[row][col] === 1) { // If this cell is a wall
-                            const wallX = col * GRID_SIZE;
-                            const wallY = row * GRID_SIZE;
-                            // Add horizontal walls (check right neighbor)
-                            if (col < MAZE_WIDTH - 1 && mazeLayout[row][col + 1] === 1) {
-                                wallSegments.push({
-                                    x1: wallX + GRID_SIZE / 2, y1: wallY,
-                                    x2: wallX + GRID_SIZE * 1.5, y2: wallY,
-                                    normalX: 0, normalY: -1 // Normal vector points up
-                                });
+                const visited = new Set(); // To avoid duplicate walls
+                for (let y = 0; y < MAZE_HEIGHT; y++) {
+                    for (let x = 0; x < MAZE_WIDTH; x++) {
+                        if (mazeLayout[y][x] === 1) {
+                            // Check for horizontal wall to the right
+                            if (x + 1 < MAZE_WIDTH && mazeLayout[y][x + 1] === 1) {
+                                const wallId = `${x},${y}-h`;
+                                if (!visited.has(wallId)) {
+                                    wallSegments.push({
+                                        x1: x * GRID_SIZE, y1: y * GRID_SIZE,
+                                        x2: (x + 1) * GRID_SIZE, y2: y * GRID_SIZE
+                                    });
+                                    visited.add(wallId);
+                                }
                             }
-                            // Add vertical walls (check bottom neighbor)
-                            if (row < MAZE_HEIGHT - 1 && mazeLayout[row + 1][col] === 1) {
-                                wallSegments.push({
-                                    x1: wallX, y1: wallY + GRID_SIZE / 2,
-                                    x2: wallX, y2: wallY + GRID_SIZE * 1.5,
-                                    normalX: -1, normalY: 0 // Normal vector points left
-                                });
+                            // Check for vertical wall below
+                            if (y + 1 < MAZE_HEIGHT && mazeLayout[y + 1][x] === 1) {
+                                const wallId = `${x},${y}-v`;
+                                if (!visited.has(wallId)) {
+                                    wallSegments.push({
+                                        x1: x * GRID_SIZE, y1: y * GRID_SIZE,
+                                        x2: x * GRID_SIZE, y2: (y + 1) * GRID_SIZE
+                                    });
+                                    visited.add(wallId);
+                                }
                             }
                         }
                     }
@@ -197,28 +202,20 @@
                 const width = container.clientWidth;
                 const height = container.clientHeight;
                 canvas = p.createCanvas(width, height);
-                canvas.parent('container'); // Attach canvas to the container
+                canvas.parent(container); // Attach canvas to the container
 
                 // Initialize maze elements
                 walls = createWalls();
 
-                // Add frame for the maze
-                walls.push(
-                    { x1: 0, y1: 0, x2: MAZE_WIDTH * GRID_SIZE, y2: 0, normalX: 0, normalY: -1 }, // Top
-                    { x1: 0, y1: 0, x2: 0, y2: MAZE_HEIGHT * GRID_SIZE, normalX: -1, normalY: 0 }, // Left
-                    { x1: MAZE_WIDTH * GRID_SIZE, y1: 0, x2: MAZE_WIDTH * GRID_SIZE, y2: MAZE_HEIGHT * GRID_SIZE, normalX: 1, normalY: 0 }, // Right
-                    { x1: 0, y1: MAZE_HEIGHT * GRID_SIZE, x2: MAZE_WIDTH * GRID_SIZE, y2: MAZE_HEIGHT * GRID_SIZE, normalX: 0, normalY: 1 } // Bottom
-                );
-
                 // Create magnets (positions in grid coordinates)
-                magnets.push(createMagnet(2, 2, 1));    // Magnet 1
-                magnets.push(createMagnet(10, 2, 1));   // Magnet 2
-                magnets.push(createMagnet(2, 8, 1));    // Magnet 3
-                goalMagnet = createMagnet(12, 10, 1, true); // Goal Magnet (ends game)
+                magnets.push(createMagnet(3.5, 3.5, 1));
+                magnets.push(createMagnet(12.5, 3.5, 1));
+                magnets.push(createMagnet(3.5, 9.5, 1));
+                goalMagnet = createMagnet(14.5, 9.5, 1, true);
                 magnets.push(goalMagnet);
 
                 // Create puck at starting position
-                startPos = { x: 4 * GRID_SIZE, y: 6 * GRID_SIZE };
+                startPos = { x: 1.5 * GRID_SIZE, y: 1.5 * GRID_SIZE };
                 puck = createPuck(startPos.x, startPos.y);
 
                 // Add mouse press event listener

@@ -5,13 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Smart Magnet Pathfinding</title>
-    <script type="importmap">
-            {
-                "imports": {
-                    "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-                }
-            }
-        </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
     <style>
         body {
             margin: 0;
@@ -146,16 +140,16 @@
             <span class="legend-color-box color-puck"></span>Metal Hexagon
         </div>
         <div class="legend-item">
-            <span class="legend-color-box color-guide"></span>Guide Magnet
+            <span class="legend-color-box color-guide"></span>Guide Waypoint
         </div>
         <div class="legend-item">
             <span class="legend-color-box color-goal"></span>Final Goal
         </div>
         <div class="legend-item">
-            <span class="legend-color-box color-boost"></span>Pull Zone
+            <span class="legend-color-box color-boost"></span>Boost Zone
         </div>
         <div class="legend-item">
-            <span class="legend-color-box color-drag"></span>Repel/Drag Zone
+            <span class="legend-color-box color-drag"></span>Drag Zone
         </div>
         <div class="legend-item">
             <span class="color-trail"></span>Puck's Trail
@@ -168,8 +162,6 @@
     </div>
 
     <script type="module">
-        import p5 from 'p5';
-
         class Puck {
             constructor(p, x, y) {
                 this.p = p;
@@ -177,7 +169,7 @@
                 this.vel = p.createVector(0, 0);
                 this.acc = p.createVector(0, 0);
                 this.radius = 15;
-                this.baseMaxSpeed = 5.5;
+                this.baseMaxSpeed = 5;
                 this.mass = 1.0;
                 this.path = [];
                 this.currentTargetIndex = 0;
@@ -201,8 +193,7 @@
                         this.applyForce(steeringForce);
                     }
                 }
-
-                this.applyForce(environmentalForces);
+                // this.applyForce(environmentalForces);
                 this.vel.add(this.acc);
                 this.vel.limit(this.baseMaxSpeed);
                 this.pos.add(this.vel);
@@ -216,7 +207,7 @@
                 let desiredVelocity = p5.Vector.sub(target.pos, this.pos);
                 let distance = desiredVelocity.mag();
                 let currentMaxSpeed = this.baseMaxSpeed;
-                const slowingRadius = 30;
+                const slowingRadius = 120;
                 if (target.isGoal && distance < slowingRadius) {
                     currentMaxSpeed = this.p.map(
                         distance,
@@ -228,6 +219,7 @@
                 }
                 desiredVelocity.setMag(currentMaxSpeed);
                 let steeringForce = p5.Vector.sub(desiredVelocity, this.vel);
+                steeringForce.limit(0.7);
                 return steeringForce;
             }
             display() {
@@ -321,7 +313,7 @@
                 const puckGridC = Math.floor(puck.pos.x / this.cellWidth);
                 for (const cell of this.cells) {
                     if (cell.r === puckGridR && cell.c === puckGridC) {
-                        if (puck.vel.mag() < 0.5) return this.p.createVector(0, 0);
+                        if (puck.vel.mag() < 0.1) return this.p.createVector(0, 0);
                         let force = puck.vel.copy();
                         force.setMag(this.strength);
                         return force;
@@ -366,21 +358,21 @@
             const mazeLayout = [
                 [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1],
+                [1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1],
                 [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1],
                 [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1],
                 [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1],
                 [1, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1],
-                [1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1],
-                [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1],
-                [1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                [1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
+                [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                [1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
                 [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             ];
             const MAZE_COLS = mazeLayout[0].length;
             const MAZE_ROWS = mazeLayout.length;
-            const MAGNET_COUNT = 25;
-            const ZONE_COUNT = 10;
+            const MAGNET_COUNT = 15;
+            const ZONE_COUNT = 6;
 
             let puck;
             let pathWaypoints = [],
@@ -420,7 +412,7 @@
                 hasReachedGoal = false;
 
                 const startNode = { r: 1, c: 1 };
-                const endNode = { r: 10, c: 7 };
+                const endNode = { r: 10, c: 14 };
                 const fullPath = findPathDFS(mazeLayout, startNode, endNode);
 
                 if (fullPath) {
@@ -501,11 +493,10 @@
 
             function placeZonesOnPath(fullPath, numZones) {
                 let zones = [];
-                let initialGap = 3
-                if (!fullPath || fullPath.length < initialGap) return zones;
+                if (!fullPath || fullPath.length < 10) return zones;
 
                 let availableStartIndices = [];
-                for (let i = initialGap; i < fullPath.length; i++) {
+                for (let i = 10; i < fullPath.length; i++) {
                     // Start search after first 10 cells
                     availableStartIndices.push(i);
                 }
@@ -513,7 +504,8 @@
                 for (let i = 0; i < numZones; i++) {
                     if (availableStartIndices.length < 6) break;
 
-                    let startIndex = availableStartIndices[availableStartIndices[0]];
+                    let randomIndex = p.floor(p.random(availableStartIndices.length));
+                    let startIndex = availableStartIndices[randomIndex];
 
                     const minLength = 3,
                         maxLength = 6;
@@ -528,7 +520,7 @@
                         startIndex,
                         startIndex + zoneLength,
                     );
-                    const strength = p.random([3.2, 2.5, -3.6, -2.3]);
+                    const strength = p.random([0.15, 0.2, -0.2, -0.3]);
                     zones.push(new MagneticZone(p, zoneCells, strength));
 
                     const usedIndices = [];
