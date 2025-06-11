@@ -31,6 +31,8 @@
             position: relative;
             border: 2px solid #444;
             box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+            /* Prevent canvas from creating scrollbars */
+            line-height: 0;
         }
 
         #game-info {
@@ -49,7 +51,7 @@
     <script type="importmap">
         {
             "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"
             }
         }
     </script>
@@ -63,6 +65,7 @@
         <p>Use the <strong>Left &amp; Right Arrow Keys</strong> to steer the bubble.</p>
         <p>Your goal is to score as much as possible by passing through the seaweed rings.</p>
         <p>Watch out! The game resets if your bubble <strong>collides with a thorn</strong>.</p>
+        <p>The amount of lines within a zone presents its density. Higher the density harder it is to control the bubble.</p>
     </div>
 
 
@@ -74,36 +77,36 @@
             // Game constants
             const ZONE_COUNT = 4;
             const SEAWEED_RINGS_COUNT = 5;
-            const THORN_COUNT = 20;
-            const TINY_BUBBLE_COUNT = 20
-            const ZONE_BASE_SPEED = 0.5
+            const THORN_COUNT = 10;
+            const TINY_BUBBLE_COUNT = 20;
+            const ZONE_BASE_SPEED = 0.5;
 
-
-            const BUBBLE_MAX_SPEED = 5
-            const BUBBLE_LIFESPAN = 255
+            const BUBBLE_MAX_SPEED = 5;
+            const BUBBLE_LIFESPAN = 255;
 
             let bubble; // A single bubble instead of an array
             let seaweedRings = [];
             let zones = [];
             let thorns = [];
-            let popParticles = []
+            let popParticles = [];
+            let ventParticles = []; // Particles for the ocean vent
             let score = 0;
             let time = 0; // A time variable for seaweed animation
 
-            let bubbleCollidedWithThorn = false
+            let bubbleCollidedWithThorn = false;
 
             // Colors for the ocean gradient
             let topColor;
             let bottomColor;
 
             // --- Game Object Classes ---
+
             /**
              * The Bubble class manages the state and behavior of a single bubble.
              */
             class Bubble {
                 constructor(x, y) {
                     this.position = p.createVector(x, y);
-                    // Bubbles start with a steady upward velocity now
                     this.velocity = p.createVector(0, -2.5);
                     this.acceleration = p.createVector(0, 0);
                     this.radius = 20;
@@ -118,35 +121,32 @@
 
                 // Updates the bubble's position based on forces
                 update() {
-                    // Constant upward buoyancy force
-                    this.applyForce(p.createVector(0, -0.35));
-
+                    this.applyForce(p.createVector(0, -0.35)); // Constant upward buoyancy
                     this.velocity.add(this.acceleration);
                     this.velocity.limit(this.maxSpeed);
                     this.position.add(this.velocity);
-                    // Reset acceleration after applying it
-                    this.acceleration.mult(0);
-                    this.lifespan -= 0.5; // Fades a bit slower
+                    this.acceleration.mult(0); // Reset acceleration
+                    this.lifespan -= 0.5;
                 }
 
                 // Draws the bubble on the canvas
                 display() {
                     p.noStroke();
-                    // Inner part of the bubble
                     p.fill(200, 225, 255, this.lifespan * 0.5);
                     p.ellipse(this.position.x, this.position.y, this.radius * 2);
-                    // Outer highlight
                     p.fill(255, 255, 255, this.lifespan * 0.7);
                     p.ellipse(this.position.x - this.radius * 0.2, this.position.y - this.radius * 0.2, this.radius);
                 }
 
-                // Checks if the bubble is off-screen or has faded away
                 isDead() {
                     return this.position.y < -this.radius || this.lifespan < 0;
                 }
             }
 
 
+            /**
+             * Tiny bubbles created on collision.
+             */
             class TinyBubble {
                 constructor(x, y) {
                     this.position = p.createVector(x, y);
@@ -162,10 +162,39 @@
 
                 display() {
                     p.noStroke();
-                    p.fill(220, 240, 255, this.lifespan); // Fades with lifespan
+                    p.fill(220, 240, 255, this.lifespan);
                     p.ellipse(this.position.x, this.position.y, this.radius * 2);
                 }
 
+                isDead() {
+                    return this.lifespan < 0;
+                }
+            }
+            
+            /**
+             * Dark particles that rise from the ocean vent.
+             */
+            class VentParticle {
+                 constructor(x, y) {
+                    this.position = p.createVector(x, y);
+                    // Slower, more erratic upward movement
+                    this.velocity = p.createVector(p.random(-0.3, 0.3), p.random(-0.5, -1.5));
+                    this.radius = p.random(3, 8);
+                    this.lifespan = 255;
+                }
+
+                update() {
+                    this.position.add(this.velocity);
+                    this.lifespan -= 3; // Fade out slowly
+                }
+
+                display() {
+                    p.noStroke();
+                    // Dark, semi-transparent color for a smoky look
+                    p.fill(50, 50, 50, this.lifespan * 0.5);
+                    p.ellipse(this.position.x, this.position.y, this.radius * 2);
+                }
+                
                 isDead() {
                     return this.lifespan < 0;
                 }
@@ -177,21 +206,18 @@
              */
             class SeaweedRing {
                 constructor() {
-                    // Position the ring randomly, avoiding the very top and bottom
                     const x = p.random(p.width * 0.1, p.width * 0.9);
                     const y = p.random(p.height * 0.15, p.height * 0.7);
                     this.position = p.createVector(x, y);
                     this.radius = p.random(40, 70);
-                    this.scored = false; // To prevent multiple scores for one bubble
+                    this.scored = false;
                     this.color = p.color(30, 150, 90, 200);
-                    this.scoredColor = p.color(255, 215, 0, 150); // Gold color when scored
-                    this.noiseOffset = p.random(1000); // For unique animation
+                    this.scoredColor = p.color(255, 215, 0, 150);
+                    this.noiseOffset = p.random(1000);
                 }
 
-                // Checks if a bubble has passed through the ring
                 checkCollision(b) {
                     if (this.scored) return false;
-
                     const distance = p.dist(this.position.x, this.position.y, b.position.x, b.position.y);
                     if (distance < this.radius) {
                         this.scored = true;
@@ -201,17 +227,13 @@
                     return false;
                 }
 
-                // Draws the animated seaweed ring
                 display() {
                     p.push();
                     p.translate(this.position.x, this.position.y);
-
                     const c = this.scored ? this.scoredColor : this.color;
                     p.stroke(c);
                     p.strokeWeight(5);
                     p.noFill();
-
-                    // Animate the ring using Perlin noise for a natural, flowing look
                     p.beginShape();
                     for (let angle = 0; angle < p.TWO_PI; angle += 0.2) {
                         const noiseVal = p.map(p.noise(this.noiseOffset + angle, time * 0.5), 0, 1, -10, 10);
@@ -221,11 +243,9 @@
                         p.vertex(x, y);
                     }
                     p.endShape(p.CLOSE);
-
                     p.pop();
                 }
 
-                // Update animation properties
                 update() {
                     this.noiseOffset += 0.005;
                 }
@@ -238,12 +258,11 @@
                 constructor(y, h, density, speed, color) {
                     this.y = y;
                     this.h = h;
-                    this.density = density; // Horizontal force (current)
-                    this.speed = speed; // Vertical force modifier
+                    this.density = density;
+                    this.speed = speed;
                     this.color = color;
                     this.currentParticles = [];
 
-                    // The 'density' of the current determines the number of lines
                     const numParticles = p.floor(p.map(p.abs(this.density), 0, 0.15, 5, 30));
                     for (let i = 0; i < numParticles; i++) {
                         this.currentParticles.push({
@@ -253,71 +272,57 @@
                     }
                 }
 
-                // Draws the zone and its current lines
                 display() {
-                    // Draw semi-transparent background
                     p.noStroke();
                     p.fill(this.color);
                     p.rect(0, this.y, p.width, this.h);
-
-                    // Draw and update the moving current lines
-                    p.stroke(255, 255, 255, 60); // Faint white lines for currents
+                    p.stroke(255, 255, 255, 60);
                     p.strokeWeight(1.5);
                     for (const particle of this.currentParticles) {
-                        // The horizontal 'speed' acts as the speed for the visual lines
                         particle.x += this.speed;
-
-                        // Wrap particles around the screen
-                        if (this.speed > 0 && particle.x > p.width) {
-                            particle.x = -5; // Start slightly off-screen
-                        } else if (this.speed < 0 && particle.x < 0) {
-                            particle.x = p.width + 5; // Start slightly off-screen
-                        }
-
-                        // Make line length proportional to current strength
+                        if (this.speed > 0 && particle.x > p.width) particle.x = -5;
+                        else if (this.speed < 0 && particle.x < 0) particle.x = p.width + 5;
                         const lineLength = p.map(p.abs(this.speed), 0, 0.15, 5, 15);
                         p.line(particle.x, particle.y, particle.x + lineLength, particle.y);
                     }
                 }
 
-                // Checks if a bubble is inside this zone
                 contains(b) {
                     return (b.position.y > this.y && b.position.y < this.y + this.h);
                 }
             }
 
-
+            /**
+             * The Thorn class defines obstacles.
+             */
             class Thorn {
                 constructor(x, y, size) {
                     this.position = p.createVector(x, y);
                     this.size = size;
-                    this.color = p.color(80, 40, 20, 220); // Darker, more ominous brown
-                    this.angle = p.random(p.TWO_PI); // Each thorn has a random orientation
+                    this.color = p.color(80, 40, 20, 220);
+                    this.angle = p.random(p.TWO_PI);
                 }
+
                 display() {
                     p.push();
                     p.translate(this.position.x, this.position.y);
                     p.rotate(this.angle);
                     p.fill(this.color);
                     p.noStroke();
-
-                    // Draw a sharper, more thorn-like shape
                     const half = this.size / 2;
                     p.beginShape();
                     p.vertex(-half, half);
                     p.vertex(0, -half);
                     p.vertex(half, half);
-                    p.vertex(0, half * 0.5); // Indent at the bottom
+                    p.vertex(0, half * 0.5);
                     p.endShape(p.CLOSE);
                     p.pop();
                 }
 
-                // Check if bubble is colliding with thorn
                 handleCollision(bubble) {
                     const d = p.dist(this.position.x, this.position.y, bubble.position.x, bubble.position.y);
-                    // Using a simpler collision check (circle vs circle)
                     if (d < this.size / 2 + bubble.radius) {
-                        bubbleCollidedWithThorn = true
+                        bubbleCollidedWithThorn = true;
                     }
                 }
             }
@@ -325,25 +330,22 @@
 
             // --- p5.js Core Functions ---
             p.setup = () => {
-                p.createCanvas(p.windowWidth * 0.9, p.windowHeight * 0.7);
-                // Define the gradient colors
-                topColor = p.color(50, 150, 200); // Light cyan/blue
-                bottomColor = p.color(5, 20, 50); // Dark blue
+                const canvas = p.createCanvas(p.windowWidth * 0.8, p.windowHeight * 0.7);
+                canvas.parent('canvas-container'); // Attach canvas to the container div
 
-                // Create the single player-controlled bubble
+                topColor = p.color(50, 150, 200);
+                bottomColor = p.color(5, 20, 50);
+
                 bubble = new Bubble(p.width / 2, p.height - 50);
+                initSeaweedRingsAndThorns();
 
-                initSeaweedRingsAndThorns()
-
-
-                // Create zones with different properties
                 const zoneHeight = p.height / ZONE_COUNT;
                 for (let i = 0; i < ZONE_COUNT - 1; i++) {
-                    const currentDirection = i % 2 === 0 ? 1 : -1
+                    const currentDirection = i % 2 === 0 ? 1 : -1;
                     const y = i * zoneHeight;
-                    const density = p.random(0.3, 0.45); // Random current density
-                    const speed = currentDirection * (ZONE_BASE_SPEED + p.random(0.2, 0.4)) // Random horizontal current modifier
-                    const zoneColor = p.color(100, 50 + i * 35, 150, 5); // Faint blue-ish colors
+                    const density = p.random(0.3, 0.45);
+                    const speed = currentDirection * (ZONE_BASE_SPEED + p.random(0.2, 0.4));
+                    const zoneColor = p.color(100, 50 + i * 35, 150, 45);
                     zones.push(new Zone(y, zoneHeight, density, speed, zoneColor));
                 }
             };
@@ -351,98 +353,83 @@
             p.draw = () => {
                 time += 0.01;
                 drawGradientBackground();
+                drawOceanVent(); // Draw the new ocean vent feature
 
-                // Display all zones
-                for (const zone of zones) {
-                    zone.display();
+                // Update and display vent particles
+                for (let i = ventParticles.length - 1; i >= 0; i--) {
+                    const particle = ventParticles[i];
+                    particle.update();
+                    particle.display();
+                    if (particle.isDead()) {
+                        ventParticles.splice(i, 1);
+                    }
                 }
 
-                // Handle player input for horizontal movement
+                for (const zone of zones) zone.display();
                 handleInput();
 
-                // Update and display seaweed rings
                 for (const ring of seaweedRings) {
                     ring.update();
                     ring.display();
                     ring.checkCollision(bubble);
                 }
 
-                // Check which zone the bubble is in and apply its force
                 for (const zone of zones) {
                     if (zone.contains(bubble)) {
-                        const zoneForce = p.createVector(zone.speed, 0);
-                        bubble.applyForce(zoneForce);
-                        break; // A bubble can only be in one zone at a time
+                        bubble.applyForce(p.createVector(zone.speed, 0));
+                        break;
                     }
                 }
 
-                // Display and check collision for thorns
                 for (const thorn of thorns) {
-                    thorn.display()
-                    thorn.handleCollision(bubble)
+                    thorn.display();
+                    thorn.handleCollision(bubble);
                 }
 
                 for (let i = popParticles.length - 1; i >= 0; i--) {
                     const particle = popParticles[i];
                     particle.update();
                     particle.display();
-                    if (particle.isDead()) {
-                        popParticles.splice(i, 1); // Remove dead particles
-                    }
+                    if (particle.isDead()) popParticles.splice(i, 1);
                 }
 
                 bubble.update();
                 bubble.display();
 
-
                 if (bubbleCollidedWithThorn) {
                     for (let i = 0; i < TINY_BUBBLE_COUNT; i++) {
                         popParticles.push(new TinyBubble(bubble.position.x, bubble.position.y));
                     }
-
-                    resetGame()
-
-                    // If bubble is dead, reset it and the rings
+                    resetGame(true);
                 } else if (bubble.isDead()) {
-                    resetBubble();
-                    resetScoredSeaweeds()
+                    resetGame(false);
                 }
 
                 displayScore();
             };
 
             function initSeaweedRingsAndThorns() {
-                thorns = []
-                seaweedRings = []
-
-                // Create initial seaweed rings
+                thorns = [];
+                seaweedRings = [];
                 for (let i = 0; i < SEAWEED_RINGS_COUNT; i++) {
                     seaweedRings.push(new SeaweedRing());
                 }
 
-                // Create thorns, ensuring they don't overlap with seaweed rings
                 for (let i = 0; i < THORN_COUNT; i++) {
-                    let x, y, size;
-                    let isValidPlacement = false;
-
-                    // Keep trying to place a thorn until a valid spot is found
+                    let x, y, size, isValidPlacement = false;
                     while (!isValidPlacement) {
                         x = p.random(p.width);
                         y = p.random(0, p.height - (p.height / ZONE_COUNT));
-                        size = p.random(20, 35); // Slightly larger thorns
-                        isValidPlacement = true; // Assume the spot is good
-
-                        // Check this position against all existing seaweed rings
+                        size = p.random(20, 35);
+                        isValidPlacement = true;
                         for (const ring of seaweedRings) {
                             const distance = p.dist(x, y, ring.position.x, ring.position.y);
-                            // If the thorn is inside the ring (with a buffer), it's not a valid spot
-                            if (distance < ring.radius + size / 2 + 10) { // Added a 10px buffer
+                            if (distance < ring.radius + size / 2 + 10) {
                                 isValidPlacement = false;
-                                break; // Spot is bad, no need to check other rings
+                                break;
                             }
                         }
                     }
-                    // Once a valid spot is found, create the new thorn
                     thorns.push(new Thorn(x, y, size));
                 }
             }
@@ -450,53 +437,26 @@
 
             // --- Control and State Functions ---
             function handleInput() {
-                let densityFactor = 1
-
-                // Check which zone the bubble is in and access zone density as force reducing factor
+                let densityFactor = 1;
                 for (const zone of zones) {
                     if (zone.contains(bubble)) {
-                        densityFactor = 1 - zone.density // higher density (always less than 1) -> low density factor
-                        break; // A bubble can only be in one zone at a time
+                        densityFactor = 1 - zone.density;
+                        break;
                     }
                 }
-
-                const force = 2 * densityFactor; // The force applied by arrow keys -> reduced based on density factor
-                if (p.keyIsDown(p.LEFT_ARROW)) {
-                    bubble.applyForce(p.createVector(-force, 0));
-                }
-                if (p.keyIsDown(p.RIGHT_ARROW)) {
-                    bubble.applyForce(p.createVector(force, 0));
-                }
+                const force = 2 * densityFactor;
+                if (p.keyIsDown(p.LEFT_ARROW)) bubble.applyForce(p.createVector(-force, 0));
+                if (p.keyIsDown(p.RIGHT_ARROW)) bubble.applyForce(p.createVector(force, 0));
             }
 
-            function resetBubble() {
+            function resetGame(isResetScore) {
+                if (isResetScore) score = 0;
                 bubble = new Bubble(p.width / 2, p.height - 50);
-            }
-
-            function resetScoredSeaweeds() {
-                for (const ring of seaweedRings) {
-                    ring.scored = false;
-                }
-            }
-
-            function resetScore() {
-                score = 0
-            }
-
-            function resetGame() {
-                // reset Score
-                resetScore()
-                // Reset bubble to the bottom center
-                resetBubble()
-                // Reset the 'scored' state of all rings
-                initSeaweedRingsAndThorns()
-
-                bubbleCollidedWithThorn = false
+                initSeaweedRingsAndThorns();
+                bubbleCollidedWithThorn = false;
             }
 
             // --- Helper and Visualization Functions ---
-
-            // Draws the ocean gradient from top to bottom
             function drawGradientBackground() {
                 p.noFill();
                 for (let i = 0; i < p.height; i++) {
@@ -507,7 +467,41 @@
                 }
             }
 
-            // Displays the current score
+            // NEW: Function to draw the ocean floor vent
+            function drawOceanVent() {
+                // Add new smoke particles periodically
+                if (p.frameCount % 5 === 0) {
+                    ventParticles.push(new VentParticle(p.width / 2 + p.random(-5, 5), p.height - 20));
+                }
+
+                p.push();
+                p.noStroke();
+                p.fill(40, 30, 25); // Dark, rocky color
+
+                // Create a mound shape for the vent
+                p.beginShape();
+                p.vertex(p.width / 2 - 80, p.height);
+                p.curveVertex(p.width / 2 - 80, p.height);
+                p.curveVertex(p.width / 2 - 50, p.height - 15);
+                p.curveVertex(p.width / 2, p.height - 25);
+                p.curveVertex(p.width / 2 + 50, p.height - 15);
+                p.curveVertex(p.width / 2 + 80, p.height);
+                p.vertex(p.width / 2 + 80, p.height);
+                p.endShape(p.CLOSE);
+                
+                // A darker shape for the vent opening
+                p.fill(20, 15, 10);
+                p.beginShape();
+                p.vertex(p.width / 2 - 20, p.height-18);
+                p.curveVertex(p.width / 2 - 20, p.height-18);
+                p.curveVertex(p.width / 2, p.height-30);
+                p.curveVertex(p.width / 2 + 20, p.height-18);
+                p.vertex(p.width / 2 + 20, p.height-18);
+                p.endShape(p.CLOSE);
+
+                p.pop();
+            }
+
             function displayScore() {
                 p.fill(255);
                 p.noStroke();
