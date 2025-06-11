@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Microfluidic Simulation | Marching Squares</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            /* Allow content to stack vertically */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a1a;
+            /* Dark background for contrast */
+            color: #ffffff;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #555;
+            /* Slightly lighter border */
+            box-shadow: 0 0 25px rgba(0, 200, 255, 0.3);
+            /* Themed glow */
+            background-color: #000;
+        }
+
+        #title {
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        #title span {
+            font-weight: 400;
+            color: #00c8ff;
+        }
+
+        /* --- Style for the new Toggle Switch --- */
+        .switch-container {
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            font-size: 0.9em;
+        }
+
+        .switch-container span {
+            margin-right: 12px;
+            color: #ccc;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 28px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #555;
+            transition: .4s;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+        }
+
+        input:checked+.slider {
+            background-color: #00c8ff;
+        }
+
+        input:focus+.slider {
+            box-shadow: 0 0 1px #00c8ff;
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(12px);
+        }
+
+        .slider.round {
+            border-radius: 28px;
+        }
+
+        .slider.round:before {
+            border-radius: 50%;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="title">Lab-on-a-Chip Simulation: <span>Network Flow Analysis</span></div>
+    <div id="canvas-container">
+    </div>
+
+    <div class="switch-container">
+        <span>L-to-R Flow</span>
+        <label class="switch">
+            <input type="checkbox" id="flow-direction-switch">
+            <span class="slider round"></span>
+        </label>
+        <span>R-to-L Flow</span>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let resolution = 6; // Smaller resolution for more detail
+            let cols, rows;
+            let grid; // 2D array to hold scalar values
+
+            let zoff = 0; // "Time" dimension for Perlin noise
+            let noiseSpeed = 0.03;
+            let noiseScale = 0.1;
+            let flowSpeed = 0.08;
+            let flowDirection = -1; // Initial direction: -1 for left-to-right
+
+            let channelBuffer; // Graphics buffer for static channel walls
+
+            const getVector = (index, pA, pB, pC, pD) => {
+                const a = { x: pA.x, y: pA.y };
+                const b = { x: pB.x, y: pB.y };
+                const c = { x: pC.x, y: pC.y };
+                const d = { x: pD.x, y: pD.y };
+                switch (index) {
+                    case 0: return p.createVector(p.lerp(a.x, b.x, 0.5), a.y); // Top
+                    case 1: return p.createVector(b.x, p.lerp(b.y, d.y, 0.5)); // Right
+                    case 2: return p.createVector(p.lerp(c.x, d.x, 0.5), c.y); // Bottom
+                    case 3: return p.createVector(a.x, p.lerp(a.y, c.y, 0.5)); // Left
+                }
+            };
+
+            const drawChannels = (buffer) => {
+                buffer.clear();
+                buffer.noStroke();
+                buffer.fill(40, 40, 40);
+                buffer.rectMode(p.CORNER);
+
+                const channelWidth = 20;
+                const mainY = p.height / 2;
+
+                // 1. Inlet
+                buffer.rect(0, mainY - channelWidth * 1.5, 100, channelWidth * 3, 10);
+                // 2. Mixing Chamber
+                buffer.rect(100, mainY - 50, 80, 100, 10);
+                // 3. Parallel Assay Channels
+                const parallelZoneX = 180;
+                const parallelZoneWidth = p.width - 360;
+                const numParallelChannels = 4;
+                const totalHeight = 120;
+                const spacing = totalHeight / (numParallelChannels - 1);
+                for (let i = 0; i < numParallelChannels; i++) {
+                    let y = mainY - totalHeight / 2 + i * spacing;
+                    buffer.beginShape();
+                    buffer.vertex(parallelZoneX, y - channelWidth / 2);
+                    buffer.vertex(parallelZoneX, y + channelWidth / 2);
+                    buffer.vertex(140, mainY + 30);
+                    buffer.vertex(140, mainY - 30);
+                    buffer.endShape(p.CLOSE);
+                    buffer.rect(parallelZoneX, y - channelWidth / 2, parallelZoneWidth, channelWidth, 5);
+                }
+                // 4. Recombination Chamber
+                const recombineX = parallelZoneX + parallelZoneWidth;
+                buffer.rect(recombineX, mainY - 50, 80, 100, 10);
+                for (let i = 0; i < numParallelChannels; i++) {
+                    let y = mainY - totalHeight / 2 + i * spacing;
+                    buffer.beginShape();
+                    buffer.vertex(recombineX, y - channelWidth / 2);
+                    buffer.vertex(recombineX, y + channelWidth / 2);
+                    buffer.vertex(recombineX + 40, mainY + 30);
+                    buffer.vertex(recombineX + 40, mainY - 30);
+                    buffer.endShape(p.CLOSE);
+                }
+                // 5. Final Y-Split to Outlets
+                const splitX = recombineX + 80;
+                buffer.rect(splitX, mainY - channelWidth / 2, 50, channelWidth, 10);
+                buffer.beginShape();
+                buffer.vertex(splitX + 40, mainY - channelWidth / 2);
+                buffer.vertex(p.width, p.height / 2 - 80 - channelWidth / 2);
+                buffer.vertex(p.width, p.height / 2 - 80 + channelWidth / 2);
+                buffer.vertex(splitX + 60, mainY + channelWidth / 2);
+                buffer.endShape(p.CLOSE);
+                buffer.beginShape();
+                buffer.vertex(splitX + 40, mainY + channelWidth / 2);
+                buffer.vertex(p.width, p.height / 2 + 80 - channelWidth / 2);
+                buffer.vertex(p.width, p.height / 2 + 80 + channelWidth / 2);
+                buffer.vertex(splitX + 60, mainY - channelWidth / 2);
+                buffer.endShape(p.CLOSE);
+            };
+
+            p.setup = () => {
+                const containerEl = document.getElementById('canvas-container');
+                p.createCanvas(900, 500).parent(containerEl);
+
+                cols = p.floor(p.width / resolution);
+                rows = p.floor(p.height / resolution);
+                grid = Array(cols).fill(0).map(() => Array(rows).fill(0));
+
+                channelBuffer = p.createGraphics(p.width, p.height);
+                drawChannels(channelBuffer);
+
+                // --- Set up UI Control ---
+                const flowSwitch = document.getElementById('flow-direction-switch');
+                flowSwitch.checked = false; // Initial state is L-to-R (off)
+                flowSwitch.addEventListener('change', () => {
+                    // If checked, flow is R-to-L (1). Otherwise, L-to-R (-1).
+                    flowDirection = flowSwitch.checked ? 1 : -1;
+                });
+            };
+
+            p.draw = () => {
+                p.background(10, 10, 10);
+
+                // --- FLUID SIMULATION & MASKING ---
+                for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        const channelColor = channelBuffer.get(i * resolution, j * resolution);
+                        if (channelColor[3] > 0) { // If pixel is part of the channel
+                            grid[i][j] = p.noise(i * noiseScale, j * noiseScale, zoff + (i * flowSpeed * flowDirection));
+                        } else {
+                            grid[i][j] = 0; // Outside channel, no fluid
+                        }
+                    }
+                }
+                zoff += noiseSpeed;
+
+                // --- VISUALIZATION ---
+                p.image(channelBuffer, 0, 0);
+
+                // --- MARCHING SQUARES ALGORITHM ---
+                const threshold = 0.5;
+                for (let i = 0; i < cols - 1; i++) {
+                    for (let j = 0; j < rows - 1; j++) {
+                        let x = i * resolution;
+                        let y = j * resolution;
+
+                        let pA = p.createVector(x, y);
+                        let pB = p.createVector(x + resolution, y);
+                        let pC = p.createVector(x, y + resolution);
+                        let pD = p.createVector(x + resolution, y + resolution);
+
+                        let state = 0;
+                        if (grid[i][j] > threshold) state |= 8;
+                        if (grid[i + 1][j] > threshold) state |= 4;
+                        if (grid[i + 1][j + 1] > threshold) state |= 2;
+                        if (grid[i][j + 1] > threshold) state |= 1;
+
+                        p.strokeWeight(3.5);
+                        p.stroke(0, 200, 255, 60); // Glow
+                        drawState(state, pA, pB, pC, pD);
+
+                        p.strokeWeight(1.5);
+                        p.stroke(220, 240, 255); // Core line
+                        drawState(state, pA, pB, pC, pD);
+                    }
+                }
+
+                // --- LABELS ---
+                p.noStroke();
+                p.fill(255);
+                p.textFont('Roboto Mono');
+                p.textSize(16);
+                p.textAlign(p.LEFT, p.CENTER);
+                p.text("INLET", 20, p.height / 2);
+                p.textAlign(p.RIGHT, p.CENTER);
+                p.text("OUTLET A", p.width - 20, p.height / 2 - 80);
+                p.text("OUTLET B", p.width - 20, p.height / 2 + 80);
+            };
+
+            function drawState(state, pA, pB, pC, pD) {
+                switch (state) {
+                    case 1: p.line(getVector(2, pA, pB, pC, pD).x, getVector(2, pA, pB, pC, pD).y, getVector(3, pA, pB, pC, pD).x, getVector(3, pA, pB, pC, pD).y); break;
+                    case 2: p.line(getVector(1, pA, pB, pC, pD).x, getVector(1, pA, pB, pC, pD).y, getVector(2, pA, pB, pC, pD).x, getVector(2, pA, pB, pC, pD).y); break;
+                    case 3: p.line(getVector(1, pA, pB, pC, pD).x, getVector(1, pA, pB, pC, pD).y, getVector(3, pA, pB, pC, pD).x, getVector(3, pA, pB, pC, pD).y); break;
+                    case 4: p.line(getVector(0, pA, pB, pC, pD).x, getVector(0, pA, pB, pC, pD).y, getVector(1, pA, pB, pC, pD).x, getVector(1, pA, pB, pC, pD).y); break;
+                    case 5: p.line(getVector(0, pA, pB, pC, pD).x, getVector(0, pA, pB, pC, pD).y, getVector(3, pA, pB, pC, pD).x, getVector(3, pA, pB, pC, pD).y); p.line(getVector(1, pA, pB, pC, pD).x, getVector(1, pA, pB, pC, pD).y, getVector(2, pA, pB, pC, pD).x, getVector(2, pA, pB, pC, pD).y); break;
+                    case 6: p.line(getVector(0, pA, pB, pC, pD).x, getVector(0, pA, pB, pC, pD).y, getVector(2, pA, pB, pC, pD).x, getVector(2, pA, pB, pC, pD).y); break;
+                    case 7: p.line(getVector(0, pA, pB, pC, pD).x, getVector(0, pA, pB, pC, pD).y, getVector(3, pA, pB, pC, pD).x, getVector(3, pA, pB, pC, pD).y); break;
+                    case 8: p.line(getVector(0, pA, pB, pC, pD).x, getVector(0, pA, pB, pC, pD).y, getVector(3, pA, pB, pC, pD).x, getVector(3, pA, pB, pC, pD).y); break;
+                    case 9: p.line(getVector(0, pA, pB, pC, pD).x, getVector(0, pA, pB, pC, pD).y, getVector(2, pA, pB, pC, pD).x, getVector(2, pA, pB, pC, pD).y); break;
+                    case 10: p.line(getVector(0, pA, pB, pC, pD).x, getVector(0, pA, pB, pC, pD).y, getVector(1, pA, pB, pC, pD).x, getVector(1, pA, pB, pC, pD).y); p.line(getVector(2, pA, pB, pC, pD).x, getVector(2, pA, pB, pC, pD).y, getVector(3, pA, pB, pC, pD).x, getVector(3, pA, pB, pC, pD).y); break;
+                    case 11: p.line(getVector(0, pA, pB, pC, pD).x, getVector(0, pA, pB, pC, pD).y, getVector(1, pA, pB, pC, pD).x, getVector(1, pA, pB, pC, pD).y); break;
+                    case 12: p.line(getVector(1, pA, pB, pC, pD).x, getVector(1, pA, pB, pC, pD).y, getVector(3, pA, pB, pC, pD).x, getVector(3, pA, pB, pC, pD).y); break;
+                    case 13: p.line(getVector(1, pA, pB, pC, pD).x, getVector(1, pA, pB, pC, pD).y, getVector(2, pA, pB, pC, pD).x, getVector(2, pA, pB, pC, pD).y); break;
+                    case 14: p.line(getVector(2, pA, pB, pC, pD).x, getVector(2, pA, pB, pC, pD).y, getVector(3, pA, pB, pC, pD).x, getVector(3, pA, pB, pC, pD).y); break;
+                }
+            }
+        };
+
+        new p5(sketch);
+    </script>
+</body>
+
+</html>

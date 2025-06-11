@@ -1,20 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Curveball Simulation</title>
+    <meta charset="utf-8" />
+    <title>Swaying Tree Animation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
             margin: 0;
-            padding: 20px;
-            font-family: Arial, sans-serif;
-            background-color: #f0f0f0;
-        }
-        #canvas-container {
             display: flex;
+            flex-direction: column;
             justify-content: center;
         }
+
         .controls {
             margin-top: 20px;
             display: flex;
@@ -22,339 +20,315 @@
             gap: 10px;
             align-items: center;
         }
+
         .control-group {
             display: flex;
             align-items: center;
-            gap: 10px;
+            height: 100vh;
+            background-color: #f0f0f0;
+            overflow: hidden;
+            font-family: 'Roboto Mono', monospace;
         }
-        label {
-            width: 120px;
-        }
-        button {
-            padding: 8px 16px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #444;
+            box-shadow: 0 0 15px #000;
+            background-color: #ffffff;
         }
     </style>
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
     <script type="importmap">
         {
             "imports": {
-                "p5": "https://cdn.skypack.dev/p5@1.4.0"
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
             }
         }
     </script>
-</head>
-<body>
-    <h1>Curveball Simulation</h1>
-    <div id="canvas-container"></div>
-    <div class="controls">
-        <div class="control-group">
-            <label for="spin">Spin Rate (rpm):</label>
-            <input type="range" id="spin" min="0" max="3000" value="1500" step="100">
-            <span id="spin-value">1500</span>
-        </div>
-        <div class="control-group">
-            <label for="velocity">Velocity (mph):</label>
-            <input type="range" id="velocity" min="40" max="100" value="75" step="5">
-            <span id="velocity-value">75</span>
-        </div>
-        <div class="control-group">
-            <label for="angle">Launch Angle (°):</label>
-            <input type="range" id="angle" min="0" max="20" value="10" step="1">
-            <span id="angle-value">10</span>
-        </div>
-        <button id="pitch-button">Pitch Ball</button>
-    </div>
 
+</head>
+
+<body>
+    <h1>Swaying Tree Canopies With Piercing Light Beams</h1>
+    <div id="canvas-container">
+    </div>
     <script type="module">
         import p5 from 'p5';
 
-        // Constants for the simulation
-        const WIDTH = 700;
-        const HEIGHT = 500;
-        const GRAVITY = 0.003; // Reduced gravity to match original simulation
-        const DRAG_COEFFICIENT = 0.003; // Reduced drag to match original simulation
-        const MAGNUS_COEFFICIENT = 0.00004; // Adjusted to match original curve
-        const BALL_RADIUS = 20;
-        const INITIAL_X = 75;
-        const INITIAL_Y = 150;
-        
-        // Conversion factors
-        const MPH_TO_PPS = 1.46667; // miles per hour to pixels per second
-        const RPM_TO_RPS = 1/60; // revolutions per minute to revolutions per second
+        const sketch = (p) => {
+            const canvasWidth = 900;
+            const canvasHeight = 700;
 
-        // Create a new p5 instance
-        new p5((sketch) => {
-            // Variables for the simulation
-            let ball;
-            let trajectory = [];
-            let spin = 1500; // RPM
-            let velocity = 75; // MPH
-            let angle = 10; // degrees
-            
-            // UI elements
-            let spinSlider, velocitySlider, angleSlider;
-            let spinValue, velocityValue, angleValue;
-            let pitchButton;
-            
-            // Game state
-            let isPitching = false;
-            let isGameOver = false;
-            let strikeCount = 0;
-            let ballCount = 0;
-            
-            // Baseball seams pattern
-            const seamPoints = [
-                {x: 0, y: -0.3}, {x: 0.3, y: 0}, {x: 0, y: 0.3}, {x: -0.3, y: 0}
-            ];
+            const baseLength = 3;
+            const baseDepth = 4;
+            const startingBranchLength = 100;
+            const branchStartYOffset = -startingBranchLength * 1.05;
 
-            // Ball class
-            class Ball {
-                constructor(x, y, vx, vy, spin) {
-                    this.x = x;
-                    this.y = y;
-                    this.vx = vx;
-                    this.vy = vy;
-                    this.spin = spin * RPM_TO_RPS; // Convert RPM to RPS
-                    this.radius = BALL_RADIUS;
-                    this.coefficientOfRestitution = 0.5;
+            const beamWidth = 15; // Base width of the light beams
+            const startBeamWidth = beamWidth; // Narrower at the top
+            const endBeamWidth = beamWidth * 6;   // Spreads out at the bottom
+            let activeBeams = []; // Array to hold dynamically found beams
+            let lightDirection; // Vector to control the angle of light beams
+
+            let particles = [];
+            const numParticles = 700;
+            const particleDriftSpeed = 1;
+            const particleYSwayMagnitude = 55;
+            const particleYSwaySpeed = 0.1;
+            const baseParticleOpacity = 0; // Particles are invisible by default
+            const beamParticleOpacityBoost = 200; // Opacity when in a beam
+
+            let leaves = []; // Array to store leaf positions for intersection checks
+            let time = 0;
+
+            p.setup = () => {
+                p.createCanvas(canvasWidth, canvasHeight);
+                p.frameRate(30);
+
+                // Define the direction of the light source (from top-right)
+                lightDirection = p.createVector(-0.4, 1).normalize();
+
+                // Initialize particles
+                for (let i = 0; i < numParticles; i++) {
+                    particles.push({
+                        x: p.random(p.width),
+                        y: p.random(p.height),
+                        initialY: p.random(p.height),
+                        noiseOffsetY: p.random(1000),
+                        z: p.random(0.5, 1.5),
+                        opacity: baseParticleOpacity,
+                        size: p.random(3, 4)
+                    });
                 }
+            };
 
-                update() {
-                    if (!isPitching) return;
-                    
-                    // Calculate Magnus force coefficients
-                    let magnusCoefficient = MAGNUS_COEFFICIENT * this.spin;
-                    
-                    // Magnus effect (lateral force due to spin)
-                    let magnusX = magnusCoefficient * this.vy;
-                    let magnusY = -magnusCoefficient * this.vx;
-                    
-                    // Apply forces
-                    this.vx += magnusX;
-                    this.vy += magnusY + GRAVITY;
-                    
-                    // Apply drag
-                    let speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                    let dragForce = DRAG_COEFFICIENT * speed * speed;
-                    let dragX = -dragForce * (this.vx / speed);
-                    let dragY = -dragForce * (this.vy / speed);
-                    
-                    this.vx += dragX;
-                    this.vy += dragY;
-                    
+            p.draw = () => {
+                p.background(220, 240, 255); // Light sky blue background
+
+                // --- PASS 1: Calculate Leaf Positions ---
+                leaves = [];
+                drawBranch(p, p.width * 0.1, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
+                drawBranch(p, p.width * 0.45, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
+                drawBranch(p, p.width * 0.8, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
+
+
+                // --- PASS 2: Draw Scene Elements ---
+                drawGradientShadow(p);
+                findGapsAndDrawBeams(p);
+                updateAndDisplayParticles(p);
+
+                // Draw the actual branches and leaves on top of everything
+                p.strokeCap(p.ROUND);
+                drawBranch(p, p.width * 0.1, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
+                drawBranch(p, p.width * 0.45, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
+                drawBranch(p, p.width * 0.8, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
+
+                time += 0.008; // Increment time for animation
+            };
+
+            function drawGradientShadow(p) {
+                let shadowStartY = p.height * 1 / 1e5;
+                let shadowEndY = p.height;
+                p.noStroke();
+                let topAlpha = 0;
+                let bottomAlpha = 200;
+
+                for (let y = shadowStartY; y < shadowEndY; y++) {
+                    let inter = p.map(y, shadowStartY, shadowEndY, 0, 1);
+                    let currentAlpha = p.lerp(topAlpha, bottomAlpha, inter);
+                    p.fill(0, 0, 0, currentAlpha);
+                    p.rect(0, y, p.width, 1);
+                }
+            }
+
+            /**
+             * Scans for gaps in the leaf canopy by casting angled rays.
+             * Draws light beams that stop when they intersect a leaf.
+             */
+            function findGapsAndDrawBeams(p) {
+                activeBeams = []; // Reset beams for the current frame
+                const scanStep = 10; // How many pixels to jump in each scan step across the top
+                const rayStep = 10; // How many pixels to jump along a single ray
+                const minGapLength = 60; // Minimum vertical distance for a gap to be considered a beam
+
+                // Scan across the top of the canvas to start the rays
+                for (let x = 0; x < p.width; x += scanStep) {
+                    const startX = x;
+                    const startY = 0;
+                    let endX = startX;
+                    let endY = startY;
+                    let hit = false;
+
+                    // March a ray downwards at an angle
+                    for (let t = 0; t < p.height * 1.5; t += rayStep) {
+                        let currentX = startX + t * lightDirection.x;
+                        let currentY = startY + t * lightDirection.y;
+
+                        // Stop if ray exits canvas
+                        if (currentY > (p.height * 1.1) || currentX < 0 || currentX > (p.width * 1.1)) {
+                            endX = currentX;
+                            endY = currentY;
+                            break;
+                        }
+
+                        // Check for collision with any leaf
+                        for (const leaf of leaves) {
+                            if (p.abs(currentX - leaf.x) < leaf.size / 2 && p.abs(currentY - leaf.y) < leaf.size / 2) {
+                                endX = currentX;
+                                endY = currentY;
+                                hit = true;
+                                break;
+                            }
+                        }
+
+                        if (hit) {
+                            break; // Stop this ray if it hit something
+                        }
+
+                        // If no hit, the current point is the new end of the beam
+                        endX = currentX;
+                        endY = currentY;
+                    }
+
+                    const beamLength = p.dist(startX, startY, endX, endY);
+
+                    // If we found a clear path of sufficient length, create and draw a beam
+                    if (beamLength > minGapLength) {
+                        const beam = {
+                            startX: startX,
+                            startY: startY,
+                            endX: endX,
+                            endY: endY,
+                            length: beamLength,
+                            angle: lightDirection.heading(), // All beams have the same angle
+                            opacity: p.map(p.noise(x * 0.01, time * 2), 0, 1, 50, 60)
+                        };
+                        activeBeams.push(beam);
+
+                        // Draw the spreading beam as a trapezoid (quad)
+                        const perpVec = p.createVector(-lightDirection.y, lightDirection.x); // Vector perpendicular to light
+
+                        // Calculate the 4 corners of the trapezoid
+                        const x1 = beam.startX - perpVec.x * (startBeamWidth / 2);
+                        const y1 = beam.startY - perpVec.y * (startBeamWidth / 2);
+                        const x2 = beam.startX + perpVec.x * (startBeamWidth / 2);
+                        const y2 = beam.startY + perpVec.y * (startBeamWidth / 2);
+                        const x3 = beam.endX + perpVec.x * (endBeamWidth / 2);
+                        const y3 = beam.endY + perpVec.y * (endBeamWidth / 2);
+                        const x4 = beam.endX - perpVec.x * (endBeamWidth / 2);
+                        const y4 = beam.endY - perpVec.y * (endBeamWidth / 2);
+
+                        p.push();
+                        p.fill(255, 255, 220, beam.opacity);
+                        p.noStroke();
+                        p.quad(x1, y1, x2, y2, x3, y3, x4, y4);
+                        p.pop();
+                    }
+                }
+            }
+
+
+            /**
+             * Updates particle positions and checks for intersection with angled, spreading beams.
+             */
+            function updateAndDisplayParticles(p) {
+                p.noStroke();
+                for (let particle of particles) {
                     // Update position
-                    this.x += this.vx;
-                    this.y += this.vy;
-                    
-                    // Add to trajectory
-                    trajectory.push({x: this.x, y: this.y});
-                    
-                    // Check for strike or ball
-                    this.checkStrikeOrBall();
-                    
-                    // Stop conditions
-                    if (this.x > WIDTH - 50 || this.y > HEIGHT - 20 || speed < 0.1) {
-                        isPitching = false;
-                        if (!isGameOver) {
-                            ballCount++;
-                            if (ballCount >= 4) {
-                                isGameOver = true;
+                    particle.x += particleDriftSpeed * particle.z;
+                    if (particle.x > p.width + 50) {
+                        particle.x = -50;
+                        particle.y = p.random(p.height);
+                    }
+
+                    let ySway = p.map(p.noise(particle.x * 0.01, particle.noiseOffsetY + time * particleYSwaySpeed), 0, 1, -particleYSwayMagnitude, particleYSwayMagnitude);
+                    let displayY = particle.y + ySway;
+
+                    // Check for intersection with any active light beam
+                    let inBeam = false;
+                    for (const beam of activeBeams) {
+                        // Use vector math to check if the particle is inside the trapezoid of the beam
+                        const particleVec = p.createVector(particle.x, displayY);
+                        const beamStartVec = p.createVector(beam.startX, beam.startY);
+
+                        const toParticle = p5.Vector.sub(particleVec, beamStartVec);
+                        const rotatedParticle = toParticle.copy().rotate(-beam.angle);
+
+                        // Check if the particle is longitudinally within the beam's length
+                        if (rotatedParticle.x > 0 && rotatedParticle.x < beam.length) {
+                            // Interpolate the beam's half-width at the particle's position
+                            const currentBeamHalfWidth = p.map(rotatedParticle.x, 0, beam.length, startBeamWidth / 2, endBeamWidth / 2);
+
+                            // Check if the particle is laterally within the interpolated width
+                            if (Math.abs(rotatedParticle.y) < currentBeamHalfWidth) {
+                                inBeam = true;
+                                particle.opacity = beamParticleOpacityBoost;
+                                break; // Particle is in a beam, no need to check others
                             }
                         }
                     }
-                }
 
-                checkStrikeOrBall() {
-                    // Check if the ball is in the strike zone
-                    const strikeZoneLeft = WIDTH * 0.35;
-                    const strikeZoneRight = WIDTH * 0.65;
-                    const strikeZoneTop = HEIGHT * 0.3;
-                    const strikeZoneBottom = HEIGHT * 0.6;
-                    
-                    // Check if ball is in strike zone horizontally
-                    const inStrikeZoneX = this.x >= strikeZoneLeft && this.x <= strikeZoneRight;
-                    
-                    // Check if ball is in strike zone vertically
-                    const inStrikeZoneY = this.y >= strikeZoneTop && this.y <= strikeZoneBottom;
-                    
-                    // Check if ball is within the strike zone
-                    if (inStrikeZoneX && inStrikeZoneY) {
-                        // Ball is in the strike zone
-                        if (this.vx < 0.5 && this.vx > -0.5 && 
-                            this.vy < 0.5 && this.vy > -0.5) {
-                            // Ball has stopped in the strike zone - strike!
-                            isPitching = false;
-                            strikeCount++;
-                            if (strikeCount >= 3) {
-                                isGameOver = true;
-                            }
-                        }
+                    if (!inBeam) {
+                        // If not in a beam, fade out
+                        particle.opacity = p.lerp(particle.opacity, baseParticleOpacity, 0.2);
+                    }
+
+                    if (particle.opacity > 1) {
+                        p.fill(255, 255, 230, particle.opacity);
+                        p.ellipse(particle.x, displayY, particle.size * particle.z, particle.size * particle.z);
                     }
                 }
-
-                display() {
-                    // Draw the baseball seams
-                    sketch.push();
-                    sketch.translate(this.x, this.y);
-                    sketch.noFill();
-                    sketch.stroke(0);
-                    sketch.strokeWeight(1);
-                    
-                    // Draw the four-seam pattern
-                    sketch.beginShape();
-                    for (let point of seamPoints) {
-                        sketch.vertex(point.x * this.radius, point.y * this.radius);
-                    }
-                    sketch.endShape(sketch.CLOSE);
-                    
-                    // Draw the baseball
-                    sketch.fill(255);
-                    sketch.strokeWeight(0.5);
-                    sketch.ellipse(0, 0, this.radius * 2);
-                    
-                    sketch.pop();
-                }
             }
 
-            // Setup the sketch
-            sketch.setup = function() {
-                const canvas = sketch.createCanvas(WIDTH, HEIGHT);
-                canvas.parent('canvas-container');
-                
-                // Initialize UI elements
-                spinSlider = document.getElementById('spin');
-                velocitySlider = document.getElementById('velocity');
-                angleSlider = document.getElementById('angle');
-                
-                spinValue = document.getElementById('spin-value');
-                velocityValue = document.getElementById('velocity-value');
-                angleValue = document.getElementById('angle-value');
-                
-                pitchButton = document.getElementById('pitch-button');
-                
-                // Add event listeners
-                spinSlider.addEventListener('input', updateSpin);
-                velocitySlider.addEventListener('input', updateVelocity);
-                angleSlider.addEventListener('input', updateAngle);
-                pitchButton.addEventListener('click', pitchBall);
-                
-                // Initial setup
-                resetGame();
-            };
 
-            // Update spin value
-            function updateSpin() {
-                spin = parseInt(spinSlider.value);
-                spinValue.textContent = spin;
-            }
-
-            // Update velocity value
-            function updateVelocity() {
-                velocity = parseInt(velocitySlider.value);
-                velocityValue.textContent = velocity;
-            }
-
-            // Update angle value
-            function updateAngle() {
-                angle = parseInt(angleSlider.value);
-                angleValue.textContent = angle;
-            }
-
-            // Reset the game state
-            function resetGame() {
-                isPitching = false;
-                isGameOver = false;
-                strikeCount = 0;
-                ballCount = 0;
-                trajectory = [];
-            }
-
-            // Start a new pitch
-            function pitchBall() {
-                if (isGameOver) {
-                    resetGame();
-                }
-                
-                if (!isPitching) {
-                    // Convert velocity from mph to pixels per second
-                    let initialVelocity = velocity * MPH_TO_PPS;
-                    
-                    // Calculate initial velocity components
-                    let vx = -initialVelocity * Math.cos(sketch.radians(angle));
-                    let vy = -initialVelocity * Math.sin(sketch.radians(angle));
-                    
-                    // Create new ball
-                    ball = new Ball(INITIAL_X, INITIAL_Y, vx, vy, spin);
-                    
-                    // Reset trajectory
-                    trajectory = [{x: INITIAL_X, y: INITIAL_Y}];
-                    
-                    // Start pitching
-                    isPitching = true;
-                }
-            }
-
-            // Draw the sketch
-            sketch.draw = function() {
-                // Draw background
-                sketch.background(220);
-                
-                // Draw pitcher and catcher
-                sketch.fill(100);
-                sketch.noStroke();
-                sketch.rect(0, HEIGHT - 60, 60, 60); // Pitcher
-                sketch.rect(WIDTH - 60, HEIGHT - 80, 60, 80); // Catcher
-                
-                // Draw strike zone
-                sketch.stroke(255, 0, 0);
-                sketch.strokeWeight(2);
-                sketch.noFill();
-                sketch.rect(WIDTH * 0.35, HEIGHT * 0.3, WIDTH * 0.3, HEIGHT * 0.3);
-                
-                // Draw trajectory
-                sketch.stroke(0);
-                sketch.strokeWeight(2);
-                sketch.noFill();
-                sketch.beginShape();
-                for (let point of trajectory) {
-                    sketch.vertex(point.x, point.y);
-                }
-                sketch.endShape();
-                
-                // Update and display ball
-                if (isPitching && ball) {
-                    ball.update();
-                    ball.display();
-                }
-                
-                // Draw UI information
-                sketch.fill(0);
-                sketch.noStroke();
-                sketch.textSize(16);
-                sketch.text(`Strike: ${strikeCount}`, 20, 30);
-                sketch.text(`Ball: ${ballCount}`, 20, 60);
-                
-                // Draw game over message
-                if (isGameOver) {
-                    sketch.fill(255, 0, 0);
-                    sketch.textSize(32);
-                    sketch.textAlign(sketch.CENTER);
-                    if (strikeCount >= 3) {
-                        sketch.text("Strikeout!", WIDTH/2, HEIGHT/2);
+            /**
+             * Recursively draws branches. Can operate in two modes:
+             * 1. calculateOnly = true: Populates the `leaves` array without drawing.
+             * 2. calculateOnly = false: Draws branches and leaves to the canvas.
+             */
+            function drawBranch(p, x1, y1, angle, len, depth, calculateOnly) {
+                if (depth < baseDepth || len < baseLength) {
+                    const leafSize = 25;
+                    if (calculateOnly) {
+                        leaves.push({
+                            x: x1,
+                            y: y1,
+                            size: leafSize
+                        });
                     } else {
-                        sketch.text("Walk!", WIDTH/2, HEIGHT/2);
+                        p.noStroke();
+                        p.fill(20, 120, 50, 150); // Semi-transparent green
+                        let leafSwayX = p.map(p.noise(x1 * 0.05, time * 3), 0, 1, -2, 2);
+                        let leafSwayY = p.map(p.noise(y1 * 0.05, time * 3), 0, 1, -2, 2);
+                        p.ellipse(x1 + leafSwayX, y1 + leafSwayY, leafSize, leafSize * 0.7);
                     }
+                    return;
                 }
-            };
-        }, 'canvas-container');
+
+                let sway = p.map(p.noise(x1 * 0.001, y1 * 0.001, time), 0, 1, -0.1, 0.1);
+                let currentAngle = angle + sway;
+                let x2 = x1 + p.cos(currentAngle) * len;
+                let y2 = y1 + p.sin(currentAngle) * len;
+
+                if (!calculateOnly) {
+                    p.strokeWeight(depth * 1.2);
+                    p.stroke(85, 56, 31);
+                    p.line(x1, y1, x2, y2);
+                }
+
+                let newLen = len * 0.75;
+                let newDepth = depth - 1;
+                let noiseVal = p.noise(x2 * 0.1, y2 * 0.1, time);
+                let angleVar = p.map(noiseVal, 0, 1, p.PI * 0.1, p.PI * 0.25);
+
+                drawBranch(p, x2, y2, currentAngle - angleVar, newLen, newDepth, calculateOnly);
+                drawBranch(p, x2, y2, currentAngle + angleVar * 0.6, newLen * 0.9, newDepth, calculateOnly);
+                drawBranch(p, x2, y2, currentAngle, newLen * 0.7, newDepth - 1, calculateOnly);
+            }
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
     </script>
 </body>
+
 </html>

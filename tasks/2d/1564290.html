@@ -14,10 +14,8 @@
             align-items: center;
             height: 100vh;
             background-color: #f0f0f0;
-            /* Light grey background */
             overflow: hidden;
             font-family: 'Roboto Mono', monospace;
-            /* Hide scrollbars */
         }
 
         #canvas-container {
@@ -25,7 +23,6 @@
             border: 2px solid #444;
             box-shadow: 0 0 15px #000;
             background-color: #ffffff;
-            /* Set canvas container background */
         }
     </style>
     <script type="importmap">
@@ -39,288 +36,286 @@
 </head>
 
 <body>
-    <h1>Swaying Tree Canopy With Piercing Light Beams</h1>
+    <h1>Swaying Tree Canopies With Piercing Light Beams</h1>
     <div id="canvas-container">
     </div>
     <script type="module">
         import p5 from 'p5';
 
         const sketch = (p) => {
-            const canvasWidth = 800;
+            const canvasWidth = 900;
             const canvasHeight = 700;
 
-            const baseLength = 3
-            const baseDepth = 4
-            const startingBranchLength = 100
-            const branchStartYOffset = -startingBranchLength * 1.05
+            const baseLength = 3;
+            const baseDepth = 4;
+            const startingBranchLength = 100;
+            const branchStartYOffset = -startingBranchLength * 1.05;
 
-            const beamWidth = 65; // Width of the light beams
-            const lightSources = [
-                { x: canvasWidth * 0.15, y: startingBranchLength, angle: p.PI / 2.2, opacity: 0 },
-                { x: canvasWidth * 0.45, y: startingBranchLength, angle: p.PI / 2.2, opacity: 0 },
-                { x: canvasWidth * 0.65, y: startingBranchLength, angle: p.PI / 2.2, opacity: 0 },
-                { x: canvasWidth * 0.85, y: startingBranchLength, angle: p.PI / 2.2, opacity: 0 }
-            ];
+            const beamWidth = 15; // Base width of the light beams
+            const startBeamWidth = beamWidth; // Narrower at the top
+            const endBeamWidth = beamWidth * 6;   // Spreads out at the bottom
+            let activeBeams = []; // Array to hold dynamically found beams
+            let lightDirection; // Vector to control the angle of light beams
 
             let particles = [];
-            const numParticles = 700; // Adjust as needed
-            const particleDriftSpeed = 1; // Speed at which particles move left to right
-            const particleYSwayMagnitude = 55; // Max vertical sway distance
-            const particleYSwaySpeed = 0.1; // Speed of vertical sway
-            const baseParticleOpacity = 10; // Opacity when not in a beam
-            const beamParticleOpacityBoost = 255; // Max additional opacity when in a beam
+            const numParticles = 700;
+            const particleDriftSpeed = 1;
+            const particleYSwayMagnitude = 55;
+            const particleYSwaySpeed = 0.1;
+            const baseParticleOpacity = 0; // Particles are invisible by default
+            const beamParticleOpacityBoost = 200; // Opacity when in a beam
 
-            let time = 0; // Global time variable for noise-based animation
+            let leaves = []; // Array to store leaf positions for intersection checks
+            let time = 0;
 
             p.setup = () => {
-                // p.createCanvas is used by p5.js to create the drawing surface
-                // It's placed in the #canvas-container div by the last lines of this script
                 p.createCanvas(canvasWidth, canvasHeight);
-                p.frameRate(30); // Set a smooth frame rate
+                p.frameRate(30);
 
-                (function initializeParticles() {
-                    particles = []; // Clear existing particles
-                    for (let i = 0; i < numParticles; i++) {
-                        particles.push({
-                            x: p.random(p.width),
-                            y: p.random(p.height),
-                            initialY: p.random(p.height), // Store initial Y for consistent noise
-                            noiseOffsetY: p.random(1000), // Per-particle noise offset for Y sway
-                            z: p.random(0.5, 1.5), // For parallax effect (size/speed)
-                            opacity: baseParticleOpacity,
-                            size: p.random(3, 4)
-                        });
-                    }
-                })()
+                // Define the direction of the light source (from top-right)
+                lightDirection = p.createVector(-0.4, 1).normalize();
+
+                // Initialize particles
+                for (let i = 0; i < numParticles; i++) {
+                    particles.push({
+                        x: p.random(p.width),
+                        y: p.random(p.height),
+                        initialY: p.random(p.height),
+                        noiseOffsetY: p.random(1000),
+                        z: p.random(0.5, 1.5),
+                        opacity: baseParticleOpacity,
+                        size: p.random(3, 4)
+                    });
+                }
             };
 
             p.draw = () => {
                 p.background(220, 240, 255); // Light sky blue background
 
-
-                // --- Gradient Shadow Layer ---
-                // This creates a vertical gradient from transparent to semi-transparent black,
-                // simulating a general shadow or dimming effect from the canopy downwards.
-                let shadowStartY = p.height * 1 / 1e5; // Start shadow roughly where canopy might be dense
-                let shadowEndY = p.height;       // Shadow goes to the bottom of the canvas
-
-                p.noStroke(); // No outline for the shadow segments
-
-                // Define the gradient properties
-                let topAlpha = 0;    // Alpha at the top of the shadow area (fully transparent)
-                let bottomAlpha = 200; // Max alpha at the bottom of the shadow area
-
-                for (let y = shadowStartY; y < shadowEndY; y++) {
-                    // Calculate the interpolation factor (0 at shadowStartY, 1 at shadowEndY)
-                    let inter = p.map(y, shadowStartY, shadowEndY, 0, 1);
-                    // Lerp the alpha value based on the y position
-                    let currentAlpha = p.lerp(topAlpha, bottomAlpha, inter);
-                    p.fill(0, 0, 0, currentAlpha); // Black with interpolated alpha
-                    p.rect(0, y, p.width, 1); // Draw a 1-pixel high rectangle
-                }
-
-                // --- Draw Light Beams ---
-                drawLightBeams(p);
+                // --- PASS 1: Calculate Leaf Positions ---
+                leaves = [];
+                drawBranch(p, p.width * 0.1, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
+                drawBranch(p, p.width * 0.45, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
+                drawBranch(p, p.width * 0.8, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
 
 
-                // --- Update and Display Particles ---
+                // --- PASS 2: Draw Scene Elements ---
+                drawGradientShadow(p);
+                findGapsAndDrawBeams(p);
                 updateAndDisplayParticles(p);
 
-                // --- Draw the Swaying Branches ---
-                p.strokeCap(p.ROUND); // Use round ends for branches for a softer look
+                // Draw the actual branches and leaves on top of everything
+                p.strokeCap(p.ROUND);
+                drawBranch(p, p.width * 0.1, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
+                drawBranch(p, p.width * 0.45, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
+                drawBranch(p, p.width * 0.8, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
 
-                // Start multiple main branches from the TOP of the canvas, angled downwards.
-                drawBranch(p, p.width * 0.1, branchStartYOffset, p.PI / 2, startingBranchLength, 9);
-                drawBranch(p, p.width * 0.3, branchStartYOffset, p.PI / 2, startingBranchLength, 9);
-                drawBranch(p, p.width * 0.6, branchStartYOffset, p.PI / 2, startingBranchLength, 9);
-                drawBranch(p, p.width * 0.75, branchStartYOffset, p.PI / 2, startingBranchLength, 9); // Note: 5*PI/2 is same as PI/2
-
-                time += 0.008; // Increment time to drive the animation
+                time += 0.008; // Increment time for animation
             };
 
-
-            function drawLightBeams(p) {
-                lightSources.forEach((source, i) => {
-                    let beamLength = p.height * 1.35;
-                    // Flicker effect using noise for opacity for the main beam part
-                    let beamOpacity = p.map(p.noise(source.x * 0.01, time * 2), 0, 1, 1, 70);
-                    // update beam opacity for later in particle opacity detection
-                    lightSources[i].opacity = beamOpacity;
-
-                    p.push();
-                    p.stroke(255, 255, 200, beamOpacity); // Light yellow, semi-transparent for main beam
-                    p.strokeWeight(beamWidth);
-
-                    // Calculate end point of the main beam segment
-                    let mainBeamStartX = source.x;
-                    let mainBeamStartY = source.y;
-                    let mainBeamEndX = mainBeamStartX + p.cos(source.angle) * beamLength;
-                    let mainBeamEndY = mainBeamStartY + p.sin(source.angle) * beamLength;
-
-                    p.line(mainBeamStartX, mainBeamStartY, mainBeamEndX, mainBeamEndY);
-                    p.pop();
-
-
-                    // --- Additional beam segment from top of canvas to the start of the main beam ---
-                    let additionalBeamEndY = source.y; // Y-coordinate where this beam segment ends (main beam start)
-                    let additionalBeamEndX = source.x; // X-coordinate where this beam segment ends (main beam start)
-                    let additionalBeamStartY = 0;      // Y-coordinate where this beam segment starts (top of canvas)
-                    let additionalBeamStartX;          // X-coordinate to be calculated
-
-                    // Calculate additionalBeamStartX such that the line from
-                    // (additionalBeamStartX, additionalBeamStartY) to (additionalBeamEndX, additionalBeamEndY)
-                    // has the angle source.angle.
-                    if (Math.abs(p.cos(source.angle)) < 1e-6) {
-                        // Angle is nearly vertical (PI/2 or 3PI/2). tan(angle) would be problematic.
-                        // For a vertical beam, the x-coordinate remains constant.
-                        additionalBeamStartX = additionalBeamEndX;
-                    } else {
-                        additionalBeamStartX = additionalBeamEndX - (additionalBeamEndY - additionalBeamStartY) / p.tan(source.angle);
-                    }
-
-                    p.push();
-                    // Using a slightly different opacity or style for this part can be an option
-                    p.stroke(255, 255, 190, 100);
-                    p.strokeWeight(beamWidth);
-                    p.line(additionalBeamStartX, additionalBeamStartY, additionalBeamEndX, additionalBeamEndY);
-                    p.pop();
-                });
-            }
-
-
-            function updateAndDisplayParticles(p) {
+            function drawGradientShadow(p) {
+                let shadowStartY = p.height * 1 / 1e5;
+                let shadowEndY = p.height;
                 p.noStroke();
-                for (let i = particles.length - 1; i >= 0; i--) {
-                    let particle = particles[i];
+                let topAlpha = 0;
+                let bottomAlpha = 200;
 
-                    // Update horizontal position (drift left to right, z affects speed slightly)
-                    particle.x += particleDriftSpeed * particle.z;
-                    if (particle.x > p.width + particle.size * particle.z) { // Adjust wrap-around check for size
-                        particle.x = -particle.size * particle.z - 50; // Wrap around with a buffer
-                        particle.y = p.random(p.height); // Reset Y position when wrapping for variety
-                        particle.initialY = particle.y; // Update initialY as well
-                    }
-
-                    // Add Perlin noise for vertical sway
-                    let ySway = p.map(
-                        p.noise(particle.x * 0.01, particle.noiseOffsetY + time * particleYSwaySpeed),
-                        0, 1,
-                        -particleYSwayMagnitude, particleYSwayMagnitude
-                    );
-                    let displayY = particle.y + ySway;
-
-                    // Check for intersection with light beams
-                    let inBeam = false;
-                    let maxBeamInfluenceOpacity = 0;
-
-                    for (const source of lightSources) {
-                        const beamLength = p.height * 1.35; // Same as in drawLightBeams
-                        const beamAngle = source.angle;
-                        const beamStartX = source.x;
-                        const beamStartY = source.y;
-                        const beamEndX = beamStartX + p.cos(beamAngle) * beamLength;
-                        const beamEndY = beamStartY + p.sin(beamAngle) * beamLength;
-
-                        // Calculate distance from particle to the beam's centerline segment
-                        const distToBeam = distToLineSegment(p, particle.x, displayY, beamStartX, beamStartY, beamEndX, beamEndY);
-
-                        if (distToBeam < beamWidth / 2) {
-                            inBeam = true;
-                            maxBeamInfluenceOpacity = Math.max(maxBeamInfluenceOpacity, source.opacity || 0);
-                        }
-                    }
-
-                    if (inBeam) {
-                        particle.opacity = baseParticleOpacity + p.map(maxBeamInfluenceOpacity, 0, 255, 0, beamParticleOpacityBoost);
-                    } else {
-                        particle.opacity = p.lerp(particle.opacity, baseParticleOpacity, 0.1); // Gradually fade if not in beam
-                    }
-                    particle.opacity = p.constrain(particle.opacity, 0, 255);
-
-                    p.fill(255, 255, 230, particle.opacity); // Soft yellow particles
-                    p.ellipse(particle.x, displayY, particle.size * particle.z, particle.size * particle.z);
+                for (let y = shadowStartY; y < shadowEndY; y++) {
+                    let inter = p.map(y, shadowStartY, shadowEndY, 0, 1);
+                    let currentAlpha = p.lerp(topAlpha, bottomAlpha, inter);
+                    p.fill(0, 0, 0, currentAlpha);
+                    p.rect(0, y, p.width, 1);
                 }
             }
 
-            // Helper function to calculate the shortest distance from a point (px, py)
-            // to a line segment (x1, y1) - (x2, y2)
-            function distToLineSegment(p, px, py, x1, y1, x2, y2) {
-                const l2 = p.dist(x1, y1, x2, y2) * p.dist(x1, y1, x2, y2);
-                if (l2 === 0) return p.dist(px, py, x1, y1); // Segment is a point
+            /**
+             * Scans for gaps in the leaf canopy by casting angled rays.
+             * Draws light beams that stop when they intersect a leaf.
+             */
+            function findGapsAndDrawBeams(p) {
+                activeBeams = []; // Reset beams for the current frame
+                const scanStep = 10; // How many pixels to jump in each scan step across the top
+                const rayStep = 10; // How many pixels to jump along a single ray
+                const minGapLength = 60; // Minimum vertical distance for a gap to be considered a beam
 
-                let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
-                t = p.max(0, p.min(1, t)); // Clamp t to the range [0, 1]
+                // Scan across the top of the canvas to start the rays
+                for (let x = 0; x < p.width; x += scanStep) {
+                    const startX = x;
+                    const startY = 0;
+                    let endX = startX;
+                    let endY = startY;
+                    let hit = false;
 
-                const closestX = x1 + t * (x2 - x1);
-                const closestY = y1 + t * (y2 - y1);
+                    // March a ray downwards at an angle
+                    for (let t = 0; t < p.height * 1.5; t += rayStep) {
+                        let currentX = startX + t * lightDirection.x;
+                        let currentY = startY + t * lightDirection.y;
 
-                return p.dist(px, py, closestX, closestY);
+                        // Stop if ray exits canvas
+                        if (currentY > (p.height * 1.1) || currentX < 0 || currentX > (p.width * 1.1)) {
+                            endX = currentX;
+                            endY = currentY;
+                            break;
+                        }
+
+                        // Check for collision with any leaf
+                        for (const leaf of leaves) {
+                            if (p.abs(currentX - leaf.x) < leaf.size / 2 && p.abs(currentY - leaf.y) < leaf.size / 2) {
+                                endX = currentX;
+                                endY = currentY;
+                                hit = true;
+                                break;
+                            }
+                        }
+
+                        if (hit) {
+                            break; // Stop this ray if it hit something
+                        }
+
+                        // If no hit, the current point is the new end of the beam
+                        endX = currentX;
+                        endY = currentY;
+                    }
+
+                    const beamLength = p.dist(startX, startY, endX, endY);
+
+                    // If we found a clear path of sufficient length, create and draw a beam
+                    if (beamLength > minGapLength) {
+                        const beam = {
+                            startX: startX,
+                            startY: startY,
+                            endX: endX,
+                            endY: endY,
+                            length: beamLength,
+                            angle: lightDirection.heading(), // All beams have the same angle
+                            opacity: p.map(p.noise(x * 0.01, time * 2), 0, 1, 50, 60)
+                        };
+                        activeBeams.push(beam);
+
+                        // Draw the spreading beam as a trapezoid (quad)
+                        const perpVec = p.createVector(-lightDirection.y, lightDirection.x); // Vector perpendicular to light
+
+                        // Calculate the 4 corners of the trapezoid
+                        const x1 = beam.startX - perpVec.x * (startBeamWidth / 2);
+                        const y1 = beam.startY - perpVec.y * (startBeamWidth / 2);
+                        const x2 = beam.startX + perpVec.x * (startBeamWidth / 2);
+                        const y2 = beam.startY + perpVec.y * (startBeamWidth / 2);
+                        const x3 = beam.endX + perpVec.x * (endBeamWidth / 2);
+                        const y3 = beam.endY + perpVec.y * (endBeamWidth / 2);
+                        const x4 = beam.endX - perpVec.x * (endBeamWidth / 2);
+                        const y4 = beam.endY - perpVec.y * (endBeamWidth / 2);
+
+                        p.push();
+                        p.fill(255, 255, 220, beam.opacity);
+                        p.noStroke();
+                        p.quad(x1, y1, x2, y2, x3, y3, x4, y4);
+                        p.pop();
+                    }
+                }
             }
 
 
             /**
-             * Recursively draws branches and leaves with a swaying motion.
-             * @param {p5} p - The p5 instance.
-             * @param {number} x1 - Starting x-coordinate.
-             * @param {number} y1 - Starting y-coordinate.
-             * @param {number} angle - Initial angle of the branch.
-             * @param {number} len - Length of the branch.
-             * @param {number} depth - Recursion depth (controls thickness and branching).
+             * Updates particle positions and checks for intersection with angled, spreading beams.
              */
-            function drawBranch(p, x1, y1, angle, len, depth) {
-                // --- Base Case: Stop recursing and draw leaves ---
-                if (depth < baseDepth || len < baseLength) {
-                    p.noStroke();
-                    p.fill(20, 120, 50, 40); // Greenish colors with some transparency
-
-                    const numLeaves = 3;
-                    const leafRadius = 10;
-
-                    for (let i = 0; i < numLeaves; i++) {
-                        let offsetAngle = p.TWO_PI / numLeaves * i;
-                        let offsetX = p.cos(offsetAngle) * leafRadius;
-                        let offsetY = p.sin(offsetAngle) * leafRadius;
-
-                        let leafSwayX = p.map(p.noise((x1 + offsetX) * 0.05, time), 0, 1, -1, 1);
-                        let leafSwayY = p.map(p.noise((y1 + offsetY) * 0.05, time), 0, 1, -1, 1);
-
-                        let leafSize = 25;
-                        p.ellipse(x1 + offsetX + leafSwayX, y1 + offsetY + leafSwayY, leafSize, leafSize * 0.7);
+            function updateAndDisplayParticles(p) {
+                p.noStroke();
+                for (let particle of particles) {
+                    // Update position
+                    particle.x += particleDriftSpeed * particle.z;
+                    if (particle.x > p.width + 50) {
+                        particle.x = -50;
+                        particle.y = p.random(p.height);
                     }
-                    return; // End this branch
+
+                    let ySway = p.map(p.noise(particle.x * 0.01, particle.noiseOffsetY + time * particleYSwaySpeed), 0, 1, -particleYSwayMagnitude, particleYSwayMagnitude);
+                    let displayY = particle.y + ySway;
+
+                    // Check for intersection with any active light beam
+                    let inBeam = false;
+                    for (const beam of activeBeams) {
+                        // Use vector math to check if the particle is inside the trapezoid of the beam
+                        const particleVec = p.createVector(particle.x, displayY);
+                        const beamStartVec = p.createVector(beam.startX, beam.startY);
+
+                        const toParticle = p5.Vector.sub(particleVec, beamStartVec);
+                        const rotatedParticle = toParticle.copy().rotate(-beam.angle);
+
+                        // Check if the particle is longitudinally within the beam's length
+                        if (rotatedParticle.x > 0 && rotatedParticle.x < beam.length) {
+                            // Interpolate the beam's half-width at the particle's position
+                            const currentBeamHalfWidth = p.map(rotatedParticle.x, 0, beam.length, startBeamWidth / 2, endBeamWidth / 2);
+
+                            // Check if the particle is laterally within the interpolated width
+                            if (Math.abs(rotatedParticle.y) < currentBeamHalfWidth) {
+                                inBeam = true;
+                                particle.opacity = beamParticleOpacityBoost;
+                                break; // Particle is in a beam, no need to check others
+                            }
+                        }
+                    }
+
+                    if (!inBeam) {
+                        // If not in a beam, fade out
+                        particle.opacity = p.lerp(particle.opacity, baseParticleOpacity, 0.2);
+                    }
+
+                    if (particle.opacity > 1) {
+                        p.fill(255, 255, 230, particle.opacity);
+                        p.ellipse(particle.x, displayY, particle.size * particle.z, particle.size * particle.z);
+                    }
+                }
+            }
+
+
+            /**
+             * Recursively draws branches. Can operate in two modes:
+             * 1. calculateOnly = true: Populates the `leaves` array without drawing.
+             * 2. calculateOnly = false: Draws branches and leaves to the canvas.
+             */
+            function drawBranch(p, x1, y1, angle, len, depth, calculateOnly) {
+                if (depth < baseDepth || len < baseLength) {
+                    const leafSize = 25;
+                    if (calculateOnly) {
+                        leaves.push({
+                            x: x1,
+                            y: y1,
+                            size: leafSize
+                        });
+                    } else {
+                        p.noStroke();
+                        p.fill(20, 120, 50, 150); // Semi-transparent green
+                        let leafSwayX = p.map(p.noise(x1 * 0.05, time * 3), 0, 1, -2, 2);
+                        let leafSwayY = p.map(p.noise(y1 * 0.05, time * 3), 0, 1, -2, 2);
+                        p.ellipse(x1 + leafSwayX, y1 + leafSwayY, leafSize, leafSize * 0.7);
+                    }
+                    return;
                 }
 
-                // --- Calculate Sway ---
                 let sway = p.map(p.noise(x1 * 0.001, y1 * 0.001, time), 0, 1, -0.1, 0.1);
                 let currentAngle = angle + sway;
-
-                // --- Calculate End Point ---
                 let x2 = x1 + p.cos(currentAngle) * len;
                 let y2 = y1 + p.sin(currentAngle) * len;
 
-                // --- Draw the Branch ---
-                p.strokeWeight(depth * 1.2);
-                p.stroke(85, 56, 31);
-                p.line(x1, y1, x2, y2);
+                if (!calculateOnly) {
+                    p.strokeWeight(depth * 1.2);
+                    p.stroke(85, 56, 31);
+                    p.line(x1, y1, x2, y2);
+                }
 
-                // --- Recursive Step: Draw new branches ---
                 let newLen = len * 0.75;
                 let newDepth = depth - 1;
-
                 let noiseVal = p.noise(x2 * 0.1, y2 * 0.1, time);
                 let angleVar = p.map(noiseVal, 0, 1, p.PI * 0.1, p.PI * 0.25);
 
-                drawBranch(p, x2, y2, currentAngle - angleVar, newLen, newDepth);
-                drawBranch(p, x2, y2, currentAngle + angleVar * 0.6, newLen * 0.9, newDepth);
-                drawBranch(p, x2, y2, currentAngle, newLen * 0.7, newDepth - 1);
+                drawBranch(p, x2, y2, currentAngle - angleVar, newLen, newDepth, calculateOnly);
+                drawBranch(p, x2, y2, currentAngle + angleVar * 0.6, newLen * 0.9, newDepth, calculateOnly);
+                drawBranch(p, x2, y2, currentAngle, newLen * 0.7, newDepth - 1, calculateOnly);
             }
         };
 
-        // Get the container element and start the p5 sketch inside it.
-        // This ensures the canvas is created within the specified div.
         const container = window.document.getElementById('canvas-container');
         new p5(sketch, container);
-
     </script>
 </body>
 
