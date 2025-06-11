@@ -1,521 +1,360 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Physics Simulation</title>
-    <script type="importmap">
-    {
-      "imports": {
-        "p5": "https://esm.sh/p5@1.9.4"
-      }
-    }
-  </script>
+    <title>Curveball Simulation</title>
     <style>
         body {
             margin: 0;
-            padding: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        #canvas-container {
             display: flex;
             justify-content: center;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
             align-items: center;
-            height: 100vh;
-            background-color: #202030;
-            /* Darker background */
-            font-family: Arial, sans-serif;
-            overflow: hidden;
-            /* Prevent scrollbars */
         }
-
-        .container {
-            position: relative;
-            width: 800px;
-            height: 600px;
-            border: 2px solid #444;
-            border-radius: 8px;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
-
-        .reset-button {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            z-index: 10;
-            padding: 8px 12px;
-            font-size: 14px;
-            background-color: #3498db;
+        label {
+            width: 120px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
         }
-
-        .reset-button:hover {
-            background-color: #2980b9;
+        button:hover {
+            background-color: #45a049;
         }
     </style>
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.skypack.dev/p5@1.4.0"
+            }
+        }
+    </script>
 </head>
-
 <body>
-    <div class="container">
-        <button class="reset-button" id="resetButton">Reset</button>
+    <h1>Curveball Simulation</h1>
+    <div id="canvas-container"></div>
+    <div class="controls">
+        <div class="control-group">
+            <label for="spin">Spin Rate (rpm):</label>
+            <input type="range" id="spin" min="0" max="3000" value="1500" step="100">
+            <span id="spin-value">1500</span>
+        </div>
+        <div class="control-group">
+            <label for="velocity">Velocity (mph):</label>
+            <input type="range" id="velocity" min="40" max="100" value="75" step="5">
+            <span id="velocity-value">75</span>
+        </div>
+        <div class="control-group">
+            <label for="angle">Launch Angle (°):</label>
+            <input type="range" id="angle" min="0" max="20" value="10" step="1">
+            <span id="angle-value">10</span>
+        </div>
+        <button id="pitch-button">Pitch Ball</button>
     </div>
 
     <script type="module">
         import p5 from 'p5';
 
-        /**
-         * Main sketch function for the magnet maze simulation.
-         * Creates a physics simulation where a hexagonal metal puck is attracted to magnets
-         * through a maze with walls.
-         * @param {p5} p - The p5.js instance.
-         */
-        const sketch = (p) => {
-            // --- Constants ---
-            const GRID_SIZE = 50; // Size of each grid cell in pixels
-            const PUCK_RADIUS = 18; // Radius of the hexagonal puck
-            const MAGNET_SIZE = 8; // Visual size of magnets
-            const WALL_THICKNESS = 4; // Thickness of maze walls
-            const MAZE_WIDTH = 16; // Width of maze in grid cells
-            const MAZE_HEIGHT = 12; // Height of maze in grid cells
-            const TIMESTEP = 0.5; // Physics timestep delta (arbitrary units)
+        // Constants for the simulation
+        const WIDTH = 700;
+        const HEIGHT = 500;
+        const GRAVITY = 0.003; // Reduced gravity to match original simulation
+        const DRAG_COEFFICIENT = 0.003; // Reduced drag to match original simulation
+        const MAGNUS_COEFFICIENT = 0.00004; // Adjusted to match original curve
+        const BALL_RADIUS = 20;
+        const INITIAL_X = 75;
+        const INITIAL_Y = 150;
+        
+        // Conversion factors
+        const MPH_TO_PPS = 1.46667; // miles per hour to pixels per second
+        const RPM_TO_RPS = 1/60; // revolutions per minute to revolutions per second
 
-            // Maze layout (1 = wall, 0 = empty space)
-            const mazeLayout = [
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 1],
-                [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 1],
-                [1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1],
-                [1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1],
-                [1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1],
-                [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1],
-                [1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 1],
-                [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        // Create a new p5 instance
+        new p5((sketch) => {
+            // Variables for the simulation
+            let ball;
+            let trajectory = [];
+            let spin = 1500; // RPM
+            let velocity = 75; // MPH
+            let angle = 10; // degrees
+            
+            // UI elements
+            let spinSlider, velocitySlider, angleSlider;
+            let spinValue, velocityValue, angleValue;
+            let pitchButton;
+            
+            // Game state
+            let isPitching = false;
+            let isGameOver = false;
+            let strikeCount = 0;
+            let ballCount = 0;
+            
+            // Baseball seams pattern
+            const seamPoints = [
+                {x: 0, y: -0.3}, {x: 0.3, y: 0}, {x: 0, y: 0.3}, {x: -0.3, y: 0}
             ];
 
-            // --- Variables ---
-            let puck; // The metal puck object
-            let magnets = []; // Array of magnet objects
-            let walls = []; // Array of wall segment objects
-            let goalMagnet; // The final magnet to reach
-            let startPos; // Starting position of the puck
-            let gameStarted = false; // Has the user started the simulation?
-            let gameOver = false; // Has the puck reached the goal?
-            let message = "Click to Start"; // Message to display
-            let canvas; // p5 canvas reference
+            // Ball class
+            class Ball {
+                constructor(x, y, vx, vy, spin) {
+                    this.x = x;
+                    this.y = y;
+                    this.vx = vx;
+                    this.vy = vy;
+                    this.spin = spin * RPM_TO_RPS; // Convert RPM to RPS
+                    this.radius = BALL_RADIUS;
+                    this.coefficientOfRestitution = 0.5;
+                }
 
-            // --- Magnet Zone Definitions ---
-            // Format: [x, y, w, h, forceMultiplier] - Defines rectangular areas with magnetic field strength
-            const magnetZones = [
-                [2, 2, 3, 3, 1.5],  // Zone 1: Stronger attraction
-                [10, 2, 3, 3, 2.0], // Zone 2: Even stronger
-                [2, 8, 3, 3, 1.2],  // Zone 3: Weaker
-                [10, 8, 3, 3, 1.8]  // Zone 4: Strong
-            ];
-
-            /**
-             * Creates a new puck object with physics properties.
-             * @param {number} x - Initial x position.
-             * @param {number} y - Initial y position.
-             * @returns {Object} Puck object with position, velocity, etc.
-             */
-            function createPuck(x, y) {
-                return {
-                    x: x,
-                    y: y,
-                    vx: 0, // Velocity x
-                    vy: 0, // Velocity y
-                    radius: PUCK_RADIUS,
-                    mass: 1, // Mass (affects acceleration)
-                    angle: 0, // Visual rotation angle
-                    trail: [], // Stores positions for trail effect
-                    trailLength: 20 // Number of positions to remember
-                };
-            }
-
-            /**
-             * Creates a new magnet object.
-             * @param {number} x - Magnet x position.
-             * @param {number} y - Magnet y position.
-             * @param {number} [force=1] - Attraction force strength.
-             * @param {boolean} [isGoal=false] - Whether this is the goal magnet.
-             * @returns {Object} Magnet object.
-             */
-            function createMagnet(x, y, force = 1, isGoal = false) {
-                return {
-                    x: x,
-                    y: y,
-                    force: force, // How strongly it attracts
-                    isGoal: isGoal // Whether this magnet ends the game
-                };
-            }
-
-            /**
-             * Creates wall segments based on the maze layout.
-             * @returns {Array<Object>} Array of wall segment objects.
-             */
-            function createWalls() {
-                const wallSegments = [];
-                const visited = new Set(); // To avoid duplicate walls
-                for (let y = 0; y < MAZE_HEIGHT; y++) {
-                    for (let x = 0; x < MAZE_WIDTH; x++) {
-                        if (mazeLayout[y][x] === 1) {
-                            // Check for horizontal wall to the right
-                            if (x + 1 < MAZE_WIDTH && mazeLayout[y][x + 1] === 1) {
-                                const wallId = `${x},${y}-h`;
-                                if (!visited.has(wallId)) {
-                                    wallSegments.push({
-                                        x1: x * GRID_SIZE, y1: y * GRID_SIZE,
-                                        x2: (x + 1) * GRID_SIZE, y2: y * GRID_SIZE
-                                    });
-                                    visited.add(wallId);
-                                }
-                            }
-                            // Check for vertical wall below
-                            if (y + 1 < MAZE_HEIGHT && mazeLayout[y + 1][x] === 1) {
-                                const wallId = `${x},${y}-v`;
-                                if (!visited.has(wallId)) {
-                                    wallSegments.push({
-                                        x1: x * GRID_SIZE, y1: y * GRID_SIZE,
-                                        x2: x * GRID_SIZE, y2: (y + 1) * GRID_SIZE
-                                    });
-                                    visited.add(wallId);
-                                }
+                update() {
+                    if (!isPitching) return;
+                    
+                    // Calculate Magnus force coefficients
+                    let magnusCoefficient = MAGNUS_COEFFICIENT * this.spin;
+                    
+                    // Magnus effect (lateral force due to spin)
+                    let magnusX = magnusCoefficient * this.vy;
+                    let magnusY = -magnusCoefficient * this.vx;
+                    
+                    // Apply forces
+                    this.vx += magnusX;
+                    this.vy += magnusY + GRAVITY;
+                    
+                    // Apply drag
+                    let speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    let dragForce = DRAG_COEFFICIENT * speed * speed;
+                    let dragX = -dragForce * (this.vx / speed);
+                    let dragY = -dragForce * (this.vy / speed);
+                    
+                    this.vx += dragX;
+                    this.vy += dragY;
+                    
+                    // Update position
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    
+                    // Add to trajectory
+                    trajectory.push({x: this.x, y: this.y});
+                    
+                    // Check for strike or ball
+                    this.checkStrikeOrBall();
+                    
+                    // Stop conditions
+                    if (this.x > WIDTH - 50 || this.y > HEIGHT - 20 || speed < 0.1) {
+                        isPitching = false;
+                        if (!isGameOver) {
+                            ballCount++;
+                            if (ballCount >= 4) {
+                                isGameOver = true;
                             }
                         }
                     }
                 }
-                return wallSegments;
+
+                checkStrikeOrBall() {
+                    // Check if the ball is in the strike zone
+                    const strikeZoneLeft = WIDTH * 0.35;
+                    const strikeZoneRight = WIDTH * 0.65;
+                    const strikeZoneTop = HEIGHT * 0.3;
+                    const strikeZoneBottom = HEIGHT * 0.6;
+                    
+                    // Check if ball is in strike zone horizontally
+                    const inStrikeZoneX = this.x >= strikeZoneLeft && this.x <= strikeZoneRight;
+                    
+                    // Check if ball is in strike zone vertically
+                    const inStrikeZoneY = this.y >= strikeZoneTop && this.y <= strikeZoneBottom;
+                    
+                    // Check if ball is within the strike zone
+                    if (inStrikeZoneX && inStrikeZoneY) {
+                        // Ball is in the strike zone
+                        if (this.vx < 0.5 && this.vx > -0.5 && 
+                            this.vy < 0.5 && this.vy > -0.5) {
+                            // Ball has stopped in the strike zone - strike!
+                            isPitching = false;
+                            strikeCount++;
+                            if (strikeCount >= 3) {
+                                isGameOver = true;
+                            }
+                        }
+                    }
+                }
+
+                display() {
+                    // Draw the baseball seams
+                    sketch.push();
+                    sketch.translate(this.x, this.y);
+                    sketch.noFill();
+                    sketch.stroke(0);
+                    sketch.strokeWeight(1);
+                    
+                    // Draw the four-seam pattern
+                    sketch.beginShape();
+                    for (let point of seamPoints) {
+                        sketch.vertex(point.x * this.radius, point.y * this.radius);
+                    }
+                    sketch.endShape(sketch.CLOSE);
+                    
+                    // Draw the baseball
+                    sketch.fill(255);
+                    sketch.strokeWeight(0.5);
+                    sketch.ellipse(0, 0, this.radius * 2);
+                    
+                    sketch.pop();
+                }
             }
 
-            /**
-             * p5.js setup function - runs once at the beginning.
-             * Initializes canvas, maze elements, and event listeners.
-             */
-            p.setup = () => {
-                // Create canvas inside the container
-                const container = document.querySelector('.container');
-                const width = container.clientWidth;
-                const height = container.clientHeight;
-                canvas = p.createCanvas(width, height);
-                canvas.parent(container); // Attach canvas to the container
-
-                // Initialize maze elements
-                walls = createWalls();
-
-                // Create magnets (positions in grid coordinates)
-                magnets.push(createMagnet(3.5, 3.5, 1));
-                magnets.push(createMagnet(12.5, 3.5, 1));
-                magnets.push(createMagnet(3.5, 9.5, 1));
-                goalMagnet = createMagnet(14.5, 9.5, 1, true);
-                magnets.push(goalMagnet);
-
-                // Create puck at starting position
-                startPos = { x: 1.5 * GRID_SIZE, y: 1.5 * GRID_SIZE };
-                puck = createPuck(startPos.x, startPos.y);
-
-                // Add mouse press event listener
-                p.canvas.addEventListener('click', () => {
-                    if (!gameStarted && !gameOver) {
-                        gameStarted = true;
-                        message = "Navigating...";
-                    }
-                });
-
-                // Add reset button event listener
-                document.getElementById('resetButton').addEventListener('click', resetSimulation);
+            // Setup the sketch
+            sketch.setup = function() {
+                const canvas = sketch.createCanvas(WIDTH, HEIGHT);
+                canvas.parent('canvas-container');
+                
+                // Initialize UI elements
+                spinSlider = document.getElementById('spin');
+                velocitySlider = document.getElementById('velocity');
+                angleSlider = document.getElementById('angle');
+                
+                spinValue = document.getElementById('spin-value');
+                velocityValue = document.getElementById('velocity-value');
+                angleValue = document.getElementById('angle-value');
+                
+                pitchButton = document.getElementById('pitch-button');
+                
+                // Add event listeners
+                spinSlider.addEventListener('input', updateSpin);
+                velocitySlider.addEventListener('input', updateVelocity);
+                angleSlider.addEventListener('input', updateAngle);
+                pitchButton.addEventListener('click', pitchBall);
+                
+                // Initial setup
+                resetGame();
             };
 
-            /**
-             * Resets the simulation to its initial state.
-             */
-            function resetSimulation() {
-                puck = createPuck(startPos.x, startPos.y);
-                gameStarted = false;
-                gameOver = false;
-                message = "Click to Start";
+            // Update spin value
+            function updateSpin() {
+                spin = parseInt(spinSlider.value);
+                spinValue.textContent = spin;
             }
 
-            /**
-             * Handles physics and game logic updates.
-             */
-            function update() {
-                if (gameStarted && !gameOver) {
-                    // Apply forces from each magnet
-                    for (let magnet of magnets) {
-                        let dx = magnet.x * GRID_SIZE - puck.x;
-                        let dy = magnet.y * GRID_SIZE - puck.y;
-                        let distance = Math.sqrt(dx * dx + dy * dy);
+            // Update velocity value
+            function updateVelocity() {
+                velocity = parseInt(velocitySlider.value);
+                velocityValue.textContent = velocity;
+            }
 
-                        // Check if puck is within a magnet zone
-                        let zoneForceMultiplier = 1; // Default force multiplier
-                        for (let zone of magnetZones) {
-                            // If puck is inside this zone
-                            if (puck.x > zone[0] * GRID_SIZE && puck.x < (zone[0] + zone[2]) * GRID_SIZE &&
-                                puck.y > zone[1] * GRID_SIZE && puck.y < (zone[1] + zone[3]) * GRID_SIZE) {
-                                zoneForceMultiplier = zone[4]; // Apply zone's force multiplier
-                                break; // Only apply one zone's effect
-                            }
-                        }
+            // Update angle value
+            function updateAngle() {
+                angle = parseInt(angleSlider.value);
+                angleValue.textContent = angle;
+            }
 
-                        // Apply magnetic force (inverse square law)
-                        if (distance > 0) { // Prevent division by zero
-                            let force = (magnet.force * zoneForceMultiplier) / (distance * distance);
-                            // Cap force to prevent extreme acceleration
-                            force = Math.min(force, 0.2);
-                            puck.vx += force * dx / distance;
-                            puck.vy += force * dy / distance;
-                        }
-                    }
+            // Reset the game state
+            function resetGame() {
+                isPitching = false;
+                isGameOver = false;
+                strikeCount = 0;
+                ballCount = 0;
+                trajectory = [];
+            }
 
-                    // Apply damping/friction
-                    puck.vx *= 0.98;
-                    puck.vy *= 0.98;
-
-                    // Update position based on velocity
-                    puck.x += puck.vx * TIMESTEP;
-                    puck.y += puck.vy * TIMESTEP;
-
-                    // Update visual rotation based on velocity
-                    if (puck.vx !== 0 || puck.vy !== 0) {
-                        puck.angle = Math.atan2(puck.vy, puck.vx);
-                    }
-
-                    // Add current position to trail
-                    puck.trail.push({ x: puck.x, y: puck.y });
-                    if (puck.trail.length > puck.trailLength) {
-                        puck.trail.shift(); // Remove oldest position
-                    }
-
-                    // Check for collision with walls
-                    for (let wall of walls) {
-                        let collision = checkWallCollision(
-                            wall.x1, wall.y1, wall.x2, wall.y2,
-                            puck.x, puck.y, puck.radius
-                        );
-                        if (collision) {
-                            // Apply impulse to reflect velocity
-                            let dot = puck.vx * collision.normalX + puck.vy * collision.normalY;
-                            puck.vx -= 2 * dot * collision.normalX;
-                            puck.vy -= 2 * dot * collision.normalY;
-                            // Position correction to prevent sticking
-                            puck.x += collision.normalX * collision.penetration * 1.1;
-                            puck.y += collision.normalY * collision.penetration * 1.1;
-                        }
-                    }
-
-                    // Check if puck reached the goal magnet
-                    let dx = goalMagnet.x * GRID_SIZE - puck.x;
-                    let dy = goalMagnet.y * GRID_SIZE - puck.y;
-                    let distanceToGoal = Math.sqrt(dx * dx + dy * dy);
-                    if (distanceToGoal < puck.radius + MAGNET_SIZE) {
-                        gameOver = true;
-                        message = "Goal Reached!";
-                    }
+            // Start a new pitch
+            function pitchBall() {
+                if (isGameOver) {
+                    resetGame();
+                }
+                
+                if (!isPitching) {
+                    // Convert velocity from mph to pixels per second
+                    let initialVelocity = velocity * MPH_TO_PPS;
+                    
+                    // Calculate initial velocity components
+                    let vx = -initialVelocity * Math.cos(sketch.radians(angle));
+                    let vy = -initialVelocity * Math.sin(sketch.radians(angle));
+                    
+                    // Create new ball
+                    ball = new Ball(INITIAL_X, INITIAL_Y, vx, vy, spin);
+                    
+                    // Reset trajectory
+                    trajectory = [{x: INITIAL_X, y: INITIAL_Y}];
+                    
+                    // Start pitching
+                    isPitching = true;
                 }
             }
 
-            /**
-             * Checks for collision between a wall segment and the puck.
-             * @param {number} wallX1 - Wall start x coordinate.
-             * @param {number} wallY1 - Wall start y coordinate.
-             * @param {number} wallX2 - Wall end x coordinate.
-             * @param {number} wallY2 - Wall end y coordinate.
-             * @param {number} puckX - Puck x position.
-             * @param {number} puckY - Puck y position.
-             * @param {number} puckRadius - Puck radius.
-             * @returns {Object|boolean} Collision data or false if no collision.
-             */
-            function checkWallCollision(wallX1, wallY1, wallX2, wallY2, puckX, puckY, puckRadius) {
-                // Vector from wall start to puck
-                let dx = puckX - wallX1;
-                let dy = puckY - wallY1;
-
-                // Wall segment vector
-                let wallDx = wallX2 - wallX1;
-                let wallDy = wallY2 - wallY1;
-                let wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
-
-                // Normalize wall vector
-                let normWallDx = wallDx / wallLength;
-                let normWallDy = wallDy / wallLength;
-
-                // Project puck onto the wall to find closest point
-                let projection = dx * normWallDx + dy * normWallDy;
-                projection = Math.max(0, Math.min(wallLength, projection));
-
-                // Closest point on wall to the puck
-                let closestX = wallX1 + projection * normWallDx;
-                let closestY = wallY1 + projection * normWallDy;
-
-                // Distance from puck to closest point
-                let distX = puckX - closestX;
-                let distY = puckY - closestY;
-                let distance = Math.sqrt(distX * distX + distY * distY);
-
-                // Check if distance is less than puck radius
-                if (distance < puckRadius) {
-                    // Normal vector points from wall to puck
-                    let normalX = distX / distance;
-                    let normalY = distY / distance;
-
-                    return {
-                        normalX: normalX,
-                        normalY: normalY,
-                        penetration: puckRadius - distance // How far puck penetrates wall
-                    };
-                }
-                return false; // No collision
-            }
-
-            /**
-             * p5.js draw function - called repeatedly to render the simulation.
-             */
-            p.draw = () => {
-                update(); // Update physics and game state
-
+            // Draw the sketch
+            sketch.draw = function() {
                 // Draw background
-                p.background(20);
-
-                // Draw grid lines
-                p.stroke(30);
-                p.strokeWeight(1);
-                for (let x = 0; x <= MAZE_WIDTH * GRID_SIZE; x += GRID_SIZE) {
-                    p.line(x, 0, x, MAZE_HEIGHT * GRID_SIZE);
+                sketch.background(220);
+                
+                // Draw pitcher and catcher
+                sketch.fill(100);
+                sketch.noStroke();
+                sketch.rect(0, HEIGHT - 60, 60, 60); // Pitcher
+                sketch.rect(WIDTH - 60, HEIGHT - 80, 60, 80); // Catcher
+                
+                // Draw strike zone
+                sketch.stroke(255, 0, 0);
+                sketch.strokeWeight(2);
+                sketch.noFill();
+                sketch.rect(WIDTH * 0.35, HEIGHT * 0.3, WIDTH * 0.3, HEIGHT * 0.3);
+                
+                // Draw trajectory
+                sketch.stroke(0);
+                sketch.strokeWeight(2);
+                sketch.noFill();
+                sketch.beginShape();
+                for (let point of trajectory) {
+                    sketch.vertex(point.x, point.y);
                 }
-                for (let y = 0; y <= MAZE_HEIGHT * GRID_SIZE; y += GRID_SIZE) {
-                    p.line(0, y, MAZE_WIDTH * GRID_SIZE, y);
+                sketch.endShape();
+                
+                // Update and display ball
+                if (isPitching && ball) {
+                    ball.update();
+                    ball.display();
                 }
-
-                // Draw walls
-                p.stroke(80, 120, 200, 100); // Blue-gray with transparency
-                p.strokeWeight(WALL_THICKNESS);
-                for (let wall of walls) {
-                    p.line(wall.x1, wall.y1, wall.x2, wall.y2);
-                }
-
-                // Draw magnet zones
-                p.noStroke();
-                p.fill(255, 255, 0, 30); // Yellow with transparency
-                for (let zone of magnetZones) {
-                    p.rect(
-                        zone[0] * GRID_SIZE,
-                        zone[1] * GRID_SIZE,
-                        zone[2] * GRID_SIZE,
-                        zone[3] * GRID_SIZE
-                    );
-                }
-
-                // Draw magnets
-                for (let magnet of magnets) {
-                    if (magnet.isGoal) {
-                        // Goal magnet - green
-                        p.fill(0, 200, 100);
-                        p.stroke(0, 250, 150);
+                
+                // Draw UI information
+                sketch.fill(0);
+                sketch.noStroke();
+                sketch.textSize(16);
+                sketch.text(`Strike: ${strikeCount}`, 20, 30);
+                sketch.text(`Ball: ${ballCount}`, 20, 60);
+                
+                // Draw game over message
+                if (isGameOver) {
+                    sketch.fill(255, 0, 0);
+                    sketch.textSize(32);
+                    sketch.textAlign(sketch.CENTER);
+                    if (strikeCount >= 3) {
+                        sketch.text("Strikeout!", WIDTH/2, HEIGHT/2);
                     } else {
-                        // Regular magnets - blue
-                        p.fill(100, 150, 255);
-                        p.stroke(150, 200, 255);
-                    }
-                    p.strokeWeight(2);
-                    p.ellipse(magnet.x * GRID_SIZE, magnet.y * GRID_SIZE, MAGNET_SIZE * 2);
-                    // Add highlight for 3D effect
-                    p.fill(255, 255, 255, 100);
-                    p.ellipse(
-                        magnet.x * GRID_SIZE - MAGNET_SIZE / 2,
-                        magnet.y * GRID_SIZE - MAGNET_SIZE / 2,
-                        MAGNET_SIZE
-                    );
-                }
-
-                // Draw puck trail
-                p.noFill();
-                p.stroke(255, 100, 100, 80); // Red with transparency
-                p.strokeWeight(2);
-                p.beginShape();
-                for (let pos of puck.trail) {
-                    p.vertex(pos.x, pos.y);
-                }
-                p.endShape();
-
-                // Draw puck (hexagon)
-                p.push(); // Save current transformation
-                p.translate(puck.x, puck.y);
-                p.rotate(puck.angle);
-
-                if (gameOver) {
-                    // Confetti and celebration colors
-                    const colors = [
-                        [255, 100, 100], [100, 255, 100], [100, 100, 255],
-                        [255, 255, 100], [255, 100, 255], [100, 255, 255]
-                    ];
-                    for (let i = 0; i < 12; i++) {
-                        let r = p.random(2, 5);
-                        let x = p.cos(p.TWO_PI / 12 * i) * r * 10;
-                        let y = p.sin(p.TWO_PI / 12 * i) * r * 10;
-                        let c = p.random(colors);
-                        p.fill(c[0], c[1], c[2], 150);
-                        p.noStroke();
-                        p.ellipse(x, y, r * 3);
+                        sketch.text("Walk!", WIDTH/2, HEIGHT/2);
                     }
                 }
-
-                // Draw hexagon shape
-                p.fill(180, 50, 50); // Reddish metal
-                p.stroke(240, 120, 120); // Highlight
-                p.strokeWeight(2);
-                p.beginShape();
-                for (let i = 0; i < 6; i++) {
-                    let angle = p.TWO_PI / 6 * i;
-                    let x = p.cos(angle) * puck.radius;
-                    let y = p.sin(angle) * puck.radius;
-                    p.vertex(x, y);
-                }
-                p.endShape(p.CLOSE);
-
-                // Add highlight reflection
-                p.fill(255, 255, 255, 60);
-                p.noStroke();
-                p.beginShape();
-                for (let i = 0; i < 3; i++) {
-                    let angle = p.TWO_PI / 6 * i;
-                    let x = p.cos(angle) * puck.radius * 0.5;
-                    let y = p.sin(angle) * puck.radius * 0.5;
-                    p.vertex(x, y);
-                }
-                p.endShape(p.CLOSE);
-
-                p.pop(); // Restore transformation
-
-                // Draw UI text
-                p.fill(255);
-                p.noStroke();
-                p.textSize(14);
-                p.textAlign(p.CENTER, p.TOP);
-                p.text(message, p.width / 2, 10);
-
-                // Draw controls hint
-                p.textSize(12);
-                p.textAlign(p.CENTER, p.BOTTOM);
-                p.text("Click anywhere to start • Click Reset to retry", p.width / 2, p.height - 10);
             };
-
-            /**
-             * Handles window resize events to keep the canvas responsive.
-             */
-            p.windowResized = () => {
-                const container = document.querySelector('.container');
-                p.resizeCanvas(container.clientWidth, container.clientHeight);
-            };
-        };
-
-        // Create the p5 instance
-        new p5(sketch);
+        }, 'canvas-container');
     </script>
 </body>
-
 </html>
