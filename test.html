@@ -1,103 +1,199 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="utf-8" />
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #000000;
-        }
-
-        #canvas-container {
-            position: relative;
-            border: 2px solid #333;
-            box-shadow: 0 0 20px #000;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 2D Voronoi Diagram</title>
+</head>
+<body>
     <script type="importmap">
         {
-            "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-            }
+          "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"
+          }
         }
     </script>
-
-</head>
-
-<body>
-    <div id="canvas-container">
-    </div>
     <script type="module">
-        import p5 from 'p5';
+    import 'p5';
 
-        const sketch = (p) => {
-            let particles = [];
+    /**
+     * @typedef {object} p5 - The p5.js instance.
+     */
 
-            class Particle {
-                constructor(x, y) {
-                    this.pos = p.createVector(x, y);
-                    this.vel = p5.Vector.random2D().mult(p.random(2, 6));
-                    this.acc = p.createVector(0, 0.05);
-                    this.lifespan = 255;
-                    this.size = p.random(2, 5);
-                    this.color = {
-                        r: p.random(150, 255),
-                        g: p.random(50, 150),
-                        b: p.random(0, 50)
-                    };
-                }
+    /**
+     * Configuration object for the Voronoi diagram application.
+     * @type {Object}
+     * @property {number} width - The width of the canvas.
+     * @property {number} height - The height of the canvas.
+     * @property {number} numPoints - The number of seed points.
+     * @property {number} dragThreshold - The distance threshold for dragging points.
+     * @property {number} minDistance - The minimum distance between seed points.
+     */
+    const config = {
+        width: 800,
+        height: 600,
+        numPoints: 10,
+        dragThreshold: 5,
+        minDistance: 20
+    };
 
-                update() {
-                    this.vel.add(this.acc);
-                    this.pos.add(this.vel);
-                    this.lifespan -= 2;
-                    this.size = p.map(this.lifespan, 0, 255, 0, this.size);
-                }
+    /**
+     * Array to store the seed points for the Voronoi diagram.
+     * @type {Array<{x: number, y: number}>}
+     */
+    let points = [];
 
-                display() {
-                    p.noStroke();
-                    p.fill(this.color.r, this.color.g, this.color.b, this.lifespan);
-                    p.ellipse(this.pos.x, this.pos.y, this.size);
-                }
+    /**
+     * 2D array to store the Voronoi cells.
+     * @type {Array<Array<{x: number, y: number}>>}
+     */
+    let voronoiCells = [];
 
-                isFinished() {
-                    return this.lifespan < 0;
-                }
+    /**
+     * Index of the currently dragged point, if any.
+     * @type {number}
+     */
+    let draggedPoint = -1;
+
+    /**
+     * P5.js setup function. Initializes the canvas, sets up event listeners,
+     * and generates the initial set of seed points.
+     */
+    window.setup = function() {
+        createCanvas(config.width, config.height);
+        generatePoints();
+        window.addEventListener('resize', () => {
+            resizeCanvas(windowWidth, windowHeight);
+        });
+    };
+
+    /**
+     * P5.js draw function. Called repeatedly to render the Voronoi diagram.
+     */
+    window.draw = function() {
+        background(0);
+        computeVoronoiCells();
+        drawVoronoiCells();
+        drawPoints();
+    };
+
+    /**
+     * P5.js mouse press event handler. Determines if a point is clicked for dragging.
+     */
+    window.mousePressed = function() {
+        for (let i = 0; i < points.length; i++) {
+            if (dist(mouseX, mouseY, points[i].x, points[i].y) < config.dragThreshold) {
+                draggedPoint = i;
+                return;
             }
+        }
+    };
 
-            p.setup = () => {
-                const canvas = p.createCanvas(600, 400);
-                canvas.parent('canvas-container');
-                p.background(0);
-            };
+    /**
+     * P5.js mouse drag event handler. Updates the position of the dragged point.
+     */
+    window.mouseDragged = function() {
+        if (draggedPoint !== -1) {
+            points[draggedPoint].x = mouseX;
+            points[draggedPoint].y = mouseY;
+            enforceMinDistance(draggedPoint);
+        }
+    };
 
-            p.draw = () => {
-                p.background(0, 25);
-                for (let i = particles.length - 1; i >= 0; i--) {
-                    particles[i].update();
-                    particles[i].display();
-                    if (particles[i].isFinished()) {
-                        particles.splice(i, 1);
-                    }
-                }
-            };
+    /**
+     * P5.js mouse release event handler. Resets the dragged point index.
+     */
+    window.mouseReleased = function() {
+        draggedPoint = -1;
+    };
 
-            p.mousePressed = () => {
-                for (let i = 0; i < 100; i++) {
-                    particles.push(new Particle(p.mouseX, p.mouseY));
-                }
-            };
-        };
+    /**
+     * Generates a set of random seed points within the canvas bounds.
+     */
+    function generatePoints() {
+        for (let i = 0; i < config.numPoints; i++) {
+            points.push({
+                x: random(config.width),
+                y: random(config.height)
+            });
+        }
+    }
 
-        const container = window.document.getElementById('canvas-container');
-        new p5(sketch, container);
+    /**
+     * Draws the seed points on the canvas.
+     */
+    function drawPoints() {
+        fill(255, 255, 255);
+        noStroke();
+        for (let i = 0; i < points.length; i++) {
+            ellipse(points[i].x, points[i].y, 5, 5);
+        }
+    }
+
+    /**
+     * Computes the Voronoi cells for the current set of seed points.
+     */
+    function computeVoronoiCells() {
+        voronoiCells = Array(points.length).fill().map(() => []);
+        for (let x = 0; x < width; x++) {
+            for (let y = 0; y < height; y++) {
+                let closestPointIndex = findClosestPoint(x, y);
+                voronoiCells[closestPointIndex].push({ x, y });
+            }
+        }
+    }
+
+    /**
+     * Finds the index of the closest seed point to a given point.
+     * @param {number} x - The x-coordinate of the point.
+     * @param {number} y - The y-coordinate of the point.
+     * @returns {number} The index of the closest seed point.
+     */
+    function findClosestPoint(x, y) {
+        let minDist = Infinity;
+        let closestIndex = -1;
+        for (let i = 0; i < points.length; i++) {
+            let dist = (x - points[i].x) ** 2 + (y - points[i].y) ** 2;
+            if (dist < minDist) {
+                minDist = dist;
+                closestIndex = i;
+            }
+        }
+        return closestIndex;
+    }
+
+    /**
+     * Draws the computed Voronoi cells on the canvas.
+     */
+    function drawVoronoiCells() {
+        noStroke();
+        for (let i = 0; i < voronoiCells.length; i++) {
+            fill(random(255), random(255), random(255), 150);
+            beginShape();
+            for (let j = 0; j < voronoiCells[i].length; j++) {
+                vertex(voronoiCells[i][j].x, voronoiCells[i][j].y);
+            }
+            endShape();
+        }
+    }
+
+    /**
+     * Enforces a minimum distance between seed points to prevent clustering.
+     * @param {number} index - The index of the point to check.
+     */
+    function enforceMinDistance(index) {
+        for (let i = 0; i < points.length; i++) {
+            if (i === index) continue;
+            let dx = points[index].x - points[i].x;
+            let dy = points[index].y - points[i].y;
+            let dist = sqrt(dx * dx + dy * dy);
+            if (dist < config.minDistance) {
+                let angle = atan2(dy, dx);
+                points[index].x = points[i].x + cos(angle) * config.minDistance;
+                points[index].y = points[i].y + sin(angle) * config.minDistance;
+            }
+        }
+    }
     </script>
 </body>
-
 </html>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Voronoi Diagram</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            border-radius: 0.5rem;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl text-center mb-6">
+        <h1 class="text-3xl md:text-4xl font-bold text-gray-800">Interactive Voronoi Diagram</h1>
+        <p class="text-gray-600 mt-2">Click and drag the points to stretch and compress the cells.</p>
+    </div>
+
+    <div id="canvas-container" class="w-full max-w-4xl aspect-square">
+        <!-- p5.js canvas will be inserted here -->
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let points = [];
+            const numPoints = 30;
+            let pointColors = [];
+            let selectedPointIndex = -1;
+            const pointRadius = 10;
+            let voronoiImage; // To store the pre-calculated Voronoi image
+
+            // --- Setup ---
+            p.setup = () => {
+                const container = p.select('#canvas-container');
+                // Use .elt.clientWidth to get the actual rendered size of the container
+                const canvas = p.createCanvas(container.elt.clientWidth, container.elt.clientHeight);
+                canvas.parent(container);
+                p.colorMode(p.HSB, 360, 100, 100);
+
+                // Create an image buffer for drawing the Voronoi diagram
+                voronoiImage = p.createImage(p.width, p.height);
+
+                // Generate initial random points and assign a permanent color
+                for (let i = 0; i < numPoints; i++) {
+                    points.push(p.createVector(p.random(p.width), p.random(p.height)));
+                    pointColors.push(p.color(p.random(360), 70, 90));
+                }
+                
+                // Initial calculation of the Voronoi diagram
+                calculateVoronoi();
+            };
+            
+            // --- Window Resized ---
+            p.windowResized = () => {
+                const container = p.select('#canvas-container');
+                // Use .elt.clientWidth here as well for consistency
+                p.resizeCanvas(container.elt.clientWidth, container.elt.clientHeight);
+                // Recreate the image buffer and recalculate
+                voronoiImage = p.createImage(p.width, p.height);
+                calculateVoronoi();
+            };
+
+            // --- Main Drawing Loop ---
+            p.draw = () => {
+                // Display the pre-calculated Voronoi image
+                p.image(voronoiImage, 0, 0);
+                
+                // --- Render Seed Points ---
+                p.noStroke();
+                for (let i = 0; i < points.length; i++) {
+                    p.fill(0, 0, 10); // Dark gray for points
+                    p.circle(points[i].x, points[i].y, pointRadius);
+                }
+                
+                // --- Handle Mouse Interaction Cues ---
+                handleMouseCues();
+            };
+
+            // --- Voronoi Calculation Function ---
+            function calculateVoronoi() {
+                // Bail out if canvas has no size, preventing errors
+                if (p.width === 0 || p.height === 0) return;
+                
+                // Step 1: Create a grid to store the index of the closest point for each pixel.
+                // This is computationally intensive but necessary.
+                let grid = Array(p.width).fill(null).map(() => Array(p.height).fill(-1));
+
+                for (let x = 0; x < p.width; x++) {
+                    for (let y = 0; y < p.height; y++) {
+                        let closestDistSq = Infinity;
+                        let closestIndex = -1;
+
+                        // Find the closest seed point to the current pixel.
+                        for (let i = 0; i < points.length; i++) {
+                            const dx = x - points[i].x;
+                            const dy = y - points[i].y;
+                            const dSq = dx * dx + dy * dy;
+                            
+                            if (dSq < closestDistSq) {
+                                closestDistSq = dSq;
+                                closestIndex = i;
+                            }
+                        }
+                        if (closestIndex !== -1) {
+                           grid[x][y] = closestIndex;
+                        }
+                    }
+                }
+
+                // Step 2: Use the grid to draw the image with borders.
+                voronoiImage.loadPixels();
+                // Iterate from 1 to avoid checking out of bounds on the grid.
+                for (let x = 1; x < p.width; x++) {
+                    for (let y = 1; y < p.height; y++) {
+                        const ownerIndex = grid[x][y];
+
+                        // Check neighbors (left and top) to detect an edge.
+                        const leftOwner = grid[x - 1][y];
+                        const topOwner = grid[x][y - 1];
+
+                        if (ownerIndex !== leftOwner || ownerIndex !== topOwner) {
+                            // This pixel is on a boundary.
+                            voronoiImage.set(x, y, p.color(0, 0, 15)); // Dark gray border
+                        } else {
+                            // This pixel is in the interior of a cell.
+                            voronoiImage.set(x, y, pointColors[ownerIndex]);
+                        }
+                    }
+                }
+                voronoiImage.updatePixels();
+            }
+            
+            // --- Helper function to find which point is under the mouse ---
+            const getPointUnderMouse = () => {
+                for (let i = 0; i < points.length; i++) {
+                    if (p.dist(p.mouseX, p.mouseY, points[i].x, points[i].y) < pointRadius) {
+                        return i;
+                    }
+                }
+                return -1;
+            };
+            
+            // --- Mouse Press Event ---
+            p.mousePressed = () => {
+                // Ensure the click is within the canvas bounds
+                if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
+                    selectedPointIndex = getPointUnderMouse();
+                    // Prevent default browser action (e.g., text selection)
+                    return false;
+                }
+            };
+            
+            // --- Mouse Drag Event ---
+            p.mouseDragged = () => {
+                if (selectedPointIndex !== -1) {
+                    points[selectedPointIndex].x = p.constrain(p.mouseX, 0, p.width);
+                    points[selectedPointIndex].y = p.constrain(p.mouseY, 0, p.height);
+                    // Recalculate the diagram while dragging for real-time feedback
+                    calculateVoronoi();
+                }
+            };
+            
+            // --- Mouse Release Event ---
+            p.mouseReleased = () => {
+                selectedPointIndex = -1;
+            };
+            
+            function handleMouseCues() {
+                 const hoveringIndex = getPointUnderMouse();
+                if (selectedPointIndex !== -1) {
+                    p.cursor('grabbing');
+                } else if (hoveringIndex !== -1) {
+                    p.cursor('grab');
+                    p.noStroke();
+                    p.fill(0, 0, 100, 0.3); // Semi-transparent white highlight
+                    p.circle(points[hoveringIndex].x, points[hoveringIndex].y, pointRadius * 1.5);
+                } else {
+                    p.cursor(p.ARROW);
+                }
+            }
+        };
+
+        new p5(sketch);
+
+    </script>
+</body>
+
+</html>
