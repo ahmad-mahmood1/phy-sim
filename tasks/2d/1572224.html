@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulsating Spiral Swarm</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #111;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow: hidden; /* Prevent scrollbars from canvas */
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: -1; /* Place canvas behind controls */
+        }
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 25px;
+            border-radius: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        label {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 150px;
+            height: 8px;
+            background: #444;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #00bcd4;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #111;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #00bcd4;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        .value-display {
+            font-size: 12px;
+            color: #ccc;
+            min-width: 30px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div class="controls">
+        <div class="control-group">
+            <label for="particles">Particles</label>
+            <input type="range" id="particles" min="100" max="1500" value="700" step="10">
+            <span class="value-display" id="particles-value">700</span>
+        </div>
+        <div class="control-group">
+            <label for="force">Force</label>
+            <input type="range" id="force" min="0.1" max="5" value="1.5" step="0.1">
+             <span class="value-display" id="force-value">1.5</span>
+        </div>
+        <div class="control-group">
+            <label for="pulse">Pulse Speed</label>
+            <input type="range" id="pulse" min="0.02" max="0.03" value="0.02" step="0.001">
+             <span class="value-display" id="pulse-value">0.005</span>
+        </div>
+        <div class="control-group">
+            <label for="swirl">Swirl</label>
+            <input type="range" id="swirl" min="0" max="10" value="4" step="0.1">
+            <span class="value-display" id="swirl-value">4.0</span>
+        </div>
+    </div>
+
+    <script>
+        const sketch = (p) => {
+            let particles = [];
+            
+            // DOM Elements for sliders
+            let numParticlesSlider, forceSlider, pulseSlider, swirlSlider;
+            let numParticlesValue, forceValue, pulseValue, swirlValue;
+
+            let time = 0;
+            
+            // Define the boundaries for the simulation area
+            let boundaryDiameter;
+
+            function setBoundaries() {
+                // Use 90% of the smallest window dimension for a circular boundary
+                boundaryDiameter = p.min(p.width, p.height) * 0.9;
+            }
+
+            class Particle {
+                constructor() {
+                    // Start particles inside the defined boundary
+                    this.pos = p5.Vector.random2D().mult(p.random(boundaryDiameter / 4));
+                    this.vel = p.createVector(0, 0);
+                    this.acc = p.createVector(0, 0);
+                    this.maxSpeed = 5;
+                    this.color = [p.random(100, 255), p.random(100, 200), 255];
+                }
+
+                // Apply a force to the particle's acceleration
+                applyForce(force) {
+                    this.acc.add(force);
+                }
+
+                // Update particle's physics
+                update() {
+                    this.vel.add(this.acc);
+                    this.vel.limit(this.maxSpeed);
+                    this.pos.add(this.vel);
+                    this.acc.mult(0); // Reset acceleration each frame
+                }
+
+                // Check and handle circular boundary
+                edges() {
+                    const buffer = 2; // Particle radius
+                    const boundaryRadius = boundaryDiameter / 2;
+                    
+                    const dist = this.pos.mag(); // Get distance from center (0,0)
+
+                    if (dist > boundaryRadius - buffer) {
+                        // If it's outside the circle, move it back to the edge
+                        this.pos.setMag(boundaryRadius - buffer);
+                        // And invert its velocity to "bounce" it back
+                        this.vel.mult(-1);
+                    }
+                }
+
+                // Draw the particle
+                show() {
+                    p.noStroke();
+                    p.fill(this.color[0], this.color[1], this.color[2], 200);
+                    p.ellipse(this.pos.x, this.pos.y, 4, 4);
+                }
+            }
+
+            // Function to adjust particle array size
+            function adjustParticles(targetCount) {
+                const currentCount = particles.length;
+                if (targetCount > currentCount) {
+                    for (let i = 0; i < targetCount - currentCount; i++) {
+                        particles.push(new Particle());
+                    }
+                } else if (targetCount < currentCount) {
+                    particles.splice(0, currentCount - targetCount);
+                }
+            }
+            
+            p.setup = () => {
+                p.createCanvas(p.windowWidth, p.windowHeight).parent('canvas-container');
+                setBoundaries();
+                
+                // Initialize sliders and value displays
+                numParticlesSlider = p.select('#particles');
+                forceSlider = p.select('#force');
+                pulseSlider = p.select('#pulse');
+                swirlSlider = p.select('#swirl');
+                
+                numParticlesValue = p.select('#particles-value');
+                forceValue = p.select('#force-value');
+                pulseValue = p.select('#pulse-value');
+                swirlValue = p.select('#swirl-value');
+
+                // Set up initial particles
+                adjustParticles(numParticlesSlider.value());
+
+                // Attach input listeners to update display values
+                numParticlesSlider.input(() => numParticlesValue.html(numParticlesSlider.value()));
+                forceSlider.input(() => forceValue.html(p.nf(forceSlider.value(), 1, 1)));
+                pulseSlider.input(() => pulseValue.html(p.nf(pulseSlider.value(), 1, 3)));
+                swirlSlider.input(() => swirlValue.html(p.nf(swirlSlider.value(), 1, 1)));
+            };
+
+            p.draw = () => {
+                p.background(17, 17, 17, 40); // Dark background with trail effect
+                p.translate(p.width / 2, p.height / 2); // Center the coordinate system
+                
+                // Draw the visual circular boundary
+                // p.noFill();
+                // p.stroke(0, 0, 0, 0); // Faint white border
+                // p.strokeWeight(2);
+                // p.circle(0, 0, boundaryDiameter);
+
+
+                // Read slider values each frame
+                let numParticles = numParticlesSlider.value();
+                let forceStrength = forceSlider.value();
+                let pulseSpeed = pulseSlider.value();
+                let swirlStrength = swirlSlider.value();
+                
+                adjustParticles(numParticles);
+
+                // Update time for the pulsating effect
+                time += pulseSpeed;
+                // Use sine wave to create a smooth transition between attraction (-1) and repulsion (1)
+                let pulseForce = p.sin(time);
+
+                for (let particle of particles) {
+                    // Vector pointing from particle to the center
+                    let toCenter = p.createVector(-particle.pos.x, -particle.pos.y);
+                    
+                    // Create swirl force from a normalized vector BEFORE the main force is calculated.
+                    // This ensures the swirl direction is consistent.
+                    let swirlDir = toCenter.copy().normalize();
+                    swirlDir.rotate(p.HALF_PI); // Rotate 90 degrees
+                    swirlDir.mult(swirlStrength);
+                    
+                    // Now calculate the main attractive/repulsive force
+                    toCenter.normalize();
+                    toCenter.mult(forceStrength * pulseForce);
+
+                    // Apply forces
+                    particle.applyForce(toCenter);
+                    particle.applyForce(swirlDir);
+                    
+                    // Add a slight damping to stabilize the system
+                    particle.vel.mult(0.98);
+
+                    particle.update();
+                    particle.edges();
+                    particle.show();
+                }
+            };
+            
+            // Make the canvas responsive to window size changes
+            p.windowResized = () => {
+                p.resizeCanvas(p.windowWidth, p.windowHeight);
+                setBoundaries(); // Recalculate boundaries on resize
+            };
+        };
+
+        // Create the p5 instance
+        new p5(sketch);
+    </script>
+</body>
+</html>

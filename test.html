@@ -1,140 +1,278 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Morphing Star Animation</title>
-    <script type="importmap">
-        {
-          "imports": {
-            "p5": "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"
-          }
-        }
-    </script>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #000;
-        }
-        canvas {
-            display: block;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2D Particle Simulation</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+      }
+    }
+  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #000;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    .container {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      height: 600px;
+      border: 1px solid #333;
+      background-color: #000;
+    }
+
+    .controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background-color: rgba(0, 0, 0, 0.7);
+      padding: 10px;
+      border-radius: 5px;
+      color: white;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 200px;
+    }
+
+    .slider-container {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slider-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .slider-row label {
+      width: 80px;
+    }
+
+    .slider-row input {
+      flex-grow: 1;
+    }
+
+    .slider-row span {
+      width: 40px;
+      text-align: right;
+    }
+
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      padding: 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #2980b9;
+    }
+
+    .force-label {
+      font-size: 14px;
+      margin-top: 5px;
+    }
+  </style>
 </head>
 <body>
-    <script type="module">
-        import 'p5';
+  <div class="container">
+    <div class="controls">
+      <div class="slider-container">
+        <div class="slider-row">
+          <label for="particleCount">Particles</label>
+          <input type="range" id="particleCount" min="50" max="500" value="200" step="50">
+          <span id="particleCountValue">200</span>
+        </div>
+        <div class="slider-row">
+          <label for="forceMagnitude">Force</label>
+          <input type="range" id="forceMagnitude" min="0" max="2" value="0.5" step="0.1">
+          <span id="forceMagnitudeValue">0.5</span>
+        </div>
+        <div class="slider-row">
+          <label for="pulseSpeed">Speed</label>
+          <input type="range" id="pulseSpeed" min="0.01" max="0.1" value="0.05" step="0.01">
+          <span id="pulseSpeedValue">0.05</span>
+        </div>
+        <div class="slider-row">
+          <label for="spiralStrength">Spiral</label>
+          <input type="range" id="spiralStrength" min="0" max="1" value="0.5" step="0.1">
+          <span id="spiralStrengthValue">0.5</span>
+        </div>
+      </div>
+      <button id="resetBtn">Reset</button>
+      <div class="force-label">
+        Central Force: <span id="forceDirection">Repulsive</span>
+      </div>
+    </div>
+  </div>
 
-        /**
-         * @param {p5} p - The p5.js instance.
-         */
-        let sketch = function(p) {
-            /** @type {number} */
-            let points = 5;
-            /** @type {number} */
-            let innerRadius;
-            /** @type {number} */
-            let outerRadius;
-            /** @type {number} */
-            let angle = 0;
-            /** @type {number} */
-            let angleIncrement = 0.02;
-            /** @type {number[]} */
-            let targetPointsArray = [];
-            /** @type {number} */
-            let transitionProgress = 0;
-            /** @type {number} */
-            let transitionDuration = 60;
-            /** @type {boolean} */
-            let isTransitioning = false;
-            /** @type {number} */
-            let timerDuration = 5000;
-            /** @type {number} */
-            let lastPointChangeTime = 0;
+  <script type="module">
+    import p5 from "p5";
 
-            /**
-             * Setup function for p5.js.
-             * Initializes the canvas, background, and initial star parameters.
-             */
-            p.setup = function() {
-                p.createCanvas(800, 600);
-                p.background('#000000');
-                innerRadius = p.width / 10;
-                outerRadius = p.width / 3;
-                lastPointChangeTime = p.millis();
-                generateNewTargetPoints();
-            };
+    /**
+     * @typedef {object} Particle
+     * @property {number} x - The x-coordinate of the particle.
+     * @property {number} y - The y-coordinate of the particle.
+     * @property {number} angle - The angle of the particle's velocity.
+     * @property {number} speed - The speed of the particle.
+     * @property {number} magnitude - The magnitude used for force calculation.
+     */
 
-            /**
-             * Draw function for p5.js.
-             * Clears the background and draws the morphing star.
-             */
-            p.draw = function() {
-                p.background('#000000');
+    const sketch = (p) => {
+      /** @type {Particle[]} */
+      let particles = [];
+      let centralForce = -0.5; // Negative = repulsive, positive = attractive
+      let forceMagnitude = 0.5;
+      let pulseSpeed = 0.05;
+      let spiralStrength = 0.5;
+      let particleCount = 200;
+      const canvasWidth = 800;
+      const canvasHeight = 600;
 
-                if (!isTransitioning && p.millis() - lastPointChangeTime > timerDuration) {
-                    generateNewTargetPoints();
-                    isTransitioning = true;
-                    transitionProgress = 0;
-                    lastPointChangeTime = p.millis();
-                }
+      /**
+       * Setup function for p5.js.
+       * Initializes the canvas, background, and particles.
+       */
+      p.setup = () => {
+        p.createCanvas(canvasWidth, canvasHeight);
+        p.background(0);
+        initializeParticles();
 
-                if (isTransitioning) {
-                    transitionProgress += 1 / transitionDuration;
-                    if (transitionProgress >= 1) {
-                        isTransitioning = false;
-                        transitionProgress = 0;
-                        points = targetPointsArray[0];
-                    }
-                }
+        // Set up UI controls
+        document.getElementById('particleCount').addEventListener('input', function() {
+          particleCount = parseInt(this.value);
+          document.getElementById('particleCountValue').textContent = particleCount;
+          initializeParticles();
+        });
 
-                let currentPoints = isTransitioning
-                    ? p.lerp(points, targetPointsArray[0], transitionProgress)
-                    : points;
+        document.getElementById('forceMagnitude').addEventListener('input', function() {
+          forceMagnitude = parseFloat(this.value);
+          document.getElementById('forceMagnitudeValue').textContent = forceMagnitude;
+        });
 
-                p.translate(p.width / 2, p.height / 2);
-                p.rotate(angle);
-                p.noFill();
-                p.stroke('#FFD700');
-                p.strokeWeight(2);
+        document.getElementById('pulseSpeed').addEventListener('input', function() {
+          pulseSpeed = parseFloat(this.value);
+          document.getElementById('pulseSpeedValue').textContent = pulseSpeed;
+        });
 
-                p.beginShape();
-                for (let i = 0; i < currentPoints * 2; i++) {
-                    let radius = i % 2 === 0 ? outerRadius : innerRadius;
-                    let a = p.TWO_PI / (currentPoints * 2) * i;
-                    let x = p.cos(a) * radius;
-                    let y = p.sin(a) * radius;
-                    p.vertex(x, y);
-                }
-                p.endShape(p.CLOSE);
+        document.getElementById('spiralStrength').addEventListener('input', function() {
+          spiralStrength = parseFloat(this.value);
+          document.getElementById('spiralStrengthValue').textContent = spiralStrength;
+        });
 
-                angle += angleIncrement;
-            };
+        document.getElementById('resetBtn').addEventListener('click', function() {
+          p.background(0);
+          centralForce = -0.5;
+          document.getElementById('forceDirection').textContent = 'Repulsive';
+          initializeParticles();
+        });
+      };
 
-            /**
-             * Generates new random target points for the star morphing effect.
-             * Selects a random number of points and creates a smooth transition array.
-             */
-            function generateNewTargetPoints() {
-                let newPoints;
-                do {
-                    newPoints = p.floor(p.random(5, 13));
-                } while (newPoints === points);
+      /**
+       * Draw function for p5.js.
+       * Updates and draws each particle.
+       */
+      p.draw = () => {
+        p.background(0, 15); // Trailing effect
 
-                // Create a smooth transition array
-                targetPointsArray = [];
-                for (let i = 1; i <= 20; i++) {
-                    targetPointsArray.push(p.lerp(points, newPoints, i / 20));
-                }
-            }
+        // Pulse the central force
+        centralForce = forceMagnitude * Math.sin(p.frameCount * pulseSpeed);
+
+        // Update UI
+        document.getElementById('forceDirection').textContent =
+          centralForce < 0 ? 'Repulsive' : 'Attractive';
+
+        // Update and draw particles
+        for (let i = 0; i < particles.length; i++) {
+          updateParticle(particles[i]);
+          drawParticle(particles[i]);
+        }
+      };
+
+      /**
+       * Initializes the particles array with new particles.
+       */
+      function initializeParticles() {
+        particles = [];
+        for (let i = 0; i < particleCount; i++) {
+          particles.push(createParticle());
+        }
+      }
+
+      /**
+       * Creates a new particle object.
+       * @returns {Particle} A new particle.
+       */
+      function createParticle() {
+        const angle = p.random(p.TWO_PI);
+        const speed = p.random(0.5, 1.5);
+        return {
+          x: p.random(canvasWidth),
+          y: p.random(canvasHeight),
+          angle: angle,
+          speed: speed,
+          magnitude: p.random(1, 5)
         };
+      }
 
-        let myp5 = new window.p5(sketch);
-    </script>
+      /**
+       * Updates a particle's position and angle based on forces.
+       * @param {Particle} particle - The particle to update.
+       */
+      function updateParticle(particle) {
+        const dx = canvasWidth / 2 - particle.x;
+        const dy = canvasHeight / 2 - particle.y;
+        const distance = p.sqrt(dx * dx + dy * dy);
+
+        // Apply central force (attractive/repulsive)
+        const force = centralForce * particle.magnitude / Math.max(distance, 50);
+        particle.angle += force;
+
+        // Apply spiral force (tangential)
+        const tangentialForce = spiralStrength * particle.magnitude / Math.max(distance, 50);
+        particle.angle += tangentialForce;
+
+        // Update position
+        particle.x += particle.speed * Math.cos(particle.angle);
+        particle.y += particle.speed * Math.sin(particle.angle);
+
+        // Wrap around edges
+        if (particle.x < 0) particle.x = canvasWidth;
+        if (particle.x > canvasWidth) particle.x = 0;
+        if (particle.y < 0) particle.y = canvasHeight;
+        if (particle.y > canvasHeight) particle.y = 0;
+      }
+
+      /**
+       * Draws a particle on the canvas.
+       * @param {Particle} particle - The particle to draw.
+       */
+      function drawParticle(particle) {
+        p.noStroke();
+        p.fill(255, 150);
+        p.ellipse(particle.x, particle.y, 4, 4);
+      }
+    };
+
+    new p5(sketch, document.querySelector('.container'));
+  </script>
 </body>
 </html>
