@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Firework Simulation</title>
+    <title>Morphing Star Animation</title>
     <script type="importmap">
         {
           "imports": {
@@ -15,234 +15,126 @@
         body {
             margin: 0;
             padding: 0;
-            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
             background-color: #000;
         }
         canvas {
             display: block;
         }
-      #title {
-            position: absolute;
-            top: 10px;
-            width: 100%;
-            text-align: center;
-            color: white;
-            font-family: Arial, sans-serif;
-            font-size: 20px;
-        }
-      #subtitle {
-            position: absolute;
-            top: 37px;
-            width: 100%;
-            text-align: center;
-            color: white;
-            font-family: Arial, sans-serif;
-            font-size: 15px;
-        }
-        
     </style>
 </head>
 <body>
-    <div id="title">Fireworks Simulation</div>
-    <div id="subtitle">click to add more fireworks</div>
     <script type="module">
         import 'p5';
 
         /**
          * @param {p5} p - The p5.js instance.
          */
-        const sketch = (p) => {
-        let fireworks = [];
-        let gravity;
-        let damper = 0.2;
-        let lastFireworkTime = 0;
-        let fireworkInterval = 2000; // 2 seconds in milliseconds
-        let maxFireworks = 30; // Maximum number of fireworks
-        
-        /**
-         * Setup function for p5.js. Initializes the canvas, gravity, and creates the first firework.
-         */
-        p.setup = () => {
-            p.createCanvas(p.windowWidth, p.windowHeight);
-            gravity = p.createVector(0, 0.03);
-            p.strokeWeight(2);
-            fireworks.push(new Firework(p));
-            
-        }
+        let sketch = function(p) {
+            /** @type {number} */
+            let points = 5;
+            /** @type {number} */
+            let innerRadius;
+            /** @type {number} */
+            let outerRadius;
+            /** @type {number} */
+            let angle = 0;
+            /** @type {number} */
+            let angleIncrement = 0.02;
+            /** @type {number[]} */
+            let targetPointsArray = [];
+            /** @type {number} */
+            let transitionProgress = 0;
+            /** @type {number} */
+            let transitionDuration = 60;
+            /** @type {boolean} */
+            let isTransitioning = false;
+            /** @type {number} */
+            let timerDuration = 5000;
+            /** @type {number} */
+            let lastPointChangeTime = 0;
 
-        /**
-         * Draw function for p5.js. Updates and displays all fireworks.
-         */
-        p.draw = () => {
-            p.background(0, 0, 0, 25); // Semi-transparent black background for trail effect
+            /**
+             * Setup function for p5.js.
+             * Initializes the canvas, background, and initial star parameters.
+             */
+            p.setup = function() {
+                p.createCanvas(800, 600);
+                p.background('#000000');
+                innerRadius = p.width / 10;
+                outerRadius = p.width / 3;
+                lastPointChangeTime = p.millis();
+                generateNewTargetPoints();
+            };
 
-            // Automatically launch fireworks every 2 seconds, up to a limit
-            if (p.millis() - lastFireworkTime > fireworkInterval && fireworks.length < maxFireworks) {
-                fireworks.push(new Firework(p));
-                lastFireworkTime = p.millis();
-            }
-            
-            for (let i = fireworks.length - 1; i >= 0; i--) {
-                fireworks[i].update();
-                fireworks[i].show();
-                if (fireworks[i].isFinished()) {
-                    fireworks.splice(i, 1);
+            /**
+             * Draw function for p5.js.
+             * Clears the background and draws the morphing star.
+             */
+            p.draw = function() {
+                p.background('#000000');
+
+                if (!isTransitioning && p.millis() - lastPointChangeTime > timerDuration) {
+                    generateNewTargetPoints();
+                    isTransitioning = true;
+                    transitionProgress = 0;
+                    lastPointChangeTime = p.millis();
                 }
-            }
-            
-        }
-        
-        /**
-         * Represents a firework that launches upward and explodes into particles.
-         */
-        class Firework {
-            /**
-             * Creates an instance of Firework.
-             * @param {p5} p - The p5.js instance.
-             */
-            constructor(p) {
-                this.p = p;
-                this.hu = p.random(255);
-                this.firework = new Particle(p, p.random(p.width), p.height, this.hu, true);
-                this.exploded = false;
-                this.particles = [];
-            }
-            
-            /**
-             * Updates the firework's state, either moving upward or exploding into particles.
-             */
-            update() {
-                if (!this.exploded) {
-                    this.firework.applyForce(gravity);
-                    this.firework.update();
-                    if (this.firework.vel.y >= 0) {
-                        this.exploded = true;
-                        this.explode();
-                    }
-                } else {
-                    for (let i = this.particles.length - 1; i >= 0; i--) {
-                        this.particles[i].applyForce(gravity);
-                        this.particles[i].update();
-                        if (this.particles[i].isFinished()) {
-                          this.particles.splice(i, 1);
-                        }
+
+                if (isTransitioning) {
+                    transitionProgress += 1 / transitionDuration;
+                    if (transitionProgress >= 1) {
+                        isTransitioning = false;
+                        transitionProgress = 0;
+                        points = targetPointsArray[0];
                     }
                 }
-            }
-            
-            /**
-             * Displays the firework and its particles.
-             */
-            show() {
-                if (!this.exploded) {
-                    this.firework.show();
-                } else {
-                    for (let particle of this.particles) {
-                        particle.show();
-                    }
+
+                let currentPoints = isTransitioning
+                    ? p.lerp(points, targetPointsArray[0], transitionProgress)
+                    : points;
+
+                p.translate(p.width / 2, p.height / 2);
+                p.rotate(angle);
+                p.noFill();
+                p.stroke('#FFD700');
+                p.strokeWeight(2);
+
+                p.beginShape();
+                for (let i = 0; i < currentPoints * 2; i++) {
+                    let radius = i % 2 === 0 ? outerRadius : innerRadius;
+                    let a = p.TWO_PI / (currentPoints * 2) * i;
+                    let x = p.cos(a) * radius;
+                    let y = p.sin(a) * radius;
+                    p.vertex(x, y);
                 }
-            }
+                p.endShape(p.CLOSE);
+
+                angle += angleIncrement;
+            };
 
             /**
-             * Explodes the firework into multiple particles.
+             * Generates new random target points for the star morphing effect.
+             * Selects a random number of points and creates a smooth transition array.
              */
-            explode() {
-                p.colorMode(p.HSB);
-                for (let i = 0; i < 100; i++) {
-                    this.particles.push(new Particle(this.p, this.firework.pos.x, this.firework.pos.y, this.hu, false));
+            function generateNewTargetPoints() {
+                let newPoints;
+                do {
+                    newPoints = p.floor(p.random(5, 13));
+                } while (newPoints === points);
+
+                // Create a smooth transition array
+                targetPointsArray = [];
+                for (let i = 1; i <= 20; i++) {
+                    targetPointsArray.push(p.lerp(points, newPoints, i / 20));
                 }
             }
-            
-            /**
-             * Checks if the firework and all its particles have finished.
-             * @returns {boolean} True if finished, false otherwise.
-             */
-            isFinished() {
-                return this.exploded && this.particles.length === 0;
-            }
-        }
-        
-        /**
-         * Represents a particle in the firework simulation.
-         */
-        class Particle {
-            /**
-             * Creates an instance of Particle.
-             * @param {p5} p - The p5.js instance.
-             * @param {number} x - The x-coordinate of the particle.
-             * @param {number} y - The y-coordinate of the particle.
-             * @param {number} hu - The hue of the particle.
-             * @param {boolean} isFirework - Indicates if the particle is a firework.
-             */
-            constructor(p, x, y, hu, isFirework) {
-                this.p = p;
-                this.pos = p.createVector(x, y);
-                this.vel = p.createVector(0, isFirework ? p.random(-18, -12) : p.random(-damper, damper));
-                this.acc = p.createVector(0, 0);
-                this.hu = hu;
-                this.isFirework = isFirework;
-                this.lifespan = isFirework ? 255 : p.random(200, 255);
-                this.size = isFirework ? 6 :p.random(4, 8);
-            }
-            
-            /**
-             * Applies a force to the particle.
-             * @param {p5.Vector} force - The force vector to apply.
-             */
-            applyForce(force) {
-                this.acc.add(force);
-            }
-            
-            /**
-             * Updates the particle's position and lifespan.
-             */
-            update() {
-                this.vel.add(this.acc);
-                this.pos.add(this.vel);
-                this.acc.mult(0);
-                if (!this.isFirework) {
-                    this.lifespan -= 2.55;
-                }
-            }
-            
-            /**
-             * Displays the particle.
-             */
-            show() {
-                p.colorMode(p.HSB);
-                if (this.isFirework) {
-                    p.stroke(this.hu, 255, 255, 255);
-                } else {
-                    p.stroke(this.hu, 255, 255, this.lifespan / 255);
-                }
-                p.point(this.pos.x, this.pos.y);
-            }
+        };
 
-            /**
-             * Checks if the particle has finished (lifespan <= 0).
-             * @returns {boolean} True if finished, false otherwise.
-             */
-            isFinished() {
-                return this.lifespan <= 0;
-            }
-        }
-
-        /**
-         * Handles mouse press events to launch a firework.
-         */
-        p.mousePressed = () => {
-            fireworks.push(new Firework(p));
-        }
-
-        /**
-         * Handles window resize events to adjust the canvas size.
-         */
-        p.windowResized = () => {
-            resizeCanvas(p.windowWidth, p.windowHeight);
-        }
-    }
-        const container = window.document.getElementById('canvas-container');
-        new p5(sketch, container);
+        let myp5 = new window.p5(sketch);
     </script>
 </body>
 </html>

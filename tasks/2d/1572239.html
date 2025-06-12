@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            background-color: #000000;
+            overflow: hidden; /* Prevent scrollbars */
+        }
+
+        #canvas-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation Controls ---
+            const MORPH_INTENSITY = 0.25; // How much the star shape distorts.
+            const MORPH_SPEED = 0.01;   // How fast the stars morph.
+            const TRANSITION_SPEED = 0.025; // How fast arms split or merge.
+            // --- End of Controls ---
+
+            const stars = [];
+            const targetStarCount = 250; 
+            const placementAttempts = 500;
+
+            class Star {
+                constructor(x, y, outerRadius) {
+                    this.x = x;
+                    this.y = y;
+                    this.outerRadius = outerRadius;
+                    this.innerRadius = outerRadius / 2.5;
+                    this.hue = p.random(200, 320);
+                    this.numPoints = p.floor(p.random(5, 8));
+                    this.targetNumPoints = this.numPoints;
+                    this.angleOffsets = [];
+                    this.generateAngleOffsets();
+
+                    this.transitionState = 'stable';
+                    this.transitionProgress = 0;
+                    this.actionIndex = 0; 
+                    this.timeUntilNextAction = p.random(200, 600);
+                }
+                
+                generateAngleOffsets() {
+                    this.angleOffsets = [];
+                    for (let i = 0; i < this.numPoints * 2; i++) {
+                        this.angleOffsets.push(p.random(p.TWO_PI));
+                    }
+                }
+
+                getVertex(index, numPoints) {
+                    const radius = (index % 2 === 0) ? this.outerRadius : this.innerRadius;
+                    const angle = p.TWO_PI / (numPoints * 2) * index;
+                    return { angle, radius };
+                }
+
+                update() {
+                    if (this.transitionState === 'stable') {
+                        this.timeUntilNextAction--;
+                        if (this.timeUntilNextAction <= 0) {
+                            this.initiateTransition();
+                        }
+                    }
+
+                    if (this.transitionState !== 'stable') {
+                        this.transitionProgress += TRANSITION_SPEED;
+                        if (this.transitionProgress >= 1) {
+                            this.numPoints = this.targetNumPoints;
+                            this.transitionState = 'stable';
+                            this.transitionProgress = 0;
+                            this.generateAngleOffsets();
+                            this.timeUntilNextAction = p.random(300, 800);
+                        }
+                    }
+                }
+
+                initiateTransition() {
+                    const canSplit = this.numPoints < 7;
+                    const canMerge = this.numPoints > 5;
+                    let choice = 'none';
+
+                    if (canSplit && canMerge) choice = p.random(['split', 'merge']);
+                    else if (canSplit) choice = 'split';
+                    else if (canMerge) choice = 'merge';
+
+                    if (choice === 'split') {
+                        this.targetNumPoints = this.numPoints + 1;
+                        this.actionIndex = p.floor(p.random(this.numPoints)); // Index of the point to split
+                        this.transitionState = 'splitting';
+                    } else if (choice === 'merge') {
+                        this.targetNumPoints = this.numPoints - 1;
+                        this.actionIndex = p.floor(p.random(this.numPoints)); // Index of the first point to merge
+                        this.transitionState = 'merging';
+                    }
+                }
+
+                draw() {
+                    this.update();
+
+                    p.push();
+                    p.translate(this.x, this.y);
+                    p.fill(this.hue, 220, 255, 0.9);
+                    p.noStroke();
+                    p.beginShape();
+
+                    if (this.transitionState === 'stable') this.drawStable();
+                    else if (this.transitionState === 'splitting') this.drawSplitting();
+                    else if (this.transitionState === 'merging') this.drawMerging();
+                    
+                    p.endShape(p.CLOSE);
+                    p.pop();
+                }
+
+                drawStable() {
+                    const totalVertices = this.numPoints * 2;
+                    for (let i = 0; i < totalVertices; i++) {
+                        const vertex = this.getVertex(i, this.numPoints);
+                        const morph = p.sin(p.frameCount * MORPH_SPEED + this.angleOffsets[i]) * MORPH_INTENSITY;
+                        const angle = vertex.angle + morph;
+                        const sx = p.cos(angle) * vertex.radius;
+                        const sy = p.sin(angle) * vertex.radius;
+                        p.vertex(sx, sy);
+                    }
+                }
+                
+                // An existing point splits into a point-valley-point structure.
+                drawSplitting() {
+                    const prog = this.transitionProgress;
+                    const startPoints = this.numPoints;
+                    const endPoints = this.targetNumPoints;
+                    const pointToSplitIdx = this.actionIndex * 2;
+
+                    // Draw the final number of vertices, calculating where they came from.
+                    for (let i = 0; i < endPoints * 2; i++) {
+                        const targetV = this.getVertex(i, endPoints);
+                        let sourceV;
+                        
+                        // The three new vertices (point, valley, point) all emerge from the original point being split.
+                        if (i >= pointToSplitIdx && i <= pointToSplitIdx + 2) {
+                            sourceV = this.getVertex(pointToSplitIdx, startPoints);
+                        } 
+                        // Other vertices are mapped from their original positions, shifting to make space.
+                        else {
+                            const sourceIdx = (i < pointToSplitIdx) ? i : i - 2;
+                            sourceV = this.getVertex(sourceIdx, startPoints);
+                        }
+                        
+                        const currentAngle = p.lerp(sourceV.angle, targetV.angle, prog);
+                        const currentRadius = p.lerp(sourceV.radius, targetV.radius, prog);
+                        
+                        p.vertex(p.cos(currentAngle) * currentRadius, p.sin(currentAngle) * currentRadius);
+                    }
+                }
+
+                // A point-valley-point structure merges into a single point.
+                drawMerging() {
+                    const prog = this.transitionProgress;
+                    const startPoints = this.numPoints;
+                    const endPoints = this.targetNumPoints;
+
+                    // Wrap around if the last point is chosen to merge with the first one.
+                    const point1Idx = this.actionIndex * 2;
+                    const valleyIdx = (point1Idx + 1) % (startPoints * 2);
+                    const point2Idx = (point1Idx + 2) % (startPoints * 2);
+
+                    // The target is the single new point that replaces the merged structure.
+                    const targetIdx = (this.actionIndex * 2) % (endPoints * 2);
+                    const targetV = this.getVertex(targetIdx, endPoints);
+
+                    // Draw the original number of vertices, moving them towards their new positions.
+                    for (let i = 0; i < startPoints * 2; i++) {
+                        const sourceV = this.getVertex(i, startPoints);
+                        let finalV;
+
+                        // The two points being merged and the valley between them all move to the same final destination point.
+                        if (i === point1Idx || i === valleyIdx || i === point2Idx) {
+                            finalV = targetV;
+                        } 
+                        // Other vertices shift into their new positions in the simpler shape.
+                        else {
+                             let finalIdx;
+                             if (this.actionIndex * 2 > i) { // Before the merge point
+                                 finalIdx = i;
+                             } else { // After the merge point
+                                 finalIdx = i - 2;
+                             }
+                            finalV = this.getVertex(finalIdx, endPoints);
+                        }
+
+                        const currentAngle = p.lerp(sourceV.angle, finalV.angle, prog);
+                        const currentRadius = p.lerp(sourceV.radius, finalV.radius, prog);
+
+                        p.vertex(p.cos(currentAngle) * currentRadius, p.sin(currentAngle) * currentRadius);
+                    }
+                }
+            }
+            
+            function checkOverlap(x, y, r, existingStars) {
+                for (let star of existingStars) {
+                    let d = p.dist(x, y, star.x, star.y);
+                    if (d < r + star.outerRadius + 10) { 
+                        return true; 
+                    }
+                }
+                return false; 
+            }
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                p.createCanvas(container.offsetWidth, container.offsetHeight);
+                p.colorMode(p.HSB);
+                
+                while (stars.length < targetStarCount) {
+                    let placed = false;
+                    for (let j = 0; j < placementAttempts; j++) {
+                        let outerRadius = p.random(15, 60);
+                        let x = p.random(outerRadius, p.width - outerRadius);
+                        let y = p.random(outerRadius, p.height - outerRadius);
+
+                        if (!checkOverlap(x, y, outerRadius, stars)) {
+                            stars.push(new Star(x, y, outerRadius));
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        console.log(`Could not place star ${stars.length + 1}, stopping.`);
+                        break;
+                    }
+                }
+            };
+            
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+            }
+
+            p.draw = () => {
+                p.background(5, 5, 10);
+                for (const star of stars) {
+                    star.draw();
+                }
+            };
+        }
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container)
+    </script>
+</body>
+
+</html>
