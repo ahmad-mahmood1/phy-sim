@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #ffffff;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 0 20px #000;
+        }
+
+        h1 {
+            font-family: 'Roboto Mono', monospace;
+            color: #222;
+            margin-bottom: 16px;
+            margin-top: 32px;
+            font-size: 2rem;
+            font-weight: bold;
+            letter-spacing: 0.05em;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <h1>StarBurst Effect</h1>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // Array to hold the firework rockets and explosion particles
+            let fireworks = [];
+            let particles = [];
+            const gravity = p.createVector(0, 0.2); // Pronounced gravity
+
+            // Particle class for the explosion fragments
+            class Particle {
+                constructor(x, y) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p5.Vector.random2D().mult(p.random(1, 8));
+                    this.lifespan = 255;
+                    this.size = p.random(1, 9);
+                    this.color = {
+                        r: p.random(100, 255),
+                        g: p.random(50, 200),
+                        b: p.random(50, 200)
+                    };
+                    this.gravity = p.createVector(0, 0.15); // Add gravity to each particle
+                }
+
+                update() {
+                    this.vel.add(this.gravity); // Apply gravity to velocity
+                    this.vel.mult(0.97); // Air resistance
+                    this.pos.add(this.vel);
+                    this.lifespan -= 1.8;
+                    this.size = p.map(this.lifespan, 0, 255, 0, this.size);
+                }
+
+                display() {
+                    p.noStroke();
+                    p.fill(this.color.r, this.color.g, this.color.b, this.lifespan);
+                    p.ellipse(this.pos.x, this.pos.y, this.size);
+                }
+
+                isFinished() {
+                    return this.lifespan < 0;
+                }
+            }
+
+            // Firework class for the initial rocket
+            class Firework {
+                constructor() {
+                    // Starts at a random x position at the bottom
+                    this.pos = p.createVector(p.random(p.width), p.height);
+                    // Adjusted velocity to ensure explosion happens below the top of the canvas
+                    this.vel = p.createVector(0, p.random(-11.5, -9));
+                    this.exploded = false;
+                }
+
+                update() {
+                    if (!this.exploded) {
+                        this.vel.add(gravity);
+                        this.pos.add(this.vel);
+
+                        // Explode when it reaches its apex (velocity in y is positive)
+                        if (this.vel.y >= 0) {
+                            this.exploded = true;
+                            this.explode();
+                        }
+                    }
+                }
+
+                display() {
+                    if (!this.exploded) {
+                        p.noStroke();
+                        p.fill(0, 0, 200, 200); // Bright white/yellow rocket
+                        p.ellipse(this.pos.x, this.pos.y, 4);
+                    }
+                }
+
+                // Create the burst of particles
+                explode() {
+                    // Increased particle count for a bigger burst
+                    for (let i = 0; i < 300; i++) {
+                        particles.push(new Particle(this.pos.x, this.pos.y));
+                    }
+                }
+
+                // Firework is done after it has exploded
+                isFinished() {
+                    return this.exploded;
+                }
+            }
+
+
+            p.setup = () => {
+                const canvas = p.createCanvas(600, 400);
+                canvas.parent('canvas-container');
+                p.background(255); // Changed to white
+            };
+
+            p.draw = () => {
+                // Semi-transparent background for trails
+                p.background(255, 40); // Changed to white with alpha
+
+                // Randomly launch a new firework
+                if (p.random(1) < 0.025) {
+                    fireworks.push(new Firework());
+                }
+
+                // Update and display explosion particles
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update();
+                    particles[i].display();
+                    if (particles[i].isFinished()) {
+                        particles.splice(i, 1);
+                    }
+                }
+
+                // Update and display firework rockets
+                for (let i = fireworks.length - 1; i >= 0; i--) {
+                    fireworks[i].update();
+                    fireworks[i].display();
+                    if (fireworks[i].isFinished()) {
+                        fireworks.splice(i, 1);
+                    }
+                }
+            };
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+    </script>
+</body>
+
+</html>
