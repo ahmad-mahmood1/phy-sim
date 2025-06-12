@@ -67,9 +67,11 @@
 
             let leaves = []; // Array to store leaf positions for intersection checks
             let time = 0;
+            let lightBuffer; // <-- 1. VARIABLE DECLARED
 
             p.setup = () => {
                 p.createCanvas(canvasWidth, canvasHeight);
+                lightBuffer = p.createGraphics(canvasWidth, canvasHeight); // <-- 2. BUFFER INITIALIZED
                 p.frameRate(30);
 
                 // Define the direction of the light source (from top-right)
@@ -101,7 +103,7 @@
 
                 // --- PASS 2: Draw Scene Elements ---
                 drawGradientShadow(p);
-                findGapsAndDrawBeams(p);
+                findGapsAndDrawBeams(p); // This now uses the buffer method
                 updateAndDisplayParticles(p);
 
                 // Draw the actual branches and leaves on top of everything
@@ -129,36 +131,34 @@
             }
 
             /**
-             * Scans for gaps in the leaf canopy by casting angled rays.
-             * Draws light beams that stop when they intersect a leaf.
+             * Creates a unified light shape on an off-screen buffer and draws it to the canvas.
              */
             function findGapsAndDrawBeams(p) {
-                activeBeams = []; // Reset beams for the current frame
-                const scanStep = 10; // How many pixels to jump in each scan step across the top
-                const rayStep = 10; // How many pixels to jump along a single ray
-                const minGapLength = 60; // Minimum vertical distance for a gap to be considered a beam
+                // --- PART 1: Draw the opaque beam shapes to the light buffer ---
+                
+                lightBuffer.clear(); // Clear the buffer for this frame
+                lightBuffer.noStroke(); // We never want outlines on our beams
+                lightBuffer.fill(255, 255, 220); // Use a solid, opaque color
 
-                // Scan across the top of the canvas to start the rays
+                activeBeams = []; // We still need to populate this for the particles
+                const scanStep = 10;
+                const rayStep = 10;
+                const minGapLength = 60;
+
                 for (let x = 0; x < p.width; x += scanStep) {
                     const startX = x;
                     const startY = 0;
                     let endX = startX;
                     let endY = startY;
                     let hit = false;
-
-                    // March a ray downwards at an angle
                     for (let t = 0; t < p.height * 1.5; t += rayStep) {
                         let currentX = startX + t * lightDirection.x;
                         let currentY = startY + t * lightDirection.y;
-
-                        // Stop if ray exits canvas
                         if (currentY > (p.height * 1.1) || currentX < 0 || currentX > (p.width * 1.1)) {
                             endX = currentX;
                             endY = currentY;
                             break;
                         }
-
-                        // Check for collision with any leaf
                         for (const leaf of leaves) {
                             if (p.abs(currentX - leaf.x) < leaf.size / 2 && p.abs(currentY - leaf.y) < leaf.size / 2) {
                                 endX = currentX;
@@ -167,19 +167,15 @@
                                 break;
                             }
                         }
-
                         if (hit) {
-                            break; // Stop this ray if it hit something
+                            break;
                         }
-
-                        // If no hit, the current point is the new end of the beam
                         endX = currentX;
                         endY = currentY;
                     }
 
                     const beamLength = p.dist(startX, startY, endX, endY);
 
-                    // If we found a clear path of sufficient length, create and draw a beam
                     if (beamLength > minGapLength) {
                         const beam = {
                             startX: startX,
@@ -187,15 +183,11 @@
                             endX: endX,
                             endY: endY,
                             length: beamLength,
-                            angle: lightDirection.heading(), // All beams have the same angle
-                            opacity: p.map(p.noise(x * 0.01, time * 2), 0, 1, 50, 60)
+                            angle: lightDirection.heading()
                         };
                         activeBeams.push(beam);
 
-                        // Draw the spreading beam as a trapezoid (quad)
-                        const perpVec = p.createVector(-lightDirection.y, lightDirection.x); // Vector perpendicular to light
-
-                        // Calculate the 4 corners of the trapezoid
+                        const perpVec = p.createVector(-lightDirection.y, lightDirection.x);
                         const x1 = beam.startX - perpVec.x * (startBeamWidth / 2);
                         const y1 = beam.startY - perpVec.y * (startBeamWidth / 2);
                         const x2 = beam.startX + perpVec.x * (startBeamWidth / 2);
@@ -204,17 +196,19 @@
                         const y3 = beam.endY + perpVec.y * (endBeamWidth / 2);
                         const x4 = beam.endX - perpVec.x * (endBeamWidth / 2);
                         const y4 = beam.endY - perpVec.y * (endBeamWidth / 2);
-
-                        p.push();
-                        p.fill(255, 255, 220, beam.opacity);
-                        p.noStroke();
-                        p.quad(x1, y1, x2, y2, x3, y3, x4, y4);
-                        p.pop();
+                        
+                        lightBuffer.quad(x1, y1, x2, y2, x3, y3, x4, y4);
                     }
                 }
+
+                // --- PART 2: Draw the completed buffer to the main canvas ---
+                const beamOpacity = p.map(p.noise(time * 2), 0, 1, 50, 60);
+
+                p.tint(255, beamOpacity);
+                p.image(lightBuffer, 0, 0);
+                p.noTint();
             }
-
-
+     
             /**
              * Updates particle positions and checks for intersection with angled, spreading beams.
              */
