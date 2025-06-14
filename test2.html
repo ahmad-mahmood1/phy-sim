@@ -22,8 +22,7 @@
     <script type="importmap">
         {
             "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm",
-                "d3-delaunay": "https://cdn.skypack.dev/d3-delaunay"
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
             }
         }
     </script>
@@ -42,119 +41,150 @@
 
     <script type="module">
         import p5 from 'p5';
-        import { Delaunay } from 'd3-delaunay';
 
         const sketch = (p) => {
             let points = [];
-            const numPoints = 30; // Number of seed points for the diagram
+            const numPoints = 30;
             let pointColors = [];
-            let selectedPointIndex = -1; // -1 means no point is selected
-            const pointRadius = 10; // Clickable radius for the points
+            let selectedPointIndex = -1;
+            const pointRadius = 10;
+            let voronoiImage; // To store the pre-calculated Voronoi image
 
             // --- Setup ---
-            // This function runs once when the program starts.
             p.setup = () => {
                 const container = p.select('#canvas-container');
-                const canvas = p.createCanvas(container.width, container.height);
+                // Use .elt.clientWidth to get the actual rendered size of the container
+                const canvas = p.createCanvas(container.elt.clientWidth, container.elt.clientHeight);
                 canvas.parent(container);
-                p.colorMode(p.HSB, 360, 100, 100); // Use HSB color mode for vibrant colors
+                p.colorMode(p.HSB, 360, 100, 100);
 
-                // Generate initial random points and assign a permanent color to each
+                // Create an image buffer for drawing the Voronoi diagram
+                voronoiImage = p.createImage(p.width, p.height);
+
+                // Generate initial random points and assign a permanent color
                 for (let i = 0; i < numPoints; i++) {
-                    points.push([p.random(p.width), p.random(p.height)]);
+                    points.push(p.createVector(p.random(p.width), p.random(p.height)));
                     pointColors.push(p.color(p.random(360), 70, 90));
                 }
+                
+                // Initial calculation of the Voronoi diagram
+                calculateVoronoi();
             };
             
             // --- Window Resized ---
-            // Adjust canvas size when the browser window is resized.
             p.windowResized = () => {
                 const container = p.select('#canvas-container');
-                p.resizeCanvas(container.width, container.height);
+                // Use .elt.clientWidth here as well for consistency
+                p.resizeCanvas(container.elt.clientWidth, container.elt.clientHeight);
+                // Recreate the image buffer and recalculate
+                voronoiImage = p.createImage(p.width, p.height);
+                calculateVoronoi();
             };
 
             // --- Main Drawing Loop ---
-            // This function runs continuously to draw frames.
             p.draw = () => {
-                p.background(0, 0, 98); // A very light gray background
+                // Display the pre-calculated Voronoi image
+                p.image(voronoiImage, 0, 0);
 
-                // Calculate the Voronoi diagram from the current points
-                // The diagram is bounded by the canvas dimensions.
-                const delaunay = Delaunay.from(points);
-                const voronoi = delaunay.voronoi([0, 0, p.width, p.height]);
-                
-                // --- Render Voronoi Cells ---
-                p.stroke(0, 0, 20); // Dark gray stroke for cell borders
-                p.strokeWeight(2.5);
-                let i = 0;
-                for (const cell of voronoi.cellPolygons()) {
-                    p.fill(pointColors[i]);
-                    p.beginShape();
-                    for (const [x, y] of cell) {
-                        p.vertex(x, y);
-                    }
-                    p.endShape(p.CLOSE);
-                    i++;
-                }
+                // The border drawing logic was commented out and not very effective,
+                // so it has been removed for clarity. The pixel-based calculation
+                // implicitly defines the borders.
                 
                 // --- Render Seed Points ---
                 p.noStroke();
                 for (let i = 0; i < points.length; i++) {
                     p.fill(0, 0, 10); // Dark gray for points
-                    p.circle(points[i][0], points[i][1], pointRadius);
+                    p.circle(points[i].x, points[i].y, pointRadius);
                 }
                 
                 // --- Handle Mouse Interaction Cues ---
-                const hoveringIndex = getPointUnderMouse();
-                if (selectedPointIndex !== -1) {
-                    p.cursor('grabbing');
-                } else if (hoveringIndex !== -1) {
-                    p.cursor('grab');
-                    // Add a highlight to the point being hovered over
-                    p.fill(0, 0, 100, 0.3); // Semi-transparent white
-                    p.circle(points[hoveringIndex][0], points[hoveringIndex][1], pointRadius * 1.5);
-                } else {
-                    p.cursor(p.ARROW);
-                }
+                handleMouseCues();
             };
+
+            // --- Voronoi Calculation Function ---
+            function calculateVoronoi() {
+                // Bail out if canvas has no size, preventing errors
+                if (p.width === 0 || p.height === 0) return;
+                
+                voronoiImage.loadPixels();
+                // Iterate through every pixel of the image
+                for (let x = 0; x < p.width; x++) {
+                    for (let y = 0; y < p.height; y++) {
+                        let closestDistSq = Infinity; // Use squared distance for performance
+                        let closestIndex = -1;
+
+                        // Find the closest seed point to the current pixel
+                        for (let i = 0; i < points.length; i++) {
+                            // Manual distance squared calculation is faster than p.dist()
+                            const dx = x - points[i].x;
+                            const dy = y - points[i].y;
+                            const dSq = dx * dx + dy * dy;
+                            
+                            if (dSq < closestDistSq) {
+                                closestDistSq = dSq;
+                                closestIndex = i;
+                            }
+                        }
+                        
+                        // Set the pixel color to the color of the closest seed point
+                        if (closestIndex !== -1) {
+                            voronoiImage.set(x, y, pointColors[closestIndex]);
+                        }
+                    }
+                }
+                voronoiImage.updatePixels();
+            }
             
             // --- Helper function to find which point is under the mouse ---
             const getPointUnderMouse = () => {
                 for (let i = 0; i < points.length; i++) {
-                    if (p.dist(p.mouseX, p.mouseY, points[i][0], points[i][1]) < pointRadius) {
+                    if (p.dist(p.mouseX, p.mouseY, points[i].x, points[i].y) < pointRadius) {
                         return i;
                     }
                 }
-                return -1; // Return -1 if no point is found
+                return -1;
             };
             
             // --- Mouse Press Event ---
             p.mousePressed = () => {
-                // If the mouse is inside the canvas, check for a point
+                // Ensure the click is within the canvas bounds
                 if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
                     selectedPointIndex = getPointUnderMouse();
-                    return false; // Prevent default browser action
+                    // Prevent default browser action (e.g., text selection)
+                    return false;
                 }
             };
             
             // --- Mouse Drag Event ---
             p.mouseDragged = () => {
                 if (selectedPointIndex !== -1) {
-                    // Update the position of the selected point, constrained within the canvas
-                    const newX = p.constrain(p.mouseX, 0, p.width);
-                    const newY = p.constrain(p.mouseY, 0, p.height);
-                    points[selectedPointIndex] = [newX, newY];
+                    points[selectedPointIndex].x = p.constrain(p.mouseX, 0, p.width);
+                    points[selectedPointIndex].y = p.constrain(p.mouseY, 0, p.height);
+                    // Recalculate the diagram while dragging for real-time feedback
+                    calculateVoronoi();
                 }
             };
             
             // --- Mouse Release Event ---
             p.mouseReleased = () => {
-                // Deselect the point
                 selectedPointIndex = -1;
             };
+            
+            function handleMouseCues() {
+                 const hoveringIndex = getPointUnderMouse();
+                if (selectedPointIndex !== -1) {
+                    p.cursor('grabbing');
+                } else if (hoveringIndex !== -1) {
+                    p.cursor('grab');
+                    p.noStroke();
+                    p.fill(0, 0, 100, 0.3); // Semi-transparent white highlight
+                    p.circle(points[hoveringIndex].x, points[hoveringIndex].y, pointRadius * 1.5);
+                } else {
+                    p.cursor(p.ARROW);
+                }
+            }
         };
 
-        // Instantiate p5.js and attach it to the container
         new p5(sketch);
 
     </script>

@@ -4,6 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <title>Swaying Tree Animation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -13,17 +14,32 @@
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #f0f0f0;
+            background-color: #1a1a1a; /* Darker background for better contrast */
+            color: #f0f0f0;
             overflow: hidden;
             font-family: 'Roboto Mono', monospace;
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 1rem;
         }
 
         #canvas-container {
             position: relative;
-            border: 2px solid #444;
-            box-shadow: 0 0 15px #000;
-            background-color: #ffffff;
+            border: 2px solid #555;
+            box-shadow: 0 0 20px rgba(0,0,0,0.7);
+            background-color: #000000;
+            width: 90vw;
+            max-width: 900px;
+            aspect-ratio: 16/9;
         }
+
+        /* canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        } */
     </style>
     <script type="importmap">
         {
@@ -43,45 +59,48 @@
         import p5 from 'p5';
 
         const sketch = (p) => {
+            // Canvas and Tree settings
             const canvasWidth = 900;
-            const canvasHeight = 700;
-
+            const canvasHeight = 500;
             const baseLength = 3;
             const baseDepth = 4;
             const startingBranchLength = 100;
             const branchStartYOffset = -startingBranchLength * 1.05;
 
-            const beamWidth = 15; // Base width of the light beams
-            const startBeamWidth = beamWidth; // Narrower at the top
-            const endBeamWidth = beamWidth * 6;   // Spreads out at the bottom
-            let activeBeams = []; // Array to hold dynamically found beams
-            let lightDirection; // Vector to control the angle of light beams
+            // Light Beam settings
+            const beamWidth = 10;
+            const startBeamWidth = beamWidth;
+            const endBeamWidth = beamWidth * 3;
+            let activeBeams = [];
+            let lightDirection;
+            let lightSource;
 
+            // Particle settings
             let particles = [];
             const numParticles = 700;
-            const particleDriftSpeed = 1;
+            const particleDriftSpeed = 2;
             const particleYSwayMagnitude = 55;
-            const particleYSwaySpeed = 0.1;
-            const baseParticleOpacity = 0; // Particles are invisible by default
-            const beamParticleOpacityBoost = 200; // Opacity when in a beam
+            const particleYSwaySpeed = 0.3;
+            const baseParticleOpacity = 0;
+            const beamParticleOpacityBoost = 200;
 
-            let leaves = []; // Array to store leaf positions for intersection checks
+            let leaves = []; // Array to store leaf positions
             let time = 0;
-            let lightBuffer; // <-- 1. VARIABLE DECLARED
 
             p.setup = () => {
                 p.createCanvas(canvasWidth, canvasHeight);
-                lightBuffer = p.createGraphics(canvasWidth, canvasHeight); // <-- 2. BUFFER INITIALIZED
                 p.frameRate(30);
 
-                // Define the direction of the light source (from top-right)
-                lightDirection = p.createVector(-0.4, 1).normalize();
+                // Define the light source position and calculate the direction vector
+                lightSource = p.createVector(p.width * 1.1, p.height * -0.2);
+                let centerTarget = p.createVector(p.width / 2, p.height / 1.5);
+                lightDirection = p5.Vector.sub(centerTarget, lightSource).normalize();
 
                 // Initialize particles
                 for (let i = 0; i < numParticles; i++) {
                     particles.push({
                         x: p.random(p.width),
-                        y: p.random(p.height),
+                        y: p.random(p.height*0.3, p.height),
                         initialY: p.random(p.height),
                         noiseOffsetY: p.random(1000),
                         z: p.random(0.5, 1.5),
@@ -92,126 +111,112 @@
             };
 
             p.draw = () => {
-                p.background(220, 240, 255); // Light sky blue background
+                p.background(10, 20, 30); // Dark blue night sky
 
-                // --- PASS 1: Calculate Leaf Positions ---
+                const setupBranchArr = [
+                    { x: p.width * 0.05 },
+                    { x: p.width * 0.45},
+                    { x: p.width * 0.85 }
+                ];
+
+                const drawBranches = (isPass = false) => {
+                    for (const setup of setupBranchArr) {
+                        drawBranch(setup.x, branchStartYOffset, p.PI / 2, startingBranchLength, 9, isPass);
+                    }
+                }
+
+                // --- PASS 1: Calculate Leaf Positions (no drawing) ---
                 leaves = [];
-                drawBranch(p, p.width * 0.1, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
-                drawBranch(p, p.width * 0.45, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
-                drawBranch(p, p.width * 0.8, branchStartYOffset, p.PI / 2, startingBranchLength, 9, true);
-
-
+                drawBranches(true); // Calculate leaf positions without drawing
+                
                 // --- PASS 2: Draw Scene Elements ---
-                drawGradientShadow(p);
-                findGapsAndDrawBeams(p); // This now uses the buffer method
+                findAndDrawBeams(p); // Draws gradient beams directly
                 updateAndDisplayParticles(p);
 
-                // Draw the actual branches and leaves on top of everything
+                // --- PASS 3: Draw Trees on Top ---
                 p.strokeCap(p.ROUND);
-                drawBranch(p, p.width * 0.1, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
-                drawBranch(p, p.width * 0.45, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
-                drawBranch(p, p.width * 0.8, branchStartYOffset, p.PI / 2, startingBranchLength, 9, false);
+                drawBranches(); 
 
-                time += 0.008; // Increment time for animation
+                time += 0.03; // Increment time for animation
             };
-
-            function drawGradientShadow(p) {
-                let shadowStartY = p.height * 1 / 1e5;
-                let shadowEndY = p.height;
-                p.noStroke();
-                let topAlpha = 0;
-                let bottomAlpha = 200;
-
-                for (let y = shadowStartY; y < shadowEndY; y++) {
-                    let inter = p.map(y, shadowStartY, shadowEndY, 0, 1);
-                    let currentAlpha = p.lerp(topAlpha, bottomAlpha, inter);
-                    p.fill(0, 0, 0, currentAlpha);
-                    p.rect(0, y, p.width, 1);
-                }
-            }
-
-            /**
-             * Creates a unified light shape on an off-screen buffer and draws it to the canvas.
-             */
-            function findGapsAndDrawBeams(p) {
-                // --- PART 1: Draw the opaque beam shapes to the light buffer ---
-                
-                lightBuffer.clear(); // Clear the buffer for this frame
-                lightBuffer.noStroke(); // We never want outlines on our beams
-                lightBuffer.fill(255, 255, 220); // Use a solid, opaque color
-
-                activeBeams = []; // We still need to populate this for the particles
+            
+          
+            function findAndDrawBeams(p) {
+                activeBeams = [];
                 const scanStep = 10;
                 const rayStep = 10;
-                const minGapLength = 60;
+                const minGapLength = 20;
 
-                for (let x = 0; x < p.width; x += scanStep) {
-                    const startX = x;
-                    const startY = 0;
+                // Scan across the top of the canvas for gaps in the canopy
+                for (let x = -10; x < p.width*1.3; x += scanStep) {
+                    let startX = x;
+                    const startY = -20;
                     let endX = startX;
                     let endY = startY;
                     let hit = false;
+                    
+                    // Raycast downwards to find where the light beam stops
                     for (let t = 0; t < p.height * 1.5; t += rayStep) {
                         let currentX = startX + t * lightDirection.x;
                         let currentY = startY + t * lightDirection.y;
-                        if (currentY > (p.height * 1.1) || currentX < 0 || currentX > (p.width * 1.1)) {
+
+                        if (currentY > p.height * 1.1 || currentX < 0 || currentX > p.width* 1.5) {
                             endX = currentX;
                             endY = currentY;
                             break;
                         }
                         for (const leaf of leaves) {
-                            if (p.abs(currentX - leaf.x) < leaf.size / 2 && p.abs(currentY - leaf.y) < leaf.size / 2) {
+                            if (p.dist(currentX, currentY, leaf.x, leaf.y) < leaf.size / 1.5) {
                                 endX = currentX;
                                 endY = currentY;
                                 hit = true;
                                 break;
                             }
                         }
-                        if (hit) {
-                            break;
-                        }
+                        if (hit) break;
                         endX = currentX;
                         endY = currentY;
                     }
 
                     const beamLength = p.dist(startX, startY, endX, endY);
 
+                    // If a significant gap is found, draw a gradient beam
                     if (beamLength > minGapLength) {
-                        const beam = {
-                            startX: startX,
-                            startY: startY,
-                            endX: endX,
-                            endY: endY,
-                            length: beamLength,
-                            angle: lightDirection.heading()
-                        };
+                        const beam = { startX, startY, endX, endY, length: beamLength, angle: lightDirection.heading() };
                         activeBeams.push(beam);
-
-                        const perpVec = p.createVector(-lightDirection.y, lightDirection.x);
-                        const x1 = beam.startX - perpVec.x * (startBeamWidth / 2);
-                        const y1 = beam.startY - perpVec.y * (startBeamWidth / 2);
-                        const x2 = beam.startX + perpVec.x * (startBeamWidth / 2);
-                        const y2 = beam.startY + perpVec.y * (startBeamWidth / 2);
-                        const x3 = beam.endX + perpVec.x * (endBeamWidth / 2);
-                        const y3 = beam.endY + perpVec.y * (endBeamWidth / 2);
-                        const x4 = beam.endX - perpVec.x * (endBeamWidth / 2);
-                        const y4 = beam.endY - perpVec.y * (endBeamWidth / 2);
                         
-                        lightBuffer.quad(x1, y1, x2, y2, x3, y3, x4, y4);
+                        // Draw the beam as a series of thin, overlapping quads to create a gradient
+                        const gradientSteps = 50;
+                        p.noStroke();
+                        for (let i = 0; i < gradientSteps; i++) {
+                            const t = i / gradientSteps;
+                            const t_next = (i + 1) / gradientSteps;
+
+                            const segmentStart = p5.Vector.lerp(p.createVector(startX, startY), p.createVector(endX, endY), t);
+                            const segmentEnd = p5.Vector.lerp(p.createVector(startX, startY), p.createVector(endX, endY), t_next);
+                            
+                            const widthStart = p.lerp(startBeamWidth, endBeamWidth, t);
+                            const widthEnd = p.lerp(startBeamWidth, endBeamWidth, t_next);
+                            
+                            // Opacity fades out along the beam's length
+                            const alpha = p.map((1 - t) * (1-t), 0, 1, 0, 100);
+                            p.fill(255, 215, 0, alpha);
+
+                            const perpVec = p.createVector(-lightDirection.y, lightDirection.x);
+                            
+                            const v1 = p5.Vector.add(segmentStart, perpVec.copy().setMag(widthStart / 2));
+                            const v2 = p5.Vector.sub(segmentStart, perpVec.copy().setMag(widthStart / 2));
+                            const v3 = p5.Vector.sub(segmentEnd, perpVec.copy().setMag(widthEnd / 2));
+                            const v4 = p5.Vector.add(segmentEnd, perpVec.copy().setMag(widthEnd / 2));
+                            
+                            p.quad(v1.x, v1.y, v2.x, v2.y, v3.x, v3.y, v4.x, v4.y);
+                        }
                     }
+                
+                    startX += endX; // Move to the end of the current beam for the next iteration
                 }
-
-                // --- PART 2: Draw the completed buffer to the main canvas ---
-                const beamOpacity = p.map(p.noise(time * 2), 0, 1, 50, 60);
-
-                p.tint(255, beamOpacity);
-                p.image(lightBuffer, 0, 0);
-                p.noTint();
             }
      
-            /**
-             * Updates particle positions and checks for intersection with angled, spreading beams.
-             */
             function updateAndDisplayParticles(p) {
                 p.noStroke();
                 for (let particle of particles) {
@@ -219,7 +224,7 @@
                     particle.x += particleDriftSpeed * particle.z;
                     if (particle.x > p.width + 50) {
                         particle.x = -50;
-                        particle.y = p.random(p.height);
+                        particle.y = p.random(p.height * 0.3, p.height);
                     }
 
                     let ySway = p.map(p.noise(particle.x * 0.01, particle.noiseOffsetY + time * particleYSwaySpeed), 0, 1, -particleYSwayMagnitude, particleYSwayMagnitude);
@@ -228,57 +233,41 @@
                     // Check for intersection with any active light beam
                     let inBeam = false;
                     for (const beam of activeBeams) {
-                        // Use vector math to check if the particle is inside the trapezoid of the beam
                         const particleVec = p.createVector(particle.x, displayY);
                         const beamStartVec = p.createVector(beam.startX, beam.startY);
-
                         const toParticle = p5.Vector.sub(particleVec, beamStartVec);
                         const rotatedParticle = toParticle.copy().rotate(-beam.angle);
 
-                        // Check if the particle is longitudinally within the beam's length
                         if (rotatedParticle.x > 0 && rotatedParticle.x < beam.length) {
-                            // Interpolate the beam's half-width at the particle's position
                             const currentBeamHalfWidth = p.map(rotatedParticle.x, 0, beam.length, startBeamWidth / 2, endBeamWidth / 2);
-
-                            // Check if the particle is laterally within the interpolated width
                             if (Math.abs(rotatedParticle.y) < currentBeamHalfWidth) {
                                 inBeam = true;
-                                particle.opacity = beamParticleOpacityBoost;
-                                break; // Particle is in a beam, no need to check others
+                                break;
                             }
                         }
                     }
-
-                    if (!inBeam) {
-                        // If not in a beam, fade out
+                    
+                    if (inBeam) {
+                        particle.opacity = p.lerp(particle.opacity, beamParticleOpacityBoost, 0.1);
+                    } else {
                         particle.opacity = p.lerp(particle.opacity, baseParticleOpacity, 0.2);
                     }
 
                     if (particle.opacity > 1) {
-                        p.fill(255, 255, 230, particle.opacity);
+                        p.fill(255, 215, 100, particle.opacity);
                         p.ellipse(particle.x, displayY, particle.size * particle.z, particle.size * particle.z);
                     }
                 }
             }
 
-
-            /**
-             * Recursively draws branches. Can operate in two modes:
-             * 1. calculateOnly = true: Populates the `leaves` array without drawing.
-             * 2. calculateOnly = false: Draws branches and leaves to the canvas.
-             */
-            function drawBranch(p, x1, y1, angle, len, depth, calculateOnly) {
+            function drawBranch(x1, y1, angle, len, depth, calculateOnly) {
                 if (depth < baseDepth || len < baseLength) {
                     const leafSize = 25;
                     if (calculateOnly) {
-                        leaves.push({
-                            x: x1,
-                            y: y1,
-                            size: leafSize
-                        });
+                        leaves.push({ x: x1, y: y1, size: leafSize });
                     } else {
                         p.noStroke();
-                        p.fill(20, 120, 50, 150); // Semi-transparent green
+                        p.fill(20, 100, 40, 180); 
                         let leafSwayX = p.map(p.noise(x1 * 0.05, time * 3), 0, 1, -2, 2);
                         let leafSwayY = p.map(p.noise(y1 * 0.05, time * 3), 0, 1, -2, 2);
                         p.ellipse(x1 + leafSwayX, y1 + leafSwayY, leafSize, leafSize * 0.7);
@@ -302,14 +291,24 @@
                 let noiseVal = p.noise(x2 * 0.1, y2 * 0.1, time);
                 let angleVar = p.map(noiseVal, 0, 1, p.PI * 0.1, p.PI * 0.25);
 
-                drawBranch(p, x2, y2, currentAngle - angleVar, newLen, newDepth, calculateOnly);
-                drawBranch(p, x2, y2, currentAngle + angleVar * 0.6, newLen * 0.9, newDepth, calculateOnly);
-                drawBranch(p, x2, y2, currentAngle, newLen * 0.7, newDepth - 1, calculateOnly);
+                drawBranch(x2, y2, currentAngle - angleVar, newLen, newDepth, calculateOnly);
+                drawBranch(x2, y2, currentAngle + angleVar * 0.6, newLen * 0.9, newDepth, calculateOnly);
+                drawBranch(x2, y2, currentAngle, newLen * 0.7, newDepth - 1, calculateOnly);
             }
         };
 
         const container = window.document.getElementById('canvas-container');
-        new p5(sketch, container);
+        const p5Instance = new p5(sketch, container);
+
+        // Resize canvas when the container size changes
+        const resizeObserver = new ResizeObserver(() => {
+            const p5Canvas = container.querySelector('canvas');
+            if(p5Canvas) {
+                p5Instance.resizeCanvas(container.offsetWidth, container.offsetHeight);
+            }
+        });
+        resizeObserver.observe(container);
+
     </script>
 </body>
 

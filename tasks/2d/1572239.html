@@ -5,11 +5,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>Geometric Stars - Transitions Only</title>
     <style>
         body {
             margin: 0;
-            background-color: #000000;
+            background-color: #0d0d1a; /* Darker, slightly blue background */
             overflow: hidden; /* Prevent scrollbars */
+            font-family: 'Roboto Mono', monospace;
         }
 
         #canvas-container {
@@ -42,13 +44,11 @@
 
         const sketch = (p) => {
             // --- Simulation Controls ---
-            const MORPH_INTENSITY = 0.25; // How much the star shape distorts.
-            const MORPH_SPEED = 0.01;   // How fast the stars morph.
-            const TRANSITION_SPEED = 0.025; // How fast arms split or merge.
+            const TRANSITION_SPEED = 0.03; // How fast arms split or merge.
             // --- End of Controls ---
 
             const stars = [];
-            const targetStarCount = 250; 
+            const targetStarCount = 200; // Adjusted for performance and aesthetics
             const placementAttempts = 500;
 
             class Star {
@@ -56,81 +56,86 @@
                     this.x = x;
                     this.y = y;
                     this.outerRadius = outerRadius;
-                    this.innerRadius = outerRadius / 2.5;
-                    this.hue = p.random(200, 320);
-                    this.numPoints = p.floor(p.random(5, 8));
+                    this.innerRadius = outerRadius / 2.0; // Made inner radius larger for more defined points
+                    this.hue = p.random(50, 320); // Hues from blue to magenta
+                    
+                    // Star point logic
+                    this.numPoints = p.floor(p.random(6, 8));
                     this.targetNumPoints = this.numPoints;
-                    this.angleOffsets = [];
-                    this.generateAngleOffsets();
 
+                    // State management for transitions
                     this.transitionState = 'stable';
                     this.transitionProgress = 0;
                     this.actionIndex = 0; 
-                    this.timeUntilNextAction = p.random(200, 600);
+                    this.timeUntilNextAction = p.random(10, 20);
                 }
                 
-                generateAngleOffsets() {
-                    this.angleOffsets = [];
-                    for (let i = 0; i < this.numPoints * 2; i++) {
-                        this.angleOffsets.push(p.random(p.TWO_PI));
-                    }
-                }
-
+                // Helper function to get the base vertex position for a given index and point count
                 getVertex(index, numPoints) {
+                    // Alternate between outer and inner radius for the star points and valleys
                     const radius = (index % 2 === 0) ? this.outerRadius : this.innerRadius;
+                    // Calculate the angle for the vertex
                     const angle = p.TWO_PI / (numPoints * 2) * index;
                     return { angle, radius };
                 }
 
+                // Update the star's state (handle transitions)
                 update() {
+                    // If the star is not currently splitting or merging
                     if (this.transitionState === 'stable') {
                         this.timeUntilNextAction--;
+                        // When the timer runs out, initiate a new transition
                         if (this.timeUntilNextAction <= 0) {
                             this.initiateTransition();
                         }
                     }
 
+                    // If the star is in a transition state
                     if (this.transitionState !== 'stable') {
                         this.transitionProgress += TRANSITION_SPEED;
+                        // When the transition is complete
                         if (this.transitionProgress >= 1) {
-                            this.numPoints = this.targetNumPoints;
-                            this.transitionState = 'stable';
+                            this.numPoints = this.targetNumPoints; // Finalize the new point count
+                            this.transitionState = 'stable';      // Reset state
                             this.transitionProgress = 0;
-                            this.generateAngleOffsets();
-                            this.timeUntilNextAction = p.random(300, 800);
+                            this.timeUntilNextAction = p.random(10, 20); // Reset timer for next action
                         }
                     }
                 }
 
+                // Decide whether to split an arm, merge arms, or do nothing
                 initiateTransition() {
-                    const canSplit = this.numPoints < 7;
-                    const canMerge = this.numPoints > 5;
+                    const canSplit = this.numPoints < 7; // Minimum points to split
+                    const canMerge = this.numPoints >= 7;
                     let choice = 'none';
 
-                    if (canSplit && canMerge) choice = p.random(['split', 'merge']);
-                    else if (canSplit) choice = 'split';
-                    else if (canMerge) choice = 'merge';
-
-                    if (choice === 'split') {
-                        this.targetNumPoints = this.numPoints + 1;
-                        this.actionIndex = p.floor(p.random(this.numPoints)); // Index of the point to split
-                        this.transitionState = 'splitting';
-                    } else if (choice === 'merge') {
-                        this.targetNumPoints = this.numPoints - 1;
-                        this.actionIndex = p.floor(p.random(this.numPoints)); // Index of the first point to merge
-                        this.transitionState = 'merging';
+                    // Randomly choose an action based on constraints
+                    if (canSplit && canMerge) choice = p.random(['splitting', 'merging']);
+                    else if (canSplit) choice = 'splitting';
+                    else if (canMerge) choice = 'merging';
+                    
+                    if (choice !== 'none') {
+                        this.targetNumPoints = this.numPoints + 1 * (choice === 'splitting' ? 1 : -1);
+                        this.actionIndex = p.floor(p.random(this.numPoints - 1));
+                        this.transitionState = choice
                     }
                 }
-
+                
+                // Main draw function, called every frame
                 draw() {
                     this.update();
 
                     p.push();
                     p.translate(this.x, this.y);
-                    p.fill(this.hue, 220, 255, 0.9);
-                    p.noStroke();
+                    
+                    // Set drawing style for a glowing, geometric look
+                    p.strokeWeight(1.5);
+                    p.stroke(this.hue, 180, 255, 0.9); // Bright, slightly transparent stroke
+                    p.fill(this.hue, 220, 255, 0.4);   // Dim, transparent fill
+                    
                     p.beginShape();
 
+                    // Call the correct drawing function based on the current state
                     if (this.transitionState === 'stable') this.drawStable();
                     else if (this.transitionState === 'splitting') this.drawSplitting();
                     else if (this.transitionState === 'merging') this.drawMerging();
@@ -139,36 +144,34 @@
                     p.pop();
                 }
 
+                // Draw the star in its normal, stable (non-moving) state
                 drawStable() {
                     const totalVertices = this.numPoints * 2;
                     for (let i = 0; i < totalVertices; i++) {
                         const vertex = this.getVertex(i, this.numPoints);
-                        const morph = p.sin(p.frameCount * MORPH_SPEED + this.angleOffsets[i]) * MORPH_INTENSITY;
-                        const angle = vertex.angle + morph;
-                        const sx = p.cos(angle) * vertex.radius;
-                        const sy = p.sin(angle) * vertex.radius;
+                        
+                        // --- Static Drawing Logic ---
+                        // Draw the vertex without any noise-based morphing.
+                        const sx = p.cos(vertex.angle) * vertex.radius;
+                        const sy = p.sin(vertex.angle) * vertex.radius;
                         p.vertex(sx, sy);
                     }
                 }
                 
-                // An existing point splits into a point-valley-point structure.
+                // Draw the transition for an arm splitting into two
                 drawSplitting() {
                     const prog = this.transitionProgress;
                     const startPoints = this.numPoints;
                     const endPoints = this.targetNumPoints;
                     const pointToSplitIdx = this.actionIndex * 2;
 
-                    // Draw the final number of vertices, calculating where they came from.
                     for (let i = 0; i < endPoints * 2; i++) {
                         const targetV = this.getVertex(i, endPoints);
                         let sourceV;
                         
-                        // The three new vertices (point, valley, point) all emerge from the original point being split.
                         if (i >= pointToSplitIdx && i <= pointToSplitIdx + 2) {
                             sourceV = this.getVertex(pointToSplitIdx, startPoints);
-                        } 
-                        // Other vertices are mapped from their original positions, shifting to make space.
-                        else {
+                        } else {
                             const sourceIdx = (i < pointToSplitIdx) ? i : i - 2;
                             sourceV = this.getVertex(sourceIdx, startPoints);
                         }
@@ -180,38 +183,25 @@
                     }
                 }
 
-                // A point-valley-point structure merges into a single point.
+                // Draw the transition for two arms merging into one
                 drawMerging() {
                     const prog = this.transitionProgress;
                     const startPoints = this.numPoints;
                     const endPoints = this.targetNumPoints;
-
-                    // Wrap around if the last point is chosen to merge with the first one.
                     const point1Idx = this.actionIndex * 2;
                     const valleyIdx = (point1Idx + 1) % (startPoints * 2);
                     const point2Idx = (point1Idx + 2) % (startPoints * 2);
-
-                    // The target is the single new point that replaces the merged structure.
                     const targetIdx = (this.actionIndex * 2) % (endPoints * 2);
                     const targetV = this.getVertex(targetIdx, endPoints);
 
-                    // Draw the original number of vertices, moving them towards their new positions.
                     for (let i = 0; i < startPoints * 2; i++) {
                         const sourceV = this.getVertex(i, startPoints);
                         let finalV;
 
-                        // The two points being merged and the valley between them all move to the same final destination point.
                         if (i === point1Idx || i === valleyIdx || i === point2Idx) {
                             finalV = targetV;
-                        } 
-                        // Other vertices shift into their new positions in the simpler shape.
-                        else {
-                             let finalIdx;
-                             if (this.actionIndex * 2 > i) { // Before the merge point
-                                 finalIdx = i;
-                             } else { // After the merge point
-                                 finalIdx = i - 2;
-                             }
+                        } else {
+                             let finalIdx = (this.actionIndex * 2 > i) ? i : i - 2;
                             finalV = this.getVertex(finalIdx, endPoints);
                         }
 
@@ -223,48 +213,50 @@
                 }
             }
             
+            // Function to check if a new star overlaps with existing ones
             function checkOverlap(x, y, r, existingStars) {
                 for (let star of existingStars) {
                     let d = p.dist(x, y, star.x, star.y);
-                    if (d < r + star.outerRadius + 10) { 
+                    if (d < r + star.outerRadius + 20) { // Increased padding
                         return true; 
                     }
                 }
                 return false; 
             }
 
+            // Initial setup function
             p.setup = () => {
                 const container = document.getElementById('canvas-container');
                 p.createCanvas(container.offsetWidth, container.offsetHeight);
-                p.colorMode(p.HSB);
+                p.colorMode(p.HSB, 360, 255, 255, 1); // Set HSB mode with alpha
                 
-                while (stars.length < targetStarCount) {
-                    let placed = false;
-                    for (let j = 0; j < placementAttempts; j++) {
-                        let outerRadius = p.random(15, 60);
-                        let x = p.random(outerRadius, p.width - outerRadius);
-                        let y = p.random(outerRadius, p.height - outerRadius);
+                // Place stars randomly without letting them overlap
+                let attempts = 0;
+                while (stars.length < targetStarCount && attempts < targetStarCount * placementAttempts) {
+                    let outerRadius = p.random(15, 55);
+                    let x = p.random(outerRadius, p.width - outerRadius);
+                    let y = p.random(outerRadius, p.height - outerRadius);
 
-                        if (!checkOverlap(x, y, outerRadius, stars)) {
-                            stars.push(new Star(x, y, outerRadius));
-                            placed = true;
-                            break;
-                        }
+                    if (!checkOverlap(x, y, outerRadius, stars)) {
+                        stars.push(new Star(x, y, outerRadius));
                     }
-                    if (!placed) {
-                        console.log(`Could not place star ${stars.length + 1}, stopping.`);
-                        break;
-                    }
+                    attempts++;
+                }
+                 if (stars.length < targetStarCount) {
+                    console.warn(`Could only place ${stars.length}/${targetStarCount} stars. Try increasing canvas size or reducing star size/count.`);
                 }
             };
             
+            // Handle window resizing
             p.windowResized = () => {
                 const container = document.getElementById('canvas-container');
                 p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+                // Note: In a more complex sketch, you might want to re-place stars on resize.
             }
 
+            // Main draw loop
             p.draw = () => {
-                p.background(5, 5, 10);
+                p.background(255, 10, 10, 1); // Dark blue-purple background
                 for (const star of stars) {
                     star.draw();
                 }

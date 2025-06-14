@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            /* Changed background for better contrast */
+            background-color: #111111;
+            overflow: hidden; /* Prevents scrollbars */
+        }
+
+        #canvas-container {
+            position: relative;
+            display: flex; /* Helps center the canvas */
+            justify-content: center;
+            align-items: center;
+            width: 90%;
+            height: 90%;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+
+            // --- Configuration ---
+            const NUM_POINTS = 60; // Number of vertices in the simulation
+            const POINT_SPEED = 0.8; // How fast the points move
+            const MIN_DISTANCE = 30; // Minimum distance between points to avoid overlap
+            const REPULSION_STRENGTH = 0.5; // How strongly points push each other away
+
+            let points = [];
+            let triangles = [];
+
+            // --- Helper Classes for Geometry ---
+
+            // A simple Vector class to handle point data and movement
+            class Vector {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    // Perlin noise offsets for organic movement
+                    this.xOff = p.random(1000);
+                    this.yOff = p.random(1000);
+                }
+                
+                // Simulates tension forces and repulsion to avoid overlap
+                update(allPoints) {
+                    // 1. Calculate base movement from Perlin noise
+                    let noiseVel = p.createVector(
+                        (p.noise(this.xOff) - 0.5) * POINT_SPEED,
+                        (p.noise(this.yOff) - 0.5) * POINT_SPEED
+                    );
+
+                    // 2. Calculate repulsion force from nearby points
+                    let repulsionVel = p.createVector(0, 0);
+                    for (const other of allPoints) {
+                        if (other === this) continue; // Don't check against self
+                        
+                        // **FIX:** Create p5.Vector instances for subtraction, as p5.Vector.sub
+                        // expects p5.Vector objects, not our custom Vector class.
+                        const thisP5Vec = p.createVector(this.x, this.y);
+                        const otherP5Vec = p.createVector(other.x, other.y);
+                        let distVec = p5.Vector.sub(thisP5Vec, otherP5Vec);
+                        let distance = distVec.mag();
+
+                        if (distance < MIN_DISTANCE && distance > 0) {
+                            // If too close, calculate a force to push away
+                            let pushForce = distVec.normalize();
+                            pushForce.mult( (MIN_DISTANCE - distance) * REPULSION_STRENGTH );
+                            repulsionVel.add(pushForce);
+                        }
+                    }
+
+                    // 3. Apply combined velocities
+                    this.x += noiseVel.x + repulsionVel.x;
+                    this.y += noiseVel.y + repulsionVel.y;
+                    
+                    this.xOff += 0.002;
+                    this.yOff += 0.002;
+
+                    // 4. Wrap points around the screen edges
+                    if (this.x < 0) this.x = p.width;
+                    if (this.x > p.width) this.x = 0;
+                    if (this.y < 0) this.y = p.height;
+                    if (this.y > p.height) this.y = 0;
+                }
+            }
+
+            // Represents a triangle with 3 vertices
+            class Triangle {
+                constructor(v1, v2, v3) {
+                    this.v1 = v1;
+                    this.v2 = v2;
+                    this.v3 = v3;
+                    this.edges = [
+                        new Edge(v1, v2),
+                        new Edge(v2, v3),
+                        new Edge(v3, v1)
+                    ];
+                    this.calcCircumcircle();
+                }
+
+                // Calculates the circumcircle of the triangle (center and radius)
+                calcCircumcircle() {
+                    const ax = this.v1.x, ay = this.v1.y;
+                    const bx = this.v2.x, by = this.v2.y;
+                    const cx = this.v3.x, cy = this.v3.y;
+
+                    const D = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+                    
+                    if (Math.abs(D) < 1e-6) {
+                        this.circumcenter = new Vector(-9999, -9999);
+                        this.circumRadiusSq = Infinity;
+                        return;
+                    }
+
+                    const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / D;
+                    const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / D;
+
+                    this.circumcenter = new Vector(ux, uy);
+                    this.circumRadiusSq = (ax - ux) ** 2 + (ay - uy) ** 2;
+                }
+                
+                // Checks if a point lies inside the triangle's circumcircle
+                containsInCircumcircle(point) {
+                    const dx = point.x - this.circumcenter.x;
+                    const dy = point.y - this.circumcenter.y;
+                    return dx * dx + dy * dy < this.circumRadiusSq;
+                }
+            }
+            
+            // Represents an edge between two vertices
+            class Edge {
+                constructor(v1, v2) {
+                    this.v1 = v1;
+                    this.v2 = v2;
+                }
+                // Checks if two edges are the same, regardless of vertex order
+                equals(other) {
+                    return (this.v1 === other.v1 && this.v2 === other.v2) || 
+                           (this.v1 === other.v2 && this.v2 === other.v1);
+                }
+            }
+
+            // --- Delaunay Triangulation Algorithm (Bowyer-Watson) ---
+            function triangulate(pointsToTriangulate) {
+                let triangulation = [];
+
+                // 1. Create a "super triangle" that encloses all points
+                const superTriangle = new Triangle(
+                    new Vector(-p.width * 2, -p.height * 2),
+                    new Vector(p.width * 2, -p.height * 2),
+                    new Vector(p.width * 2, p.height * 5)
+                );
+                triangulation.push(superTriangle);
+
+                // 2. Add points one at a time
+                for (const point of pointsToTriangulate) {
+                    let badTriangles = [];
+                    let polygon = [];
+
+                    // 3. Find triangles whose circumcircle contains the point ("bad" triangles)
+                    for (const triangle of triangulation) {
+                        if (triangle.containsInCircumcircle(point)) {
+                            badTriangles.push(triangle);
+                        }
+                    }
+
+                    // 4. Find the boundary of the polygonal hole
+                    for (const triangle of badTriangles) {
+                        for (const edge of triangle.edges) {
+                            let isShared = false;
+                            for (const other of badTriangles) {
+                                if (triangle === other) continue;
+                                for (const otherEdge of other.edges) {
+                                    if (edge.equals(otherEdge)) {
+                                        isShared = true;
+                                        break;
+                                    }
+                                }
+                                if (isShared) break;
+                            }
+                            if (!isShared) {
+                                polygon.push(edge);
+                            }
+                        }
+                    }
+
+                    // 5. Remove bad triangles from the triangulation
+                    triangulation = triangulation.filter(t => !badTriangles.includes(t));
+
+                    // 6. Retriangulate the polygonal hole
+                    for (const edge of polygon) {
+                        triangulation.push(new Triangle(edge.v1, edge.v2, point));
+                    }
+                }
+                
+                // 7. Remove any triangles connected to the super-triangle's vertices
+                const superVertices = [superTriangle.v1, superTriangle.v2, superTriangle.v3];
+                triangulation = triangulation.filter(t => 
+                    !superVertices.includes(t.v1) && 
+                    !superVertices.includes(t.v2) && 
+                    !superVertices.includes(t.v3)
+                );
+
+                return triangulation;
+            }
+
+            // --- p5.js Sketch Functions ---
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                // Create a canvas that fills the container
+                const canvas = p.createCanvas(container.offsetWidth, container.offsetHeight);
+                canvas.parent(container);
+
+                p.colorMode(p.HSB, 360, 100, 100, 100);
+                p.strokeWeight(1.5);
+                
+                // Initialize random points
+                for (let i = 0; i < NUM_POINTS; i++) {
+                    points.push(new Vector(p.random(p.width), p.random(p.height)));
+                }
+            };
+
+            p.draw = () => {
+                p.background(15, 10, 5); // Dark, slightly warm background
+
+                // 1. Update the position of all vertices, passing all points for collision check
+                for (const point of points) {
+                    point.update(points);
+                }
+                
+                // 2. Recalculate the entire triangulation based on new positions
+                triangles = triangulate(points);
+                
+                // 3. Draw the resulting triangles
+                for (const t of triangles) {
+                    const hue = p.map(t.v1.x, 0, p.width, 180, 240); // Color based on position
+                    p.fill(hue, 70, 80, 20); // Semi-transparent fill
+                    p.stroke(hue, 30, 100, 80); // Bright stroke
+                    
+                    p.beginShape();
+                    p.vertex(t.v1.x, t.v1.y);
+                    p.vertex(t.v2.x, t.v2.y);
+                    p.vertex(t.v3.x, t.v3.y);
+                    p.endShape(p.CLOSE);
+                }
+            };
+            
+            // Handle window resizing
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+            };
+
+        };
+
+        // Create the p5 instance
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>
