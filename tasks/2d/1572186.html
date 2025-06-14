@@ -9,93 +9,62 @@
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            /* overflow: hidden; */
-            /* Prevent scrollbars */
         }
 
         input[type="range"] {
             width: 90%;
-            /* margin: 0.5rem 0; */
         }
     </style>
     <script type="importmap">
         {
-          "imports": {
-            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-          }
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
         }
     </script>
 </head>
 
 <body class="bg-white flex justify-center items-center font-mono p-4 relative">
 
-    <!-- Main Canvas Area -->
     <div class="flex flex-col gap-2 w-full">
         <h1 class="text-black text-3xl">Harmonograph Simulation</h1>
         <main id="canvas-container" class="w-full h-[700px] flex justify-center items-center bg-slate-100">
         </main>
     </div>
+
     <div id="controls"
         class='absolute top-2 right-2 flex flex-col items-center gap-4 p-3 w-[30%] bg-slate-800 rounded-lg'>
-
     </div>
 
     <script type="module">
         import p5 from "p5";
+
         // --- P5.JS SKETCH ---
         const sketch = (p) => {
+            const TRAIL_PATH_LENGTH = 1000; // Increased for more detailed patterns
+
             // --- Simulation Constants ---
             const SLIDER_CONFIG = {
                 pendulum1: {
-                    length: {
-                        min: 50,
-                        max: 300,
-                        default: 200,
-                        step: 10
-                    },
-                    amplitude: {
-                        min: 0.1,
-                        max: 1.0,
-                        default: 0.8,
-                        step: 0.1
-                    },
-                    damping: {
-                        min: 0.0,
-                        max: 0.05,
-                        default: 0.02,
-                        step: 0.01
-                    },
-
-                    frequency: 1
+                    length: { min: 50, max: 300, default: 200, step: 10 },
+                    amplitude: { min: 0.1, max: 1.0, default: 0.8, step: 0.1 },
+                    damping: { min: 0.0, max: 0.05, default: 0.001, step: 0.001 }, // Added subtle default damping
+                    frequency: 1,
+                    phase: { min: 0, max: 2 * Math.PI, default: 0, step: 0.1 } // Added phase control
                 },
                 pendulum2: {
-                    length: {
-                        min: 200,
-                        max: 250,
-                        default: 210,
-                        step: 5
-                    },
-                    amplitude: {
-                        min: 0.5,
-                        max: 1.5,
-                        default: 1.0,
-                        step: 0.1
-                    },
-                    damping: {
-                        min: 0.0,
-                        max: 0.05,
-                        default: 0.02,
-                        step: 0.01
-                    },
-                    frequency: 2
+                    length: { min: 50, max: 300, default: 210, step: 5 }, // Expanded range
+                    amplitude: { min: 0.1, max: 1.5, default: 1.0, step: 0.1 }, // Expanded range
+                    damping: { min: 0.0, max: 0.05, default: 0.001, step: 0.001 }, // Added subtle default damping
+                    frequency: 2,
+                    phase: { min: 0, max: 2 * Math.PI, default: Math.PI / 2, step: 0.1 } // Added phase control
                 },
                 pendulum3: {
-                    length: {
-                        min: 10,
-                        max: 30,
-                        default: 20,
-                        step: 5
-                    }
+                    length: { min: 40, max: 60, default: 50, step: 5 } // Expanded range
+                },
+                // Configuration for the new fourth pendulum
+                pendulum4: {
+                    length: { min: 40, max: 60, default: 50, step: 5 }
                 }
             };
 
@@ -103,229 +72,141 @@
             let t = 0;
             let path = [];
             const pendulums = [];
-            let canvasSize;
 
             // --- Slider Arrays ---
             const lengthSliders = [];
-            const amplitudeSliders = []; // Changed from frequencySliders
+            const amplitudeSliders = [];
             const dampingSliders = [];
+            const phaseSliders = []; // Sliders for phase control
 
-            // Add this HTML structure right after the canvas container
             function createControlPanel() {
                 const controlsDiv = document.querySelector('#controls');
 
-
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < 4; i++) {
                     const pendulumControls = document.createElement('div');
-                    const label = i === 0 ? 'X-Axis' : i === 1 ? 'Y-Axis' : 'Rotational';
+                    let label = '';
+                    if (i === 0) label = 'X-Axis';
+                    else if (i === 1) label = 'Y-Axis';
+                    else if (i === 2) label = 'Rotational 1';
+                    else label = 'Rotational 2';
+
                     pendulumControls.className = 'flex flex-col gap-2 w-full';
-                    pendulumControls.innerHTML = i === 2 ? `
-                        <h3 class="text-white text-lg font-bold mb-2">Pendulum ${i + 1} (${label})</h3>
+                    let innerHTML = `<h3 class="text-white text-lg font-bold mb-2">Pendulum ${i + 1} (${label})</h3>`;
+
+                    // Length Slider (for all pendulums)
+                    innerHTML += `
                         <div class="slider-group">
                             <div class="flex justify-between w-full mb-1">
                                 <span class="text-white text-sm">Length</span>
                                 <span id="p${i}-length-value" class="text-white text-sm"></span>
                             </div>
                             <div id="p${i}-length" class="slider-container"></div>
-                        </div>
-                    `  : `
-                        <h3 class="text-white text-lg font-bold mb-2">Pendulum ${i + 1} (${label})</h3>
-                        <div class="slider-group">
-                            <div class="flex justify-between w-full mb-1">
-                                <span class="text-white text-sm">Length</span>
-                                <span id="p${i}-length-value" class="text-white text-sm"></span>
+                        </div>`;
+
+                    // Sliders for Amplitude, Damping, and Phase (only for pendulums 0 and 1)
+                    if (i < 2) {
+                        innerHTML += `
+                            <div class="slider-group">
+                                <div class="flex justify-between w-full mb-1">
+                                    <span class="text-white text-sm">Amplitude</span>
+                                    <span id="p${i}-amp-value" class="text-white text-sm"></span>
+                                </div>
+                                <div id="p${i}-amp" class="slider-container"></div>
                             </div>
-                            <div id="p${i}-length" class="slider-container"></div>
-                        </div>
-                        <div class="slider-group">
-                            <div class="flex justify-between w-full mb-1">
-                                <span class="text-white text-sm">Amplitude</span>
-                                <span id="p${i}-amp-value" class="text-white text-sm"></span>
+                            <div class="slider-group">
+                                <div class="flex justify-between w-full mb-1">
+                                    <span class="text-white text-sm">Damping</span>
+                                    <span id="p${i}-damp-value" class="text-white text-sm"></span>
+                                </div>
+                                <div id="p${i}-damp" class="slider-container"></div>
                             </div>
-                            <div id="p${i}-amp" class="slider-container"></div>
-                        </div>
-                        <div class="slider-group">
-                            <div class="flex justify-between w-full mb-1">
-                                <span class="text-white text-sm">Damping</span>
-                                <span id="p${i}-damp-value" class="text-white text-sm"></span>
-                            </div>
-                            <div id="p${i}-damp" class="slider-container"></div>
-                        </div>
-                    `;
+                            <div class="slider-group">
+                                <div class="flex justify-between w-full mb-1">
+                                    <span class="text-white text-sm">Phase</span>
+                                    <span id="p${i}-phase-value" class="text-white text-sm"></span>
+                                </div>
+                                <div id="p${i}-phase" class="slider-container"></div>
+                            </div>`;
+                    }
+
+                    pendulumControls.innerHTML = innerHTML;
                     controlsDiv.appendChild(pendulumControls);
                 }
-
             }
 
-            // --- Pendulum Class ---
+            // --- Pendulum Class for driving pendulums (X and Y) ---
             class Pendulum {
-                /**
-                 * @param {p5.Vector} pivot - The pivot point where the pendulum is attached.
-                 * @param {Object} defaults - {f: frequency, a: amplitude, l: length}
-                 */
-                constructor(pivot, defaults, isRotational = false) {
+                constructor(pivot, defaults) {
                     this.pivot = pivot.copy();
-                    this.f = defaults.f;
-                    this.a = defaults.a;
-                    this.l = defaults.l;
-                    this.d = defaults.d;
-                    this.angle = 0;
-                    this.isRotational = isRotational;
-                    this.currentAmplitude = this.a; // Track current amplitude for damping
+                    this.f = defaults.f; // Frequency
+                    this.a = defaults.a; // Amplitude
+                    this.l = defaults.l; // Length
+                    this.d = defaults.d; // Damping
+                    this.p = defaults.p; // Phase
                     this.bob = this.getBobPosition(0);
                 }
 
-                /**
-                 * Get the bob position at a given time.
-                 * @param {number} time - The time value.
-                 * @returns {p5.Vector} - The position of the bob.
-                 */
                 getBobPosition(time) {
-                    if (this.isRotational) {
-                        // For rotational motion:
-                        // - Angle increases continuously based on amplitude (speed)
-                        // - Apply damping to the amplitude over time
-                        this.currentAmplitude = this.a * Math.exp(-this.d * time);
-                        this.angle += this.currentAmplitude * 0.1; // Scale factor for reasonable rotation speed
-
-                        // Circular motion using current angle
-                        const x = this.pivot.x + this.l * Math.cos(this.angle);
-                        const y = this.pivot.y + this.l * Math.sin(this.angle);
-                        return p.createVector(x, y);
-                    } else {
-                        // Original pendulum swing motion
-                        const angle = this.a * Math.sin(this.f * time) * Math.exp(-this.d * time);
-                        const x = this.pivot.x + this.l * Math.sin(angle);
-                        const y = this.pivot.y + this.l * Math.cos(angle);
-                        return p.createVector(x, y);
-                    }
+                    const angle = this.a * Math.sin(this.f * time + this.p) * Math.exp(-this.d * time);
+                    const x = this.pivot.x + this.l * Math.sin(angle);
+                    const y = this.pivot.y + this.l * Math.cos(angle);
+                    return p.createVector(x, y);
                 }
 
-                /**
-                 * Helper to extract a coordinate ('x' or 'y') of the bob at a given time.
-                 * @param {number} time
-                 * @param {'x'|'y'} coord
-                 * @returns {number}
-                 */
-                getBobCoord(time, coord) {
-                    const pos = this.getBobPosition(time);
-                    return coord === 'x' ? pos.x : pos.y;
-                }
-
-                /**
-                 * Update the pendulum's state for the given time.
-                 * @param {number} time
-                 */
                 update(time) {
                     this.bob = this.getBobPosition(time);
                 }
 
-                /**
-                 * Draw the pendulum arm and bob.
-                 * @param {function} ellipseFn - The p5 ellipse function.
-                 * @param {function} lineFn - The p5 line function.
-                 * @param {number} bobSize - Diameter of the bob.
-                 */
-                draw(ellipseFn, lineFn, bobSize = 20) {
+                draw() {
+                    p.stroke(200, 0, 150);
+                    p.strokeWeight(1);
                     p.line(this.pivot.x, this.pivot.y, this.bob.x, this.bob.y);
                     p.fill(200, 0, 150);
-                    p.ellipse(this.bob.x, this.bob.y, bobSize, bobSize);
+                    p.noStroke();
+                    p.ellipse(this.bob.x, this.bob.y, 20, 20);
                 }
             }
 
-            // Class for rotational pendulum (Pendulum 3)
+            // --- Rotational Pendulum Class using Verlet Integration ---
             class RotationalPendulum {
-                constructor(pivot, length) {
+                constructor(pivot, defaults) {
                     this.pivot = pivot.copy();
-                    this.length = length;
-
-                    // Physics properties
-                    this.angle = p.PI / 4;  // Initial angle (45 degrees)
-                    this.angleVelocity = 0; // Angular velocity
-                    this.angleAcceleration = 0; // Angular acceleration
-                    this.gravity = 0.5;     // Gravity constant
-                    this.damping = 0.995;   // Air resistance/damping
-
-                    // Bob properties
-                    this.bob = this.getBobPosition();
-                    this.prevPivot = this.pivot.copy(); // Track pivot movement
+                    this.l = defaults.l;
+                    this.gravity = p.createVector(0, 0.5);
+                    this.damping = 0.998;
+                    this.bob = p.createVector(this.pivot.x, this.pivot.y + this.l);
+                    this.prevBob = this.bob.copy();
                 }
 
-                getBobPosition() {
-                    const x = this.pivot.x + this.length * p.sin(this.angle);
-                    const y = this.pivot.y + this.length * p.cos(this.angle);
-                    return p.createVector(x, y);
+                update(newPivot) {
+                    this.pivot = newPivot.copy();
+                    let velocity = p5.Vector.sub(this.bob, this.prevBob);
+                    velocity.mult(this.damping);
+                    this.prevBob = this.bob.copy();
+                    this.bob.add(velocity);
+                    this.bob.add(this.gravity);
+
+                    let toBob = p5.Vector.sub(this.bob, this.pivot);
+                    let currentDist = toBob.mag();
+                    let error = currentDist - this.l;
+                    toBob.normalize();
+                    toBob.mult(-error);
+                    this.bob.add(toBob);
                 }
 
-                update(pivot) {
-                    this.pivot = pivot.copy();
-                    // Calculate pivot movement and its effect on acceleration
-                    const pivotMovement = p5.Vector.sub(this.pivot, this.prevPivot);
-                    const tangentialForce = pivotMovement.x * p.cos(this.angle) -
-                        pivotMovement.y * p.sin(this.angle);
-
-                    // Physics simulation
-                    // 1. Gravitational force creates angular acceleration
-                    this.angleAcceleration = (-this.gravity / this.length) * p.sin(this.angle);
-
-                    // 2. Add effect of pivot movement
-                    this.angleAcceleration += tangentialForce / this.length;
-
-                    // 3. Update angular velocity and position
-                    this.angleVelocity += this.angleAcceleration;
-                    this.angleVelocity *= this.damping; // Apply air resistance
-                    this.angle += this.angleVelocity;
-
-                    // 4. Update bob position
-                    this.bob = this.getBobPosition();
-
-                    // 5. Store current pivot position for next frame
-                    this.prevPivot = this.pivot.copy();
-                }
-
-                draw() {
-                    // Draw pendulum arm
+                draw(isPen = false) {
                     p.stroke(0);
-                    p.strokeWeight(2);
+                    p.strokeWeight(isPen ? 2 : 1);
                     p.line(this.pivot.x, this.pivot.y, this.bob.x, this.bob.y);
 
-                    // Draw bob
-                    p.fill(0);
-                    p.noStroke();
-                    p.ellipse(this.bob.x, this.bob.y, 20);
+                    p.fill(isPen ? 255 : 0);
+                    p.stroke(0);
+                    p.strokeWeight(1);
+                    p.ellipse(this.bob.x, this.bob.y, isPen ? 20 : 15);
 
-                    // Draw pivot point
                     p.fill(100);
+                    p.noStroke();
                     p.ellipse(this.pivot.x, this.pivot.y, 10);
-                }
-
-                setPivot(newPivot) {
-                    this.pivot = newPivot.copy();
-                }
-            }
-
-            // Function to draw dashed line between two points
-            function drawDashedLine(x1, y1, x2, y2, dashLength = 10, gapLength = 5) {
-                const dx = x2 - x1;
-                const dy = y2 - y1;
-                const distance = p.sqrt(dx * dx + dy * dy);
-                const unitX = dx / distance;
-                const unitY = dy / distance;
-
-                let currentX = x1;
-                let currentY = y1;
-                let drawn = 0;
-
-                while (drawn < distance) {
-                    // Draw the dash
-                    const nextX = currentX + unitX * Math.min(dashLength, distance - drawn);
-                    const nextY = currentY + unitY * Math.min(dashLength, distance - drawn);
-                    p.line(currentX, currentY, nextX, nextY);
-
-                    // Move to start of next dash
-                    currentX = nextX + unitX * gapLength;
-                    currentY = nextY + unitY * gapLength;
-                    drawn += dashLength + gapLength;
                 }
             }
 
@@ -333,166 +214,123 @@
                 const canvasContainer = document.getElementById('canvas-container');
                 const w = canvasContainer.offsetWidth;
                 const h = canvasContainer.offsetHeight;
-                // Increased canvas size multiplier for a larger drawing area
                 p.createCanvas(w, h).parent('canvas-container');
                 p.frameRate(60);
 
                 createControlPanel();
 
                 // Create sliders for each pendulum
-                for (let i = 0; i < 3; i++) {
-                    lengthSliders[i] = p.createSlider(
-                        SLIDER_CONFIG[`pendulum${i + 1}`].length.min,
-                        SLIDER_CONFIG[`pendulum${i + 1}`].length.max,
-                        SLIDER_CONFIG[`pendulum${i + 1}`].length.default,
-                        SLIDER_CONFIG[`pendulum${i + 1}`].length.step
-                    ).parent(`p${i}-length`);
-                    if (i !== 2) {
+                for (let i = 0; i < 4; i++) {
+                    const config = SLIDER_CONFIG[`pendulum${i + 1}`];
+                    lengthSliders[i] = p.createSlider(config.length.min, config.length.max, config.length.default, config.length.step).parent(`p${i}-length`);
 
-                        amplitudeSliders[i] = p.createSlider(
-                            SLIDER_CONFIG[`pendulum${i + 1}`].amplitude.min,
-                            SLIDER_CONFIG[`pendulum${i + 1}`].amplitude.max,
-                            SLIDER_CONFIG[`pendulum${i + 1}`].amplitude.default,
-                            SLIDER_CONFIG[`pendulum${i + 1}`].amplitude.step
-                        ).parent(`p${i}-amp`);
-
-                        dampingSliders[i] = p.createSlider(
-                            SLIDER_CONFIG[`pendulum${i + 1}`].damping.min,
-                            SLIDER_CONFIG[`pendulum${i + 1}`].damping.max,
-                            SLIDER_CONFIG[`pendulum${i + 1}`].damping.default,
-                            SLIDER_CONFIG[`pendulum${i + 1}`].damping.step
-                        ).parent(`p${i}-damp`);
+                    if (i < 2) {
+                        amplitudeSliders[i] = p.createSlider(config.amplitude.min, config.amplitude.max, config.amplitude.default, config.amplitude.step).parent(`p${i}-amp`);
+                        dampingSliders[i] = p.createSlider(config.damping.min, config.damping.max, config.damping.default, config.damping.step).parent(`p${i}-damp`);
+                        phaseSliders[i] = p.createSlider(config.phase.min, config.phase.max, config.phase.default, config.phase.step).parent(`p${i}-phase`);
                     }
-
                 }
 
-                // Create pendulums with initial values
-                pendulums.push(new Pendulum(p.createVector(p.width * 0.45, 10), {
-                    f: SLIDER_CONFIG.pendulum1.frequency,
-                    a: SLIDER_CONFIG.pendulum1.amplitude.default,
-                    l: SLIDER_CONFIG.pendulum1.length.default,
-                    d: SLIDER_CONFIG.pendulum1.damping.default
-                }));
-                pendulums.push(new Pendulum(p.createVector(p.width * 0.2, 250), {
-                    f: SLIDER_CONFIG.pendulum2.frequency,
-                    a: SLIDER_CONFIG.pendulum2.amplitude.default,
-                    l: SLIDER_CONFIG.pendulum2.length.default,
-                    d: SLIDER_CONFIG.pendulum2.damping.default
-                }));
-                pendulums.push(new RotationalPendulum(p.createVector(0, 0), {
-                    l: SLIDER_CONFIG.pendulum3.length.default,
-                }));
+                // Create pendulums
+                pendulums.push(new Pendulum(p.createVector(p.width * 0.45, 10), { ...SLIDER_CONFIG.pendulum1, f: SLIDER_CONFIG.pendulum1.frequency, a: SLIDER_CONFIG.pendulum1.amplitude.default, l: SLIDER_CONFIG.pendulum1.length.default, d: SLIDER_CONFIG.pendulum1.damping.default, p: SLIDER_CONFIG.pendulum1.phase.default }));
+                pendulums.push(new Pendulum(p.createVector(p.width * 0.15, 250), { ...SLIDER_CONFIG.pendulum2, f: SLIDER_CONFIG.pendulum2.frequency, a: SLIDER_CONFIG.pendulum2.amplitude.default, l: SLIDER_CONFIG.pendulum2.length.default, d: SLIDER_CONFIG.pendulum2.damping.default, p: SLIDER_CONFIG.pendulum2.phase.default }));
+                pendulums.push(new RotationalPendulum(p.createVector(0, 0), { l: SLIDER_CONFIG.pendulum3.length.default }));
+                pendulums.push(new RotationalPendulum(p.createVector(0, 0), { l: SLIDER_CONFIG.pendulum4.length.default })); // The new pendulum
+
                 resetDrawing();
             };
 
             function resetDrawing() {
                 t = 0;
                 path = [];
-                p.background(255);
+                // Reset the rotational pendulums' physics states
+                const dynamicPivot = p.createVector(pendulums[0].bob.x, pendulums[1].bob.y);
+                pendulums[2] = new RotationalPendulum(dynamicPivot, { l: lengthSliders[2].value() });
+                pendulums[3] = new RotationalPendulum(pendulums[2].bob, { l: lengthSliders[3].value() });
                 p.loop();
             }
 
             function updateSliderValues() {
                 let sliderChanged = false;
-
-                for (let i = 0; i < 3; i++) {
-                    if (i === 2) {
-                        const currentLength = lengthSliders[i].value();
-                        document.getElementById(`p${i}-length-value`).textContent = `${currentLength}px`;
+                for (let i = 0; i < 4; i++) {
+                    const currentLength = lengthSliders[i].value();
+                    if (pendulums[i].l !== currentLength) {
+                        sliderChanged = true;
                         pendulums[i].l = currentLength;
-                        sliderChanged = pendulums[i].l !== currentLength;
+                    }
+                    document.getElementById(`p${i}-length-value`).textContent = `${currentLength}px`;
 
-                    } else {
-
-                        const currentLength = lengthSliders[i].value();
+                    if (i < 2) {
                         const currentAmp = amplitudeSliders[i].value();
                         const currentDamp = dampingSliders[i].value();
+                        const currentPhase = phaseSliders[i].value();
 
-                        if (currentLength !== pendulums[i].l ||
-                            currentAmp !== pendulums[i].a ||
-                            currentDamp !== pendulums[i].d) {
+                        if (currentAmp !== pendulums[i].a || currentDamp !== pendulums[i].d || currentPhase !== pendulums[i].p) {
                             sliderChanged = true;
                         }
-
-                        pendulums[i].l = currentLength;
                         pendulums[i].a = currentAmp;
                         pendulums[i].d = currentDamp;
+                        pendulums[i].p = currentPhase;
 
-                        document.getElementById(`p${i}-length-value`).textContent = `${currentLength}px`;
                         document.getElementById(`p${i}-amp-value`).textContent = `${currentAmp.toFixed(2)}`;
                         document.getElementById(`p${i}-damp-value`).textContent = `${currentDamp.toFixed(3)}`;
+                        document.getElementById(`p${i}-phase-value`).textContent = `${currentPhase.toFixed(2)} rad`;
                     }
-
                 }
 
                 if (sliderChanged) {
-                    path = [];
-                    t = 0;
+                    resetDrawing();
                 }
             }
 
             p.draw = () => {
                 updateSliderValues();
+                p.background(241, 245, 249); // bg-slate-100
 
-                p.background(255);
-
-                // 1. Draw the visible pendulums and linkages
-                drawVisiblePendulums();
-
-                // 2. Draw the harmonograph path
+                // Draw the harmonograph path
                 p.noFill();
                 p.strokeWeight(1.5);
-                p.stroke(220, 50, 50, 220); // Make the path red
+                p.stroke(220, 50, 50, 220);
                 p.beginShape();
                 for (const v of path) {
                     p.vertex(v.x, v.y);
                 }
                 p.endShape();
 
+                // Update and draw the visible pendulums
+                drawVisiblePendulums();
 
-                t += 0.03
-
+                t += 0.05;
             };
 
             function drawVisiblePendulums() {
-                // --- Pendulum 1 (X-Axis) ---
-                const bob1 = pendulums[0].bob;
+                // Update and draw Pendulums 1 & 2
                 pendulums[0].update(t);
-                pendulums[0].draw(p.ellipse, p.line, 20);
-
-                // --- Pendulum 2 (Y-Axis) ---
-                const bob2 = pendulums[1].bob;
+                pendulums[0].draw();
                 pendulums[1].update(t);
-                pendulums[1].draw(p.ellipse, p.line, 20);
+                pendulums[1].draw();
 
-                // --- Pendulum 3 (Rotational) ---
-                // Pivot is (bob1.x, bob2.y)
-                const dynamicPivot = p.createVector(bob1.x, bob2.y);
+                // The pivot for the first rotational pendulum is driven by the first two
+                const dynamicPivot = p.createVector(pendulums[0].bob.x, pendulums[1].bob.y);
+                p.fill(150);
+                p.noStroke();
+                p.ellipse(dynamicPivot.x, dynamicPivot.y, 10, 10); // Draw the pivot
+
+                // Update and draw Pendulum 3
                 pendulums[2].update(dynamicPivot);
-                const bob3 = pendulums[2].bob;
+                pendulums[2].draw();
 
-                pendulums[2].draw(p.ellipse, p.line, 10);
+                // Update and draw Pendulum 4 (The Pen)
+                // Its pivot is the bob of Pendulum 3
+                pendulums[3].update(pendulums[2].bob);
+                pendulums[3].draw(true); // 'true' indicates this is the final pen
 
-                drawDashedLine(bob1.x, bob1.y, dynamicPivot.x, dynamicPivot.y, 10, 5);
-                drawDashedLine(bob2.x, bob2.y, dynamicPivot.x, dynamicPivot.y, 10, 5);
-
-                p.ellipse(dynamicPivot.x, dynamicPivot.y, 10, 10); // Draw the pen pivot
-
-                // Return pen tip coordinates
-                if (path.length > 1000) {
-                    path.shift()
+                const penTip = pendulums[3].bob;
+                path.push({ x: penTip.x, y: penTip.y });
+                if (path.length > TRAIL_PATH_LENGTH) {
+                    path.shift();
                 }
-                path.push({ x: bob3.x, y: bob3.y })
             }
-
-            p.windowResized = () => {
-                const canvasContainer = document.getElementById('canvas-container');
-                const w = canvasContainer.offsetWidth;
-                const h = canvasContainer.offsetHeight;
-                canvasSize = p.min(w, h) * 0.98;
-                p.resizeCanvas(canvasSize, canvasSize);
-                resetDrawing();
-            };
         };
 
         new p5(sketch);
