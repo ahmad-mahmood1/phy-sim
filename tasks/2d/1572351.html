@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>Expanding Shapes Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #0a0a0a;
+            color: #e0e0e0;
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #222;
+            box-shadow: 0 0 30px rgba(0, 220, 255, 0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            display: block;
+        }
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            border: 1px solid #333;
+            cursor: pointer;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="canvas-container">
+        <div id="instructions">Click to restart the flow</div>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Configuration ---
+            const polygonSides = 6;      // Number of sides for the shape (e.g., 6 for hexagon)
+            const spawnInterval = 5;    // Frames between each new shape spawning at the center
+            const initialSize = 5;       // Starting size for a new shape
+            const growthRate = 2;      // How much the size increases each frame
+
+            let currentAngle = 0
+            let angleIncrement = p.HALF_PI/2
+            let polygons = [];
+            let colorPalette;
+
+            // --- Polygon Class ---
+            // Represents a single, independent shape
+            class Polygon {
+                constructor() {
+                    this.pos = p.createVector(p.width / 2, p.height / 2);
+                    this.vel = p.createVector(0, 0); // Start with a small random velocity
+
+                    this.acc = p.createVector(0, 0);
+                    this.sides = polygonSides;
+                    this.angle = currentAngle + angleIncrement;
+                    this.size = initialSize;
+                    // Pick a random color from the palette
+                    this.color = p.random(colorPalette);
+
+                    currentAngle = this.angle
+                }
+
+                // Apply a force vector to the polygon's acceleration
+                applyForce(force) {
+                    this.acc.add(force);
+                }
+
+                // Update polygon's position and size
+                update() {
+                    // Grow the polygon over time
+                    this.size += growthRate;
+                }
+
+                // Draw the polygon on the canvas
+                draw() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    p.rotate(this.angle);
+                    
+                    // Set color with alpha based on size for a fade-in effect
+                    const alpha = p.map(this.size, initialSize, 100, 50, 255, true);
+                    const c = p.color(this.color);
+                    c.setAlpha(alpha);
+
+                    p.fill(c);
+                    p.stroke(0, alpha * 0.8);
+                    p.strokeWeight(2);
+                    
+                    p.beginShape();
+                    for (let i = 0; i < this.sides; i++) {
+                        const angle = p.TWO_PI / this.sides * i;
+                        const x = this.size * p.cos(angle);
+                        const y = this.size * p.sin(angle);
+                        p.vertex(x, y);
+                    }
+                    p.endShape(p.CLOSE);
+                    p.pop();
+                }
+            }
+
+            // Function to initialize or reset the simulation
+            const resetSketch = () => {
+                polygons = [];
+            };
+
+            // --- p5.js Setup Function ---
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(container.clientWidth || 800, container.clientHeight || 600);
+                canvas.parent(container);
+
+                colorPalette = [
+                    p.color(30, 144, 255),  // DodgerBlue
+                    p.color(60, 179, 113),  // MediumSeaGreen
+                    p.color(255, 215, 0),   // Gold
+                    p.color(255, 99, 71),   // Tomato
+                    p.color(147, 112, 219), // MediumPurple
+                    p.color(255, 105, 180)  // HotPink
+                ];
+
+                resetSketch();
+            };
+
+            // --- p5.js Draw Loop (runs every frame) ---
+            p.draw = () => {
+                p.background(10, 10, 10);
+
+                // Spawn a new polygon at the center at a regular interval
+                if (p.frameCount % spawnInterval === 0) {
+                    polygons.push(new Polygon());
+                }
+
+                // --- Physics Calculations & Updates ---
+                for (let i = 0; i < polygons.length; i++) {
+                    const polyA = polygons[i];
+                    
+                    // Update and draw the polygon
+                    polyA.update();
+                    polyA.draw();
+                }
+
+                // --- Despawn polygons that go off-screen ---
+                // We iterate backwards when removing items from an array
+                for (let i = polygons.length - 1; i >= 0; i--) {
+                    const poly = polygons[i];
+                    const buffer = poly.size; // Use size as buffer
+                    if (poly.size > p.width/2 * 2.3 || poly.size > p.height/2 * 2.3) {
+                        polygons.splice(i, 1);
+                    }
+                }
+            };
+            
+            p.mousePressed = () => {
+                if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
+                    resetSketch();
+                }
+            };
+
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                p.resizeCanvas(container.clientWidth, container.clientHeight);
+                resetSketch();
+            };
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        if (!container.style.width) {
+            container.style.width = '90vw';
+            container.style.height = '90vh';
+        }
+
+        new p5(sketch, container);
+    </script>
+</body>
+
+</html>
