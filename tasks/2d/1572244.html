@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Drone Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1), 0 6px 6px rgba(0, 0, 0, 0.15);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+
+            let drone;
+            let path = [];
+            let landingZones = [];
+            let mapImage; // Variable to hold the background map image
+
+            // --- P5.js Preload ---
+            // Loads external assets before the sketch starts.
+            p.preload = () => {
+                // Load the political world map image from a CORS-friendly source
+                mapImage = p.loadImage('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg',
+                    () => {
+                        console.log("Political world map image loaded successfully.");
+                    },
+                    (e) => {
+                        console.error("Failed to load map image.", e);
+                        // Fallback in case the image fails to load
+                        mapImage = p.createImage(800, 600);
+                        mapImage.loadPixels();
+                        for (let i = 0; i < mapImage.width; i++) {
+                            for (let j = 0; j < mapImage.height; j++) {
+                                mapImage.set(i, j, p.color(200, 220, 240));
+                            }
+                        }
+                        mapImage.updatePixels();
+                    }
+                );
+            }
+
+            // --- Drone Class ---
+            // Manages the drone's position, movement, and appearance.
+            class Drone {
+                constructor(path) {
+                    this.path = path;
+                    this.pathIndex = 1; // Start by targeting the second point in the path (index 1)
+                    this.pos = this.path[0].copy(); // Start at the first point
+                    this.target = this.path[this.pathIndex].copy();
+
+                    this.speed = 2.0;
+                    this.landed = false;
+                    this.isWaiting = false; // Flag for pausing at a stopover
+                    this.waitTimer = 0; // Timer for the pause duration
+                    this.waitTime = 90; // How long to wait in frames (1.5 seconds at 60fps)
+
+                    this.size = 20; // Current size of the drone's body
+                    this.targetSize = 20; // Target size for animation
+                    this.propellerAngle = 0; // Angle for propeller rotation
+                }
+
+                update() {
+                    // Always animate the drone's size towards its target size
+                    this.size = p.lerp(this.size, this.targetSize, 0.05);
+
+                    // 1. Handle the waiting state
+                    if (this.isWaiting) {
+                        this.waitTimer--;
+                        if (this.waitTimer <= 0) {
+                            this.isWaiting = false; // Stop waiting
+                            this.targetSize = 20; // Grow back to normal size for flight
+                            // Set the next target
+                            this.pathIndex++;
+                            if (this.pathIndex < this.path.length) {
+                                this.target.set(this.path[this.pathIndex]);
+                            } else {
+                                this.landed = true; // Should be handled below, but as a safeguard
+                            }
+                        }
+                        return; // Do nothing else while waiting
+                    }
+
+                    // 2. Handle the landed state
+                    if (this.landed) {
+                        return; // Do nothing else once landed
+                    }
+
+                    // 3. If not waiting or landed, then we are flying
+                    this.propellerAngle += 0.5; // Rotate propellers
+
+                    // Move towards the target
+                    let direction = p5.Vector.sub(this.target, this.pos);
+
+                    if (direction.mag() < this.speed) {
+                        // --- Arrived at target ---
+                        this.pos.set(this.target); // Snap to the exact position
+
+                        // Check if it's the final destination
+                        if (this.pathIndex >= this.path.length - 1) {
+                            this.landed = true;
+                            this.targetSize = 15; // Set final landed size
+                        } else {
+                            // It's an intermediate stopover. Begin waiting.
+                            this.isWaiting = true;
+                            this.waitTimer = this.waitTime;
+                            this.targetSize = 15; // Shrink at the stopover
+                        }
+                    } else {
+                        // --- Still moving towards target ---
+                        direction.normalize();
+                        direction.mult(this.speed);
+                        this.pos.add(direction);
+                    }
+                }
+
+                display() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    
+                    const propellerLength = 15;
+                    
+                    // --- Propellers (Rotated) ---
+                    p.push(); // Isolate the rotation for the propellers
+                    // Only rotate if not waiting
+                    if (!this.isWaiting) {
+                       p.rotate(this.propellerAngle);
+                    }
+                    p.stroke(200, 155, 0);
+                    p.strokeWeight(2);
+                    p.line(-propellerLength, -propellerLength, propellerLength, propellerLength);
+                    p.line(-propellerLength, propellerLength, propellerLength, -propellerLength);
+                    p.pop(); // End rotation isolation
+
+                    // --- Drone Body (Static) ---
+                    p.fill(127, 0, 255); 
+                    p.noStroke();
+                    p.ellipse(0, 0, this.size, this.size);
+                    
+                    // --- Center Light ---
+                    if (this.landed) {
+                        p.fill(0, 255, 0);
+                    } else {
+                        p.fill(255, 0, 0);
+                    }
+                    p.noStroke();
+                    p.ellipse(0, 0, this.size / 4, this.size / 4);
+
+                    p.pop();
+                }
+            }
+            
+            // --- LandingZone Class ---
+            class LandingZone {
+                constructor(x, y, size, type = 'default') {
+                    this.pos = p.createVector(x,y);
+                    this.size = size;
+                    this.type = type;
+                }
+
+                display() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    // Draw the default circular landing pad
+                    p.noStroke();
+                    p.fill(80, 80, 80, 180);
+                    p.ellipse(0, 0, this.size, this.size);
+                    
+                    p.stroke(255, 255, 0);
+                    p.strokeWeight(4);
+                    const halfSize = this.size / 2;
+                    p.line(-halfSize * 0.8, -halfSize * 0.3, halfSize * 0.8, -halfSize * 0.3);
+                    p.line(-halfSize * 0.8,  halfSize * 0.3, halfSize * 0.8,  halfSize * 0.3);
+                    p.pop();
+                }
+            }
+
+            // --- P5.js Setup ---
+            p.setup = () => {
+                const canvas = p.createCanvas(800, 600);
+                
+                path.push(p.createVector(150, 200)); // Start: North America
+                path.push(p.createVector(250, 450)); // Stopover: South America
+                path.push(p.createVector(400, 400)); // Stopover: Africa
+                path.push(p.createVector(450, 180)); // Stopover: Europe
+                path.push(p.createVector(650, 220)); // Stopover: Asia
+                path.push(p.createVector(700, 450)); // Land: Australia
+
+                landingZones.push(new LandingZone(path[0].x, path[0].y, 50));
+                landingZones.push(new LandingZone(path[1].x, path[1].y, 40));
+                landingZones.push(new LandingZone(path[2].x, path[2].y, 40));
+                landingZones.push(new LandingZone(path[3].x, path[3].y, 40));
+                landingZones.push(new LandingZone(path[4].x, path[4].y, 40)); // Added LZ for Asia stop
+                landingZones.push(new LandingZone(path[5].x, path[5].y, 60));
+                
+                drone = new Drone(path);
+            };
+
+            // --- P5.js Draw Loop ---
+            p.draw = () => {
+                p.background(240); 
+
+                if (mapImage) {
+                    p.image(mapImage, 0, 0, p.width, p.height);
+                }
+
+                for (const lz of landingZones) {
+                    lz.display();
+                }
+
+                p.stroke(0, 150, 255, 180); 
+                p.strokeWeight(4); 
+                p.drawingContext.setLineDash([8, 12]);
+                p.noFill();
+                p.beginShape();
+                for (const v of path) {
+                    p.vertex(v.x, v.y);
+                }
+                p.endShape();
+                p.drawingContext.setLineDash([]);
+
+                drone.update();
+                drone.display();
+            };
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>
