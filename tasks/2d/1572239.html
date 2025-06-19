@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <title>Geometric Stars - Transitions Only</title>
+    <title>Geometric Stars - Enhanced Color Gradient</title>
     <style>
         body {
             margin: 0;
@@ -45,10 +45,11 @@
         const sketch = (p) => {
             // --- Simulation Controls ---
             const TRANSITION_SPEED = 0.03; // How fast arms split or merge.
+            const MORPH_SPEED = 0.015; // How fast stars do the origami fold.
             // --- End of Controls ---
 
             const stars = [];
-            const targetStarCount = 200; // Adjusted for performance and aesthetics
+            const targetStarCount = 200; 
             const placementAttempts = 500;
 
             class Star {
@@ -56,109 +57,131 @@
                     this.x = x;
                     this.y = y;
                     this.outerRadius = outerRadius;
-                    this.innerRadius = outerRadius / 2.0; // Made inner radius larger for more defined points
-                    this.hue = p.random(50, 320); // Hues from blue to magenta
+                    this.innerRadius = outerRadius / 2.0; 
+                    this.hue = p.random(50, 320); 
                     
-                    // Star point logic
                     this.numPoints = p.floor(p.random(6, 8));
                     this.targetNumPoints = this.numPoints;
 
-                    // State management for transitions
                     this.transitionState = 'stable';
                     this.transitionProgress = 0;
                     this.actionIndex = 0; 
-                    this.timeUntilNextAction = p.random(10, 20);
+                    this.timeUntilNextAction = p.random(300, 600); 
+
+                    this.morphProgress = p.random(0, 1); 
+                    this.morphDirection = p.random([-1, 1]);
                 }
                 
-                // Helper function to get the base vertex position for a given index and point count
                 getVertex(index, numPoints) {
-                    // Alternate between outer and inner radius for the star points and valleys
                     const radius = (index % 2 === 0) ? this.outerRadius : this.innerRadius;
-                    // Calculate the angle for the vertex
                     const angle = p.TWO_PI / (numPoints * 2) * index;
                     return { angle, radius };
                 }
 
-                // Update the star's state (handle transitions)
                 update() {
-                    // If the star is not currently splitting or merging
                     if (this.transitionState === 'stable') {
+                        this.morphProgress += this.morphDirection * MORPH_SPEED;
+                        if (this.morphProgress >= 1 || this.morphProgress <= 0) {
+                            this.morphDirection *= -1;
+                            this.morphProgress = p.constrain(this.morphProgress, 0, 1);
+                        }
+
                         this.timeUntilNextAction--;
-                        // When the timer runs out, initiate a new transition
                         if (this.timeUntilNextAction <= 0) {
                             this.initiateTransition();
                         }
                     }
 
-                    // If the star is in a transition state
                     if (this.transitionState !== 'stable') {
                         this.transitionProgress += TRANSITION_SPEED;
-                        // When the transition is complete
                         if (this.transitionProgress >= 1) {
-                            this.numPoints = this.targetNumPoints; // Finalize the new point count
-                            this.transitionState = 'stable';      // Reset state
+                            this.numPoints = this.targetNumPoints;
+                            this.transitionState = 'stable';
                             this.transitionProgress = 0;
-                            this.timeUntilNextAction = p.random(10, 20); // Reset timer for next action
+                            this.morphProgress = 1;
+                            this.morphDirection = -1;
+                            this.timeUntilNextAction = p.random(300, 600);
                         }
                     }
                 }
 
-                // Decide whether to split an arm, merge arms, or do nothing
                 initiateTransition() {
-                    const canSplit = this.numPoints < 7; // Minimum points to split
+                    const canSplit = this.numPoints < 7;
                     const canMerge = this.numPoints >= 7;
                     let choice = 'none';
 
-                    // Randomly choose an action based on constraints
                     if (canSplit && canMerge) choice = p.random(['splitting', 'merging']);
                     else if (canSplit) choice = 'splitting';
                     else if (canMerge) choice = 'merging';
                     
                     if (choice !== 'none') {
-                        this.targetNumPoints = this.numPoints + 1 * (choice === 'splitting' ? 1 : -1);
+                        this.targetNumPoints = this.numPoints + (choice === 'splitting' ? 1 : -1);
                         this.actionIndex = p.floor(p.random(this.numPoints - 1));
-                        this.transitionState = choice
+                        this.transitionState = choice;
+                    } else {
+                        this.timeUntilNextAction = p.random(300, 600);
                     }
                 }
                 
-                // Main draw function, called every frame
                 draw() {
                     this.update();
 
                     p.push();
                     p.translate(this.x, this.y);
                     
-                    // Set drawing style for a glowing, geometric look
                     p.strokeWeight(1.5);
-                    p.stroke(this.hue, 180, 255, 0.9); // Bright, slightly transparent stroke
-                    p.fill(this.hue, 220, 255, 0.4);   // Dim, transparent fill
                     
                     p.beginShape();
 
-                    // Call the correct drawing function based on the current state
-                    if (this.transitionState === 'stable') this.drawStable();
-                    else if (this.transitionState === 'splitting') this.drawSplitting();
-                    else if (this.transitionState === 'merging') this.drawMerging();
+                    if (this.transitionState === 'stable') {
+                        this.drawStable();
+                    } else {
+                        p.stroke(this.hue, 180, 255, 0.9);
+                        p.fill(this.hue, 220, 255, 0.4);
+
+                        if (this.transitionState === 'splitting') this.drawSplitting();
+                        else if (this.transitionState === 'merging') this.drawMerging();
+                    }
                     
                     p.endShape(p.CLOSE);
                     p.pop();
                 }
 
-                // Draw the star in its normal, stable (non-moving) state
                 drawStable() {
+                    const easedProgress = (p.sin(this.morphProgress * p.PI - p.PI / 2) + 1) / 2;
+
+                    // --- ENHANCED Pulsating Color Logic ---
+                    // The ranges in lerp() have been increased for a more dramatic effect.
+                    const fillBrightness = p.lerp(255, 180, easedProgress); // Increased range
+                    const fillAlpha = p.lerp(0.9, 0.3, easedProgress);       // Increased range
+                    const strokeSaturation = p.lerp(50, 200, easedProgress); // Increased range
+
+                    p.stroke(this.hue, strokeSaturation, 255, 0.9);
+                    p.fill(this.hue, 220, fillBrightness, fillAlpha);
+                    // --- End of new logic ---
+
                     const totalVertices = this.numPoints * 2;
                     for (let i = 0; i < totalVertices; i++) {
                         const vertex = this.getVertex(i, this.numPoints);
+                        const isPoint = i % 2 === 0;
+
+                        let currentRadius;
+                        if (isPoint) {
+                            const collapsedRadius = this.innerRadius * 0.4;
+                            const expandedRadius = this.outerRadius;
+                            currentRadius = p.lerp(collapsedRadius, expandedRadius, easedProgress);
+                        } else {
+                            const collapsedRadius = this.innerRadius * 1.1;
+                            const expandedRadius = this.innerRadius;
+                            currentRadius = p.lerp(collapsedRadius, expandedRadius, easedProgress);
+                        }
                         
-                        // --- Static Drawing Logic ---
-                        // Draw the vertex without any noise-based morphing.
-                        const sx = p.cos(vertex.angle) * vertex.radius;
-                        const sy = p.sin(vertex.angle) * vertex.radius;
+                        const sx = p.cos(vertex.angle) * currentRadius;
+                        const sy = p.sin(vertex.angle) * currentRadius;
                         p.vertex(sx, sy);
                     }
                 }
                 
-                // Draw the transition for an arm splitting into two
                 drawSplitting() {
                     const prog = this.transitionProgress;
                     const startPoints = this.numPoints;
@@ -183,7 +206,6 @@
                     }
                 }
 
-                // Draw the transition for two arms merging into one
                 drawMerging() {
                     const prog = this.transitionProgress;
                     const startPoints = this.numPoints;
@@ -201,7 +223,7 @@
                         if (i === point1Idx || i === valleyIdx || i === point2Idx) {
                             finalV = targetV;
                         } else {
-                             let finalIdx = (this.actionIndex * 2 > i) ? i : i - 2;
+                            let finalIdx = (this.actionIndex * 2 > i) ? i : i - 2;
                             finalV = this.getVertex(finalIdx, endPoints);
                         }
 
@@ -213,24 +235,21 @@
                 }
             }
             
-            // Function to check if a new star overlaps with existing ones
             function checkOverlap(x, y, r, existingStars) {
                 for (let star of existingStars) {
                     let d = p.dist(x, y, star.x, star.y);
-                    if (d < r + star.outerRadius + 20) { // Increased padding
+                    if (d < r + star.outerRadius + 20) {
                         return true; 
                     }
                 }
                 return false; 
             }
 
-            // Initial setup function
             p.setup = () => {
                 const container = document.getElementById('canvas-container');
                 p.createCanvas(container.offsetWidth, container.offsetHeight);
-                p.colorMode(p.HSB, 360, 255, 255, 1); // Set HSB mode with alpha
+                p.colorMode(p.HSB, 360, 255, 255, 1);
                 
-                // Place stars randomly without letting them overlap
                 let attempts = 0;
                 while (stars.length < targetStarCount && attempts < targetStarCount * placementAttempts) {
                     let outerRadius = p.random(15, 55);
@@ -247,16 +266,13 @@
                 }
             };
             
-            // Handle window resizing
             p.windowResized = () => {
                 const container = document.getElementById('canvas-container');
                 p.resizeCanvas(container.offsetWidth, container.offsetHeight);
-                // Note: In a more complex sketch, you might want to re-place stars on resize.
             }
 
-            // Main draw loop
             p.draw = () => {
-                p.background(255, 10, 10, 1); // Dark blue-purple background
+                p.background(255, 10, 10, 1);
                 for (const star of stars) {
                     star.draw();
                 }
