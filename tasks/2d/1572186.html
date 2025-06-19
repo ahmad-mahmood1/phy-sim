@@ -14,6 +14,44 @@
         input[type="range"] {
             width: 90%;
         }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            width: 200px;
+            font-size: 0.8rem;
+        }
+
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .pendulum-label {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            pointer-events: none;
+        }
     </style>
     <script type="importmap">
         {
@@ -24,16 +62,39 @@
     </script>
 </head>
 
-<body class="bg-white flex justify-center items-center font-mono p-4 relative">
+<body class="bg-white flex flex-col justify-center items-center font-mono p-2 relative">
 
-    <div class="flex flex-col gap-2 w-full">
-        <h1 class="text-black text-3xl">Harmonograph Simulation</h1>
-        <main id="canvas-container" class="w-full h-[700px] flex justify-center items-center bg-slate-100">
-        </main>
-    </div>
+    <div class="flex flex-col gap-1 w-full max-w-6xl">
+        <header class="flex justify-between items-center">
+            <h1 class="text-black text-3xl">Harmonograph Simulation</h1>
+        </header>
+        <div class="flex flex-row gap-4">
+            <div class="flex flex-col gap-2">
+                <main id="canvas-container"
+                    class="flex-grow h-[550px] flex justify-center items-center bg-slate-100 rounded-lg relative">
+                    <div class="pendulum-legend absolute top-2 right-2 bg-white p-1 rounded-md shadow-md">
+                        <div class="flex flex-col gap-1 text-xs">
+                            <div class="flex items-center"><span class="w-3 h-3 bg-blue-500 inline-block mr-2"></span>X
+                                Pendulum</div>
+                            <div class="flex items-center"><span class="w-3 h-3 bg-green-500 inline-block mr-2"></span>Y
+                                Pendulum</div>
+                            <div class="flex items-center"><span
+                                    class="w-3 h-3 bg-orange-400 inline-block mr-2"></span>Rotational 1</div>
+                            <div class="flex items-center"><span
+                                    class="w-3 h-3 bg-red-600 inline-block mr-2"></span>Drawing Pen</div>
+                        </div>
+                    </div>
+                </main>
+                <div class="mt-2 text-sm bg-slate-200 p-1 rounded-md">
+                    <strong>How pendulums affect each other:</strong> The X and Y pendulums create a moving pivot point.
+                    Rotational pendulum 1 hangs from this point, and the drawing pen (Rotational 2) hangs from the first
+                    rotational pendulum.
+                </div>
+            </div>
 
-    <div id="controls"
-        class='absolute top-2 right-2 flex flex-col items-center gap-4 p-3 w-[30%] bg-slate-800 rounded-lg'>
+            <div id="controls" class='flex flex-col items-center gap-1 p-3 w-[680px] bg-slate-800 rounded-lg'>
+            </div>
+        </div>
     </div>
 
     <script type="module">
@@ -41,28 +102,27 @@
 
         // --- P5.JS SKETCH ---
         const sketch = (p) => {
-            const TRAIL_PATH_LENGTH = 1000; // Increased for more detailed patterns
+            const TRAIL_PATH_LENGTH = 2000; // Increased for more detailed patterns
 
             // --- Simulation Constants ---
             const SLIDER_CONFIG = {
                 pendulum1: {
                     length: { min: 50, max: 300, default: 200, step: 10 },
                     amplitude: { min: 0.1, max: 1.0, default: 0.8, step: 0.1 },
-                    damping: { min: 0.0, max: 0.05, default: 0.001, step: 0.001 }, // Added subtle default damping
+                    damping: { min: 0.0, max: 0.05, default: 0.001, step: 0.001 },
                     frequency: 1,
-                    phase: { min: 0, max: 2 * Math.PI, default: 0, step: 0.1 } // Added phase control
+                    phase: { min: 0, max: 2 * Math.PI, default: 0, step: 0.1 }
                 },
                 pendulum2: {
-                    length: { min: 50, max: 300, default: 210, step: 5 }, // Expanded range
-                    amplitude: { min: 0.1, max: 1.5, default: 1.0, step: 0.1 }, // Expanded range
-                    damping: { min: 0.0, max: 0.05, default: 0.001, step: 0.001 }, // Added subtle default damping
+                    length: { min: 50, max: 300, default: 210, step: 5 },
+                    amplitude: { min: 0.1, max: 1.5, default: 1.0, step: 0.1 },
+                    damping: { min: 0.0, max: 0.05, default: 0.001, step: 0.001 },
                     frequency: 2,
-                    phase: { min: 0, max: 2 * Math.PI, default: Math.PI / 2, step: 0.1 } // Added phase control
+                    phase: { min: 0, max: 2 * Math.PI, default: Math.PI / 2, step: 0.1 }
                 },
                 pendulum3: {
-                    length: { min: 40, max: 60, default: 50, step: 5 } // Expanded range
+                    length: { min: 40, max: 60, default: 50, step: 5 }
                 },
-                // Configuration for the new fourth pendulum
                 pendulum4: {
                     length: { min: 40, max: 60, default: 50, step: 5 }
                 }
@@ -73,31 +133,66 @@
             let path = [];
             const pendulums = [];
 
+            // Pendulum colors
+            const COLORS = {
+                pendulum1: { stroke: [0, 100, 255], fill: [0, 100, 255] },    // Blue for X
+                pendulum2: { stroke: [0, 180, 0], fill: [0, 180, 0] },       // Green for Y
+                pendulum3: { stroke: [255, 140, 0], fill: [255, 140, 0] },   // Orange for Rotational 1
+                pendulum4: { stroke: [220, 50, 50], fill: [220, 50, 50] }    // Red for Drawing Pen
+            };
+
             // --- Slider Arrays ---
             const lengthSliders = [];
             const amplitudeSliders = [];
             const dampingSliders = [];
-            const phaseSliders = []; // Sliders for phase control
+            const phaseSliders = [];
+
+            // Connection visualization
+            let showConnections = true;
 
             function createControlPanel() {
                 const controlsDiv = document.querySelector('#controls');
 
+                // Add title
+                const title = document.createElement('h2');
+                title.className = 'text-white text-xl font-bold w-full text-center mb-2';
+                title.textContent = 'Pendulum Controls';
+                controlsDiv.appendChild(title);
+
+
                 for (let i = 0; i < 4; i++) {
                     const pendulumControls = document.createElement('div');
                     let label = '';
-                    if (i === 0) label = 'X-Axis';
-                    else if (i === 1) label = 'Y-Axis';
-                    else if (i === 2) label = 'Rotational 1';
-                    else label = 'Rotational 2';
+                    let colorClass = '';
 
-                    pendulumControls.className = 'flex flex-col gap-2 w-full';
-                    let innerHTML = `<h3 class="text-white text-lg font-bold mb-2">Pendulum ${i + 1} (${label})</h3>`;
+                    if (i === 0) {
+                        label = 'X-Axis';
+                        colorClass = 'border-blue-500';
+                    }
+                    else if (i === 1) {
+                        label = 'Y-Axis';
+                        colorClass = 'border-green-500';
+                    }
+                    else if (i === 2) {
+                        label = 'Rotational 1';
+                        colorClass = 'border-orange-400';
+                    }
+                    else {
+                        label = 'Drawing Pen';
+                        colorClass = 'border-red-600';
+                    }
+
+                    pendulumControls.className = `flex flex-col gap-2 w-full border-l-4 ${colorClass} pl-2 mb-1`;
+                    let innerHTML = `<h3 class="text-white text-md font-bold mb-1">Pendulum ${i + 1}: ${label}</h3>`;
 
                     // Length Slider (for all pendulums)
                     innerHTML += `
                         <div class="slider-group">
                             <div class="flex justify-between w-full mb-1">
-                                <span class="text-white text-sm">Length</span>
+                                <span class="text-white text-sm tooltip">
+                                    Length
+                                    <span class="tooltiptext">${i < 2 ? 'Controls how far the pendulum swings' : 'Adjusts the length of the rod'}</span>
+                                </span>
                                 <span id="p${i}-length-value" class="text-white text-sm"></span>
                             </div>
                             <div id="p${i}-length" class="slider-container"></div>
@@ -108,21 +203,30 @@
                         innerHTML += `
                             <div class="slider-group">
                                 <div class="flex justify-between w-full mb-1">
-                                    <span class="text-white text-sm">Amplitude</span>
+                                    <span class="text-white text-sm tooltip">
+                                        Amplitude
+                                        <span class="tooltiptext">Controls how wide the pendulum swings</span>
+                                    </span>
                                     <span id="p${i}-amp-value" class="text-white text-sm"></span>
                                 </div>
                                 <div id="p${i}-amp" class="slider-container"></div>
                             </div>
                             <div class="slider-group">
                                 <div class="flex justify-between w-full mb-1">
-                                    <span class="text-white text-sm">Damping</span>
+                                    <span class="text-white text-sm tooltip">
+                                        Damping
+                                        <span class="tooltiptext">Controls how quickly the pendulum slows down</span>
+                                    </span>
                                     <span id="p${i}-damp-value" class="text-white text-sm"></span>
                                 </div>
                                 <div id="p${i}-damp" class="slider-container"></div>
                             </div>
                             <div class="slider-group">
                                 <div class="flex justify-between w-full mb-1">
-                                    <span class="text-white text-sm">Phase</span>
+                                    <span class="text-white text-sm tooltip">
+                                        Phase
+                                        <span class="tooltiptext">Shifts the starting position of the pendulum</span>
+                                    </span>
                                     <span id="p${i}-phase-value" class="text-white text-sm"></span>
                                 </div>
                                 <div id="p${i}-phase" class="slider-container"></div>
@@ -136,34 +240,48 @@
 
             // --- Pendulum Class for driving pendulums (X and Y) ---
             class Pendulum {
-                constructor(pivot, defaults) {
+                constructor(pivot, defaults, isHorizontal = false) {
                     this.pivot = pivot.copy();
                     this.f = defaults.f; // Frequency
                     this.a = defaults.a; // Amplitude
                     this.l = defaults.l; // Length
                     this.d = defaults.d; // Damping
                     this.p = defaults.p; // Phase
+                    this.isHorizontal = isHorizontal; // Whether this is a horizontal pendulum
                     this.bob = this.getBobPosition(0);
                 }
 
                 getBobPosition(time) {
                     const angle = this.a * Math.sin(this.f * time + this.p) * Math.exp(-this.d * time);
-                    const x = this.pivot.x + this.l * Math.sin(angle);
-                    const y = this.pivot.y + this.l * Math.cos(angle);
-                    return p.createVector(x, y);
+
+                    if (this.isHorizontal) {
+                        // For horizontal pendulum, swing left-right
+                        const x = this.pivot.x + this.l * Math.cos(angle);
+                        const y = this.pivot.y;
+                        return p.createVector(x, y);
+                    } else {
+                        // For vertical pendulum, swing up-down
+                        const x = this.pivot.x;
+                        const y = this.pivot.y + this.l * Math.cos(angle);
+                        return p.createVector(x, y);
+                    }
                 }
 
                 update(time) {
                     this.bob = this.getBobPosition(time);
                 }
 
-                draw() {
-                    p.stroke(200, 0, 150);
-                    p.strokeWeight(1);
+                draw(color) {
+                    p.stroke(color.stroke);
+                    p.strokeWeight(2);
                     p.line(this.pivot.x, this.pivot.y, this.bob.x, this.bob.y);
-                    p.fill(200, 0, 150);
+                    p.fill(color.fill);
                     p.noStroke();
-                    p.ellipse(this.bob.x, this.bob.y, 20, 20);
+                    p.ellipse(this.bob.x, this.bob.y, 15, 15);
+
+                    // Draw pivot
+                    p.fill(100);
+                    p.ellipse(this.pivot.x, this.pivot.y, 8, 8);
                 }
             }
 
@@ -194,19 +312,17 @@
                     this.bob.add(toBob);
                 }
 
-                draw(isPen = false) {
-                    p.stroke(0);
-                    p.strokeWeight(isPen ? 2 : 1);
+                draw(color, isPen = false) {
+                    p.stroke(color.stroke);
+                    p.strokeWeight(isPen ? 3 : 2);
                     p.line(this.pivot.x, this.pivot.y, this.bob.x, this.bob.y);
 
-                    p.fill(isPen ? 255 : 0);
-                    p.stroke(0);
-                    p.strokeWeight(1);
+                    p.fill(color.fill);
+                    p.noStroke();
                     p.ellipse(this.bob.x, this.bob.y, isPen ? 20 : 15);
 
-                    p.fill(100);
-                    p.noStroke();
-                    p.ellipse(this.pivot.x, this.pivot.y, 10);
+                    // Don't draw pivot point for rotational pendulums to avoid visual clutter
+                    // Their pivot points are the bobs of other pendulums
                 }
             }
 
@@ -231,14 +347,32 @@
                     }
                 }
 
-                // Create pendulums
-                pendulums.push(new Pendulum(p.createVector(p.width * 0.45, 10), { ...SLIDER_CONFIG.pendulum1, f: SLIDER_CONFIG.pendulum1.frequency, a: SLIDER_CONFIG.pendulum1.amplitude.default, l: SLIDER_CONFIG.pendulum1.length.default, d: SLIDER_CONFIG.pendulum1.damping.default, p: SLIDER_CONFIG.pendulum1.phase.default }));
-                pendulums.push(new Pendulum(p.createVector(p.width * 0.15, 250), { ...SLIDER_CONFIG.pendulum2, f: SLIDER_CONFIG.pendulum2.frequency, a: SLIDER_CONFIG.pendulum2.amplitude.default, l: SLIDER_CONFIG.pendulum2.length.default, d: SLIDER_CONFIG.pendulum2.damping.default, p: SLIDER_CONFIG.pendulum2.phase.default }));
+                // Create pendulums - X pendulum is now horizontal
+                pendulums.push(new Pendulum(p.createVector(p.width * 0.2, 100), {
+                    ...SLIDER_CONFIG.pendulum1,
+                    f: SLIDER_CONFIG.pendulum1.frequency,
+                    a: SLIDER_CONFIG.pendulum1.amplitude.default,
+                    l: SLIDER_CONFIG.pendulum1.length.default,
+                    d: SLIDER_CONFIG.pendulum1.damping.default,
+                    p: SLIDER_CONFIG.pendulum1.phase.default
+                }, true)); // True makes this a horizontal pendulum
+
+                pendulums.push(new Pendulum(p.createVector(p.width * 0.6, 120), {
+                    ...SLIDER_CONFIG.pendulum2,
+                    f: SLIDER_CONFIG.pendulum2.frequency,
+                    a: SLIDER_CONFIG.pendulum2.amplitude.default,
+                    l: SLIDER_CONFIG.pendulum2.length.default,
+                    d: SLIDER_CONFIG.pendulum2.damping.default,
+                    p: SLIDER_CONFIG.pendulum2.phase.default
+                }));
+
                 pendulums.push(new RotationalPendulum(p.createVector(0, 0), { l: SLIDER_CONFIG.pendulum3.length.default }));
-                pendulums.push(new RotationalPendulum(p.createVector(0, 0), { l: SLIDER_CONFIG.pendulum4.length.default })); // The new pendulum
+                pendulums.push(new RotationalPendulum(p.createVector(0, 0), { l: SLIDER_CONFIG.pendulum4.length.default }));
 
                 resetDrawing();
+
             };
+
 
             function resetDrawing() {
                 t = 0;
@@ -297,33 +431,53 @@
                 }
                 p.endShape();
 
-                // Update and draw the visible pendulums
+                // Draw the visible pendulums
                 drawVisiblePendulums();
 
                 t += 0.05;
             };
 
             function drawVisiblePendulums() {
-                // Update and draw Pendulums 1 & 2
+                // Update and draw Pendulums 1 & 2 (X & Y)
                 pendulums[0].update(t);
-                pendulums[0].draw();
+                pendulums[0].draw(COLORS.pendulum1);
                 pendulums[1].update(t);
-                pendulums[1].draw();
+                pendulums[1].draw(COLORS.pendulum2);
 
                 // The pivot for the first rotational pendulum is driven by the first two
                 const dynamicPivot = p.createVector(pendulums[0].bob.x, pendulums[1].bob.y);
-                p.fill(150);
+
+                // Draw connection point between X and Y (the dynamic pivot)
+                p.fill(120);
                 p.noStroke();
-                p.ellipse(dynamicPivot.x, dynamicPivot.y, 10, 10); // Draw the pivot
+                p.ellipse(dynamicPivot.x, dynamicPivot.y, 12, 12);
+
+                // Draw connection lines if enabled
+                if (showConnections) {
+                    // Draw connection between X and Y pendulums
+                    p.stroke(0, 0, 0, 100);
+                    p.strokeWeight(1);
+                    p.line(pendulums[0].bob.x, pendulums[0].bob.y, pendulums[0].bob.x, pendulums[1].bob.y);
+                    p.line(pendulums[1].bob.x, pendulums[1].bob.y, pendulums[0].bob.x, pendulums[1].bob.y);
+
+                    // Draw "rails" for X and Y pendulums to make their function clearer
+                    p.stroke(0, 100, 255, 50);
+                    p.strokeWeight(1);
+                    p.line(pendulums[0].pivot.x - 300, pendulums[0].pivot.y, pendulums[0].pivot.x + 300, pendulums[0].pivot.y);
+
+                    p.stroke(0, 180, 0, 50);
+                    p.strokeWeight(1);
+                    p.line(pendulums[1].pivot.x, pendulums[1].pivot.y - 300, pendulums[1].pivot.x, pendulums[1].pivot.y + 300);
+                }
 
                 // Update and draw Pendulum 3
                 pendulums[2].update(dynamicPivot);
-                pendulums[2].draw();
+                pendulums[2].draw(COLORS.pendulum3);
 
                 // Update and draw Pendulum 4 (The Pen)
                 // Its pivot is the bob of Pendulum 3
                 pendulums[3].update(pendulums[2].bob);
-                pendulums[3].draw(true); // 'true' indicates this is the final pen
+                pendulums[3].draw(COLORS.pendulum4, true); // 'true' indicates this is the final pen
 
                 const penTip = pendulums[3].bob;
                 path.push({ x: penTip.x, y: penTip.y });
