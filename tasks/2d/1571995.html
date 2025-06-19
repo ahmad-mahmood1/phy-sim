@@ -94,13 +94,13 @@
                     <div>
                         <label for="velocity" class="block text-sm font-medium text-gray-700">Initial Velocity (<span
                                 id="velocity-value">85</span> mph)</label>
-                        <input type="range" id="velocity" min="50" max="100" value="85" step="1" class="w-full mt-2">
+                        <input type="range" id="velocity" min="50" max="120" value="85" step="1" class="w-full mt-2">
                     </div>
                     <!-- Spin Rate Slider -->
                     <div>
                         <label for="spin" class="block text-sm font-medium text-gray-700">Top Spin Rate (<span
-                                id="spin-value">2000</span> rpm)</label>
-                        <input type="range" id="spin" min="0" max="1000" value="2000" step="50" class="w-full mt-2">
+                                id="spin-value">400</span> rpm)</label>
+                        <input type="range" id="spin" min="0" max="850" value="400" step="50" class="w-full mt-2">
                     </div>
                     <!-- Launch Angle Slider -->
                     <div>
@@ -139,15 +139,16 @@
             let isPitching = false;
             let isThrowBall = false;
             let pitchResult = ""; // "Hit!", "Miss!", ""
+            let noiseSeed; // For generating a consistent "random" treeline
 
             // --- Physics & World Constants ---
-            // These constants are tuned for a visually appealing simulation in a pixel environment.
-            const gravity = new p5.Vector(0, 0.25); // Force of gravity pulling the ball down
-            const airDensity = 0.01; // Simplified air density for drag calculation
-            const magnusScalar = 0.000045; // Coefficient for the Magnus effect
+            const gravity = new p5.Vector(0, 0.028); // Scaled down force of gravity
+            const airDensity = 0.0011; // Scaled down air density for drag
+            const magnusScalar = 0.00001; // Scaled down coefficient for Magnus effect
 
-            const pitcherPos = new p5.Vector(50, 250); // Starting position of the pitch
-            const glove = { x: 680, y: 350, w: 50, h: 50 }; // Catcher's glove target
+            // Adjusted starting positions
+            const pitcherPos = new p5.Vector(50, 350); // Starting position of the pitch (Y is updated in setup)
+            const glove = { x: 680, y: 300, w: 50, h: 50 }; // Catcher's glove target (Y is updated in setup)
 
             // ========================================================================
             // BALL CLASS
@@ -161,102 +162,86 @@
                     this.radius = 10;
                     this.mass = 1;
                     this.spin = spin; // Spin in RPM
-
-                    // For visual rotation
                     this.angle = 0;
-                    // Convert RPM to radians per second for physics, then per frame in update
-                    this.spinRate = (this.spin / 60) * p.TWO_PI;
+                    // Convert RPM to angular velocity for rotation animation
+                    this.spinRate = (this.spin / 100) * p.TWO_PI;
                 }
 
-                // applyForce adds a force vector to the acceleration
+                // Apply a force vector to the ball's acceleration
                 applyForce(force) {
-                    // Newton's 2nd Law: F = m * a  =>  a = F / m
                     let f = p5.Vector.div(force, this.mass);
                     this.acc.add(f);
                 }
 
-                // calculateAndApplyForces determines all forces acting on the ball
+                // Calculate and apply all relevant physical forces for this frame
                 calculateAndApplyForces() {
-                    // 1. Gravity
+                    // Gravity
                     this.applyForce(gravity);
-
-                    // 2. Air Drag Force
-                    // Drag is opposite to velocity and proportional to velocity squared.
+                    
+                    // Air Drag
                     let dragForce = this.vel.copy();
                     let speed = dragForce.mag();
                     dragForce.normalize();
-                    dragForce.mult(-1 * airDensity * speed);
+                    dragForce.mult(-1 * airDensity * speed * speed);
                     this.applyForce(dragForce);
-
-                    // 3. Magnus Force (The "Curve" in Curveball)
-                    // This force is perpendicular to both the velocity and the spin axis.
-                    // For a 2D side view with topspin, this results in a downward force.
-                    // F_magnus is proportional to (spin x velocity).
-                    // The vector (-vel.y, vel.x) is perpendicular to velocity and points down-right for a typical pitch.
+                    
+                    // Magnus Force (from spin)
                     let magnusForce = new p5.Vector(-this.vel.y, this.vel.x);
                     magnusForce.mult(this.spin * magnusScalar);
                     this.applyForce(magnusForce);
                 }
 
-                // update physics state for each frame
+                // Update the ball's position and state each frame
                 update() {
                     if (!isPitching) return;
 
-                    // Reset acceleration before recalculating forces
+                    // Reset acceleration before applying new forces
                     this.acc.mult(0);
-
                     this.calculateAndApplyForces();
 
-                    // Update velocity and position
+                    // Update velocity and position based on acceleration (Euler integration)
                     this.vel.add(this.acc);
                     this.pos.add(this.vel);
-
-                    // Update visual rotation angle based on spin rate
-                    // Divide by frameRate to make rotation speed independent of hardware
-                    this.angle += this.spinRate / p.frameRate();
-
-                    // Record the new position for drawing the trajectory
+                    
+                    // Update visual rotation based on spin
+                    this.angle += (this.spinRate / p.frameRate());
+                    
+                    // Record current position for drawing the trajectory line
                     trajectory.push(this.pos.copy());
                 }
 
-                // display the ball on the canvas
+                // Draw the ball on the canvas
                 display() {
-                    if(isThrowBall) {
-                        p.push(); // Start a new drawing state
-                        p.translate(this.pos.x, this.pos.y); // Move origin to ball's position
-                        p.rotate(this.angle); // Rotate by the current angle
-
-                        // Draw the ball and seams relative to the new (0,0) origin
+                    if (isThrowBall) {
+                        p.push();
+                        p.translate(this.pos.x, this.pos.y);
+                        p.rotate(this.angle);
                         p.noStroke();
                         p.fill(255, 255, 255);
                         p.ellipse(0, 0, this.radius * 2, this.radius * 2);
-
+                        // Draw red stitches for visual effect
                         p.stroke(255, 0, 0);
                         p.strokeWeight(1.5);
                         p.noFill();
                         p.arc(0, 0, this.radius * 1.8, this.radius * 1.8, p.PI * 0.2, p.PI * 0.8);
+                        p.arc(0, 0, this.radius * 1.8, this.radius * 1.8, p.PI * 1.2, p.PI * 1.8);
+                        p.pop();
                     }
-
-                    // Simple seam representation
-                    p.arc(0, 0, this.radius * 1.8, this.radius * 1.8, p.PI * 1.2, p.PI * 1.8);
-
-                    p.pop(); // Restore original drawing state
                 }
             }
 
             // ========================================================================
-            // P5.JS SETUP FUNCTION
-            // Runs once when the sketch is created.
+            // P5.JS SETUP FUNCTION - Runs once at the start
             // ========================================================================
             p.setup = () => {
                 canvasContainer = document.getElementById('canvas-container');
                 const canvasWidth = canvasContainer.offsetWidth;
-                const canvasHeight = Math.min(canvasWidth * 0.6, 500); // Maintain aspect ratio
-
+                const canvasHeight = Math.min(canvasWidth * 0.6, 500);
                 let canvas = p.createCanvas(canvasWidth, canvasHeight);
                 canvas.parent('canvas-container');
+                noiseSeed = p.random(1000); // For consistent treeline generation
 
-                // --- Connect to HTML controls ---
+                // Get DOM elements for controls
                 velocitySlider = document.getElementById('velocity');
                 spinSlider = document.getElementById('spin');
                 angleSlider = document.getElementById('angle');
@@ -265,34 +250,32 @@
                 angleValue = document.getElementById('angle-value');
                 pitchButton = document.getElementById('pitch-button');
 
-                // --- Add Event Listeners ---
+                // Helper to set up event listeners for sliders
                 const setupListener = (slider, valueEl) => {
                     slider.addEventListener('input', () => {
                         valueEl.textContent = slider.value;
-                        throwPitch();
+                        throwPitch(); // Re-throw with new parameters
                     });
                 };
                 setupListener(velocitySlider, velocityValue);
                 setupListener(spinSlider, spinValue);
                 setupListener(angleSlider, angleValue);
+                
+                // Set up the main pitch button
                 pitchButton.addEventListener('click', () => throwPitch(true));
 
-                // Adjust positions based on canvas size
-                pitcherPos.y = p.height / 2;
+                // --- UPDATE PITCHER AND GLOVE POSITIONS ---
+                pitcherPos.y = p.height * 0.85; // Lower on the screen
                 glove.x = p.width - 80;
-                glove.y = p.height * 0.6;
-
-                // Start with an initial pitch
-                throwPitch();
+                glove.y = p.height * 0.75; // Higher on the screen
+                
+                throwPitch(); // Initial throw to draw the trajectory line
             };
 
             // ========================================================================
-            // P5.JS DRAW FUNCTION
-            // Runs continuously in a loop, redrawing the canvas each frame.
+            // P5.JS DRAW FUNCTION - Runs continuously in a loop
             // ========================================================================
             p.draw = () => {
-                p.background('#e0f2fe'); // A light sky-blue background
-
                 drawField();
                 drawTrajectory();
 
@@ -310,19 +293,50 @@
             // --- Drawing Helper Functions ---
 
             function drawField() {
-                // Draw a patch of grass around the mound instead of the whole bottom
-                p.noStroke();
-                p.fill(134, 184, 114); // A nice green color for grass
-                // An ellipse for the grassy area.
-                p.ellipse(pitcherPos.x, pitcherPos.y + 40, 250, 60);
+                // Define a fixed horizon line for the background visuals, independent of player positions
+                const horizonY = p.height * 0.6; 
 
-                // Draw Pitcher's mound on top of the grass
+                // 1. Sky Gradient
+                let c1 = p.color('#e0f2fe'); // Light sky blue
+                let c2 = p.color('#a5d8ff'); // Deeper sky blue
+                for (let i = 0; i < horizonY; i++) {
+                    let inter = p.map(i, 0, horizonY, 0, 1);
+                    let c = p.lerpColor(c1, c2, inter);
+                    p.stroke(c);
+                    p.line(0, i, p.width, i);
+                }
+                p.noStroke();
+
+                // 2. Distant Treeline using Perlin Noise
+                p.fill(34, 87, 34, 180); // Dark, semi-transparent green
+                p.beginShape();
+                p.vertex(0, horizonY);
+                p.noiseSeed(noiseSeed);
+                for (let x = 0; x <= p.width; x += 10) {
+                    let noiseVal = p.noise(x * 0.05);
+                    let y = p.map(noiseVal, 0, 1, horizonY - 40, horizonY);
+                    p.vertex(x, y);
+                }
+                p.vertex(p.width, horizonY);
+                p.endShape(p.CLOSE);
+
+                // 3. Outfield Grass
+                p.fill(107, 163, 85); // Field green
+                p.rect(0, horizonY, p.width, p.height - horizonY);
+
+                // 4. Infield Dirt Arc (for perspective)
                 p.fill(210, 180, 140); // Sandy clay color
-                p.noStroke();
-                // Use an arc to create a small, curved hill shape
-                p.arc(pitcherPos.x, pitcherPos.y + 25, 150, 50, p.PI, p.TWO_PI);
+                p.arc(p.width / 2, p.height + 150, p.width * 2, p.height * 1.5, p.PI, p.TWO_PI);
 
-                // --- Draw Glove based on reference image, scaled to original box size ---
+                // 5. Home plate dirt circle (below the floating glove)
+                p.fill(200, 170, 130);
+                p.ellipse(glove.x, glove.y + 45, 120, 30);
+
+                // 6. Pitcher's Mound (drawn relative to the pitcher's actual y-position)
+                p.fill(118, 179, 95); // A slightly lighter, manicured grass green
+                p.arc(pitcherPos.x, pitcherPos.y + 20, 150, 50, p.PI, p.TWO_PI);
+
+                // --- Draw Catcher's Glove ---
                 p.push();
                 p.translate(glove.x, glove.y);
 
@@ -330,14 +344,12 @@
                 const h = glove.h;
                 const leatherColor = p.color(139, 92, 53);
                 const darkLeatherColor = p.color(74, 43, 23);
-
                 p.strokeJoin(p.ROUND);
-
-                // Main glove shape
                 p.fill(leatherColor);
                 p.stroke(darkLeatherColor);
-                p.strokeWeight(w * 0.08); // Scaled stroke weight
+                p.strokeWeight(w * 0.08);
 
+                // Main glove body
                 p.beginShape();
                 p.vertex(w * -0.05, h * 0.5);
                 p.bezierVertex(w * 0.1, -h * 0.2, w * 0.1, -h * 0.4, w * 0.3, -h * 0.45);
@@ -348,7 +360,7 @@
                 p.vertex(w * -0.05, h * 0.5);
                 p.endShape(p.CLOSE);
 
-                // Thumb Piece
+                // Thumb part of the glove
                 p.beginShape();
                 p.vertex(w * -0.05, h * 0.5);
                 p.bezierVertex(w * -0.2, h * 0.4, w * -0.5, h * 0.3, w * -0.5, 0);
@@ -356,14 +368,13 @@
                 p.bezierVertex(w * 0.0, h * 0.05, w * -0.05, h * 0.2, w * -0.05, h * 0.5);
                 p.endShape(p.CLOSE);
 
-                // Webbing straps
+                // Stitching details
                 p.noFill();
                 p.stroke(darkLeatherColor);
                 p.strokeWeight(w * 0.12);
                 p.line(w * -0.1, -h * 0.1, w * 0.25, -h * 0.15);
                 p.line(w * -0.05, -h * 0.2, w * 0.2, -h * 0.25);
 
-                // Stitches
                 p.strokeWeight(w * 0.1);
                 p.strokeCap(p.ROUND);
                 p.line(w * 0.35, -h * 0.2, w * 0.45, -h * 0.3);
@@ -372,13 +383,13 @@
                 p.line(w * 0.55, -h * 0.25, w * 0.65, -h * 0.15);
 
                 p.pop();
-
             }
 
             function drawTrajectory() {
                 p.noFill();
                 p.strokeWeight(3);
-                p.stroke(0, 0, 0, 50); // Semi-transparent black
+                // Draw a semi-transparent black line for the trajectory
+                p.stroke(0, 0, 0, 50);
                 p.beginShape();
                 for (let point of trajectory) {
                     p.vertex(point.x, point.y);
@@ -391,11 +402,11 @@
                     p.textAlign(p.CENTER, p.CENTER);
                     p.textSize(48);
                     p.strokeWeight(5);
-                    p.stroke(255);
+                    p.stroke(255); // White outline for better visibility
                     if (pitchResult === "Hit!") {
-                        p.fill(34, 197, 94); // Green
+                        p.fill(34, 197, 94); // Green for hit
                     } else {
-                        p.fill(239, 68, 68); // Red
+                        p.fill(239, 68, 68); // Red for miss
                     }
                     p.text(pitchResult, p.width / 2, p.height / 2);
                 }
@@ -403,69 +414,70 @@
 
             // --- Core Logic Functions ---
 
+            // Reset and start a new pitch simulation
             function throwPitch(throwBall = false) {
                 isPitching = true;
                 pitchResult = "";
                 trajectory = [];
-                isThrowBall = throwBall;
-
+                isThrowBall = throwBall; // Determines if we show the ball and result text
+                
                 // Get values from sliders
                 const initialVelocity = parseFloat(velocitySlider.value);
                 const spin = parseFloat(spinSlider.value);
                 const angle = parseFloat(angleSlider.value);
-
-                // Convert angle to radians and create velocity vector
-                // Velocity is scaled for the simulation view
-                let vel = p5.Vector.fromAngle(p.radians(angle), initialVelocity * 0.7);
-                vel.y *= -1; // In p5, y-axis is inverted
-
-                // Create a new ball instance
+                
+                // Create the velocity vector from angle and magnitude (scaled for simulation)
+                let vel = p5.Vector.fromAngle(p.radians(angle), initialVelocity * 0.23);
+                vel.y *= -1; // Invert Y because p5's y-axis is inverted
+                
                 let startPos = pitcherPos.copy();
                 ball = new Ball(startPos, vel, spin);
-                trajectory.push(startPos);
+                trajectory.push(startPos); // Start trajectory from pitcher's position
             }
 
+            // Check if the pitch has landed in the glove or gone off-screen
             function checkPitchLanded() {
-                // Stop the simulation if the ball goes off-screen
+                // Stop simulation if ball goes off-screen
                 if (ball.pos.x > p.width || ball.pos.y > p.height || ball.pos.x < 0) {
                     isPitching = false;
                     if (isThrowBall && !pitchResult) pitchResult = "Miss!";
                     return;
                 }
 
-                // Use p5.Vector.dist to check if the ball is close enough to the glove center
-                let gloveCenter = p.createVector(glove.x + 10, glove.y - 10);
+                let gloveCenter = p.createVector(glove.x, glove.y);
                 let ballCenter = ball.pos.copy();
                 let gloveRadius = glove.h / 2;
                 let ballRadius = ball.radius;
+
+                // Check for collision using distance between centers
                 if (p5.Vector.dist(ballCenter, gloveCenter) < gloveRadius + ballRadius) {
                     isPitching = false;
-                    pitchResult = isThrowBall ? "Hit!" : "";
+                    if (isThrowBall) pitchResult = "Hit!";
                     return
-                } else if (ball.pos.x >= glove.x + glove.w) {
+                } else if (ball.pos.x >= glove.x + glove.w / 2) {
+                    // If ball passes the glove without hitting it
                     isPitching = false;
-                    pitchResult = isThrowBall ? "Miss!" : "";
+                    if (isThrowBall) pitchResult = "Miss!";
                 }
             }
 
-            // Make the canvas responsive to window resizing
+            // Handles responsive canvas resizing
             p.windowResized = () => {
                 const canvasWidth = canvasContainer.offsetWidth;
                 const canvasHeight = Math.min(canvasWidth * 0.6, 500);
                 p.resizeCanvas(canvasWidth, canvasHeight);
-
-                // Re-calculate positions and throw a new pitch
-                pitcherPos.y = p.height / 2;
+                
+                // --- RE-CALCULATE POSITIONS ON RESIZE ---
+                pitcherPos.y = p.height * 0.75; // Re-apply the lower position
                 glove.x = p.width - 80;
-                glove.y = p.height * 0.6;
-                throwPitch();
-            };
+                glove.y = p.height * 0.6;   // Re-apply the higher position
 
+                throwPitch(); // Redraw everything with the new dimensions
+            };
         };
 
         // Create the p5 instance and attach it to the container div
         new p5(sketch, 'canvas-container');
-
     </script>
 
 </body>
