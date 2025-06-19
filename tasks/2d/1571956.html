@@ -19,6 +19,7 @@
             background-color: #ffffff;
             font-family: 'Roboto Mono', monospace;
             color: #333;
+            overflow: hidden; /* Prevent scrollbars */
         }
 
         h1 {
@@ -33,6 +34,7 @@
             box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
             /* Prevent canvas from creating scrollbars */
             line-height: 0;
+            cursor: pointer; /* Indicate it's clickable */
         }
 
         #game-info {
@@ -62,7 +64,8 @@
     <div id="canvas-container"></div>
 
     <div id="game-info">
-        <p>Use the <strong>Left &amp; Right Arrow Keys</strong> to steer the bubble.</p>
+        <p><strong>Click</strong> at the bottom of the ocean to release a bubble.</p>
+        <p>Use the <strong>Left &amp; Right Arrow Keys</strong> to steer.</p>
         <p>Your goal is to score as much as possible by passing through the seaweed rings.</p>
         <p>Watch out! The game resets if your bubble <strong>collides with a thorn</strong>.</p>
         <p>The amount of lines within a zone presents its density. Higher the density harder it is to control the bubble.</p>
@@ -84,16 +87,16 @@
             const BUBBLE_MAX_SPEED = 5;
             const BUBBLE_LIFESPAN = 255;
 
-            let bubble; // A single bubble instead of an array
+            // Game state variables
+            let bubble = null; // Bubble will be created on click
             let seaweedRings = [];
             let zones = [];
             let thorns = [];
             let popParticles = [];
-            let ventParticles = []; // Particles for the ocean vent
+            let ventParticles = [];
             let score = 0;
-            let time = 0; // A time variable for seaweed animation
-
-            let bubbleCollidedWithThorn = false;
+            let time = 0;
+            let gameState = 'waiting'; // 'waiting' or 'playing'
 
             // Colors for the ocean gradient
             let topColor;
@@ -114,22 +117,22 @@
                     this.maxSpeed = BUBBLE_MAX_SPEED;
                 }
 
-                // Applies a force (like a current or player input) to the bubble
+                // Applies a force to the bubble
                 applyForce(force) {
                     this.acceleration.add(force);
                 }
 
-                // Updates the bubble's position based on forces
+                // Updates the bubble's position
                 update() {
                     this.applyForce(p.createVector(0, -0.35)); // Constant upward buoyancy
                     this.velocity.add(this.acceleration);
                     this.velocity.limit(this.maxSpeed);
                     this.position.add(this.velocity);
-                    this.acceleration.mult(0); // Reset acceleration
+                    this.acceleration.mult(0);
                     this.lifespan -= 0.5;
                 }
 
-                // Draws the bubble on the canvas
+                // Draws the bubble
                 display() {
                     p.noStroke();
                     p.fill(200, 225, 255, this.lifespan * 0.5);
@@ -152,12 +155,12 @@
                     this.position = p.createVector(x, y);
                     this.velocity = p.createVector(p.random(-1.5, 1.5), p.random(-1, -3.5));
                     this.radius = p.random(2, 6);
-                    this.lifespan = 255; // Controls the fade out
+                    this.lifespan = 255;
                 }
 
                 update() {
                     this.position.add(this.velocity);
-                    this.lifespan -= 6; // Fades out quickly
+                    this.lifespan -= 6;
                 }
 
                 display() {
@@ -177,7 +180,6 @@
             class VentParticle {
                  constructor(x, y) {
                     this.position = p.createVector(x, y);
-                    // Slower, more erratic upward movement
                     this.velocity = p.createVector(p.random(-0.3, 0.3), p.random(-0.5, -1.5));
                     this.radius = p.random(3, 8);
                     this.lifespan = 255;
@@ -185,12 +187,11 @@
 
                 update() {
                     this.position.add(this.velocity);
-                    this.lifespan -= 3; // Fade out slowly
+                    this.lifespan -= 3;
                 }
 
                 display() {
                     p.noStroke();
-                    // Dark, semi-transparent color for a smoky look
                     p.fill(50, 50, 50, this.lifespan * 0.5);
                     p.ellipse(this.position.x, this.position.y, this.radius * 2);
                 }
@@ -202,22 +203,22 @@
 
 
             /**
-             * The SeaweedRing class manages the rings that grant points.
+             * The SeaweedRing class now draws a more realistic, animated seaweed shape.
              */
             class SeaweedRing {
                 constructor() {
                     const x = p.random(p.width * 0.1, p.width * 0.9);
                     const y = p.random(p.height * 0.15, p.height * 0.7);
                     this.position = p.createVector(x, y);
-                    this.radius = p.random(40, 70);
+                    this.radius = p.random(45, 70);
                     this.scored = false;
-                    this.color = p.color(30, 150, 90, 200);
-                    this.scoredColor = p.color(255, 215, 0, 150);
-                    this.noiseOffset = p.random(1000);
+                    this.color = p.color(46, 139, 87, 200); // Seaweed green
+                    this.scoredColor = p.color(255, 215, 0, 200);
+                    this.noiseOffset = p.random(1000); // For animation
                 }
 
                 checkCollision(b) {
-                    if (this.scored) return false;
+                    if (this.scored || !b) return false;
                     const distance = p.dist(this.position.x, this.position.y, b.position.x, b.position.y);
                     if (distance < this.radius) {
                         this.scored = true;
@@ -231,22 +232,74 @@
                     p.push();
                     p.translate(this.position.x, this.position.y);
                     const c = this.scored ? this.scoredColor : this.color;
-                    p.stroke(c);
-                    p.strokeWeight(5);
-                    p.noFill();
+                    
+                    const ringThickness = 10;
+                    p.fill(c);
+                    p.noStroke();
+
+                    // Slower animation speed for the main ring
+                    const animSpeed = time * 0.08;
+
+                    // Draw the main wobbly ring shape using a contour
                     p.beginShape();
-                    for (let angle = 0; angle < p.TWO_PI; angle += 0.2) {
-                        const noiseVal = p.map(p.noise(this.noiseOffset + angle, time * 0.5), 0, 1, -10, 10);
-                        const r = this.radius + noiseVal;
+                    // Outer edge
+                    for (let angle = 0; angle <= p.TWO_PI + 0.5; angle += 0.2) {
+                        const noiseVal = p.map(p.noise(this.noiseOffset + angle, animSpeed), 0, 1, -8, 8);
+                        const r = this.radius + ringThickness / 2 + noiseVal;
                         const x = r * p.cos(angle);
                         const y = r * p.sin(angle);
                         p.vertex(x, y);
                     }
+                    
+                    // Inner edge (the hole)
+                    p.beginContour();
+                    for (let angle = p.TWO_PI; angle >= -0.5; angle -= 0.2) {
+                        // Use a different noise seed for the inner ring to make it look more organic
+                        const noiseVal = p.map(p.noise(this.noiseOffset + 500 + angle, animSpeed), 0, 1, -8, 8);
+                        const r = this.radius - ringThickness / 2 + noiseVal;
+                        const x = r * p.cos(angle);
+                        const y = r * p.sin(angle);
+                        p.vertex(x, y);
+                    }
+                    p.endContour();
                     p.endShape(p.CLOSE);
+
+                    // Add some extra fronds/leaves for more detail
+                    const numFronds = 35;
+                    p.stroke(c);
+                    p.strokeWeight(4);
+                    for(let i=0; i < numFronds; i++){
+                        // Use noise to make frond placement and movement organic
+                        const angle = p.map(i, 0, numFronds, 0, p.TWO_PI) + p.noise(this.noiseOffset + i * 10) * 2;
+                        
+                        // MODIFICATION: Calculate starting radius based on the same noise as the ring's outer edge
+                        // to ensure the fronds start *on* the ring.
+                        const noiseVal = p.map(p.noise(this.noiseOffset + angle, animSpeed), 0, 1, -8, 8);
+                        const r = this.radius + ringThickness / 2 + noiseVal; // Use the wobbly radius
+
+                        const startX = r * p.cos(angle);
+                        const startY = r * p.sin(angle);
+
+                        const frondLength = 10 + p.noise(this.noiseOffset + i * 20) * 10;
+                        // The time multiplier is reduced here to slow down the animation
+                        const endAngle = angle + p.map(p.noise(this.noiseOffset + i * 5, animSpeed), 0, 1, -0.4, 0.4);
+                        const endX = (r + frondLength) * p.cos(endAngle);
+                        const endY = (r + frondLength) * p.sin(endAngle);
+
+                        const ctrlX = (startX + endX) / 2 + p.map(p.noise(this.noiseOffset + i * 3, animSpeed), 0, 1, -25, 25);
+                        const ctrlY = (startY + endY) / 2 + p.map(p.noise(this.noiseOffset + i * 4, animSpeed), 0, 1, -25, 25);
+
+                        p.noFill();
+                        p.beginShape();
+                        p.vertex(startX, startY);
+                        p.quadraticVertex(ctrlX, ctrlY, endX, endY);
+                        p.endShape();
+                    }
                     p.pop();
                 }
 
                 update() {
+                    // This makes the seaweed sway
                     this.noiseOffset += 0.005;
                 }
             }
@@ -288,42 +341,107 @@
                 }
 
                 contains(b) {
+                    if (!b) return false;
                     return (b.position.y > this.y && b.position.y < this.y + this.h);
                 }
             }
 
             /**
-             * The Thorn class defines obstacles.
+             * The Thorn class defines obstacles in the shape of a mace head.
+             * It now includes movement logic.
              */
             class Thorn {
                 constructor(x, y, size) {
-                    this.position = p.createVector(x, y);
+                    this.originalPosition = p.createVector(x, y); // Store the spawn point
+                    this.position = p.createVector(x, y); // This position will be updated
                     this.size = size;
-                    this.color = p.color(80, 40, 20, 220);
+                    this.color = p.color(60, 60, 60, 220);
                     this.angle = p.random(p.TWO_PI);
+                    this.movementOffset = p.random(1000); // Unique offset for movement noise
+                    this.spikeCount = 3;
+                    this.spikeAngles = [];
+                    // Create evenly spaced angles for each spike for a mace-like look
+                    for (let i = 0; i < this.spikeCount; i++) {
+                        this.spikeAngles.push(p.map(i, 0, this.spikeCount, 0, p.TWO_PI));
+                    }
+                }
+                
+                // MODIFIED: Update method to handle thorn movement with water current
+                update() {
+                    let zoneSpeed = 0;
+                    // Find which zone the thorn is in to get the current's speed
+                    for (const zone of zones) {
+                        if (this.originalPosition.y > zone.y && this.originalPosition.y < zone.y + zone.h) {
+                           zoneSpeed = zone.speed;
+                           break; 
+                        }
+                    }
+                    
+                    // The base position now drifts horizontally with the water current.
+                    // A fraction of the zone's speed is applied for a slow, steady drift.
+                    this.originalPosition.x += zoneSpeed * 0.2;
+
+                    // Add wrap-around logic so thorns re-enter from the other side.
+                    if (this.originalPosition.x > p.width + this.size) {
+                        this.originalPosition.x = -this.size;
+                    } else if (this.originalPosition.x < -this.size) {
+                        this.originalPosition.x = p.width + this.size;
+                    }
+
+                    // A secondary, gentle wobble is added using Perlin noise for a more natural feel.
+                    const driftSpeed = 0.4; // How fast the thorn wobbles.
+                    const driftAmount = 6;  // Max pixels to wobble from its path.
+                    
+                    const driftX = p.map(p.noise(this.movementOffset + time * driftSpeed), 0, 1, -driftAmount, driftAmount);
+                    const driftY = p.map(p.noise(this.movementOffset + 500 + time * driftSpeed), 0, 1, -driftAmount, driftAmount);
+
+                    // The final position is the drifted base position plus the wobble.
+                    this.position.x = this.originalPosition.x + driftX;
+                    this.position.y = this.originalPosition.y + driftY;
                 }
 
                 display() {
                     p.push();
                     p.translate(this.position.x, this.position.y);
-                    p.rotate(this.angle);
+                    p.rotate(this.angle + time * 0.5); // Add slow rotation for effect
+
                     p.fill(this.color);
-                    p.noStroke();
-                    const half = this.size / 2;
-                    p.beginShape();
-                    p.vertex(-half, half);
-                    p.vertex(0, -half);
-                    p.vertex(half, half);
-                    p.vertex(0, half * 0.5);
-                    p.endShape(p.CLOSE);
+                    p.stroke(40, 20, 10);
+                    p.strokeWeight(1);
+                    
+                    const s = this.size;
+                    const coreRadius = s * 0.25; // Radius of the central sphere
+                    
+                    // Draw the central sphere
+                    p.ellipse(0, 0, coreRadius * 2);
+
+                    // Draw the emerging spikes
+                    for (let i = 0; i < this.spikeCount; i++) {
+                        p.push();
+                        p.rotate(this.spikeAngles[i]);
+                        
+                        const baseWidth = s * 0.25;
+                        const spikeLength = s * 0.7;
+                        
+                        // A more blocky, mace-like spike
+                        p.beginShape();
+                        p.vertex(coreRadius - 1, -baseWidth / 2); // Inner base point 1
+                        p.vertex(spikeLength, 0);                 // Tip of the spike
+                        p.vertex(coreRadius - 1, baseWidth / 2);  // Inner base point 2
+                        p.endShape(p.CLOSE);
+
+                        p.pop();
+                    }
+
                     p.pop();
                 }
 
                 handleCollision(bubble) {
+                    if (!bubble) return false;
+                    // Collision is based on the outer radius of the spikes
+                    const collisionRadius = this.size * 0.7;
                     const d = p.dist(this.position.x, this.position.y, bubble.position.x, bubble.position.y);
-                    if (d < this.size / 2 + bubble.radius) {
-                        bubbleCollidedWithThorn = true;
-                    }
+                    return d < collisionRadius + bubble.radius;
                 }
             }
 
@@ -331,12 +449,11 @@
             // --- p5.js Core Functions ---
             p.setup = () => {
                 const canvas = p.createCanvas(p.windowWidth * 0.8, p.windowHeight * 0.7);
-                canvas.parent('canvas-container'); // Attach canvas to the container div
+                canvas.parent('canvas-container');
 
                 topColor = p.color(50, 150, 200);
                 bottomColor = p.color(5, 20, 50);
-
-                bubble = new Bubble(p.width / 2, p.height - 50);
+                
                 initSeaweedRingsAndThorns();
 
                 const zoneHeight = p.height / ZONE_COUNT;
@@ -353,9 +470,9 @@
             p.draw = () => {
                 time += 0.01;
                 drawGradientBackground();
-                drawOceanVent(); // Draw the new ocean vent feature
+                
 
-                // Update and display vent particles
+                // Update and display vent particles regardless of game state
                 for (let i = ventParticles.length - 1; i >= 0; i--) {
                     const particle = ventParticles[i];
                     particle.update();
@@ -366,26 +483,19 @@
                 }
 
                 for (const zone of zones) zone.display();
-                handleInput();
-
                 for (const ring of seaweedRings) {
                     ring.update();
                     ring.display();
-                    ring.checkCollision(bubble);
                 }
-
-                for (const zone of zones) {
-                    if (zone.contains(bubble)) {
-                        bubble.applyForce(p.createVector(zone.speed, 0));
-                        break;
-                    }
-                }
-
+                 drawOceanVent();
+                
+                 // Update and display thorns
                 for (const thorn of thorns) {
+                    thorn.update(); // Update thorn position
                     thorn.display();
-                    thorn.handleCollision(bubble);
                 }
 
+                // Update pop particles
                 for (let i = popParticles.length - 1; i >= 0; i--) {
                     const particle = popParticles[i];
                     particle.update();
@@ -393,20 +503,69 @@
                     if (particle.isDead()) popParticles.splice(i, 1);
                 }
 
-                bubble.update();
-                bubble.display();
-
-                if (bubbleCollidedWithThorn) {
-                    for (let i = 0; i < TINY_BUBBLE_COUNT; i++) {
-                        popParticles.push(new TinyBubble(bubble.position.x, bubble.position.y));
+                if (gameState === 'playing' && bubble) {
+                    handleInput();
+                    
+                    // Apply zone forces
+                    for (const zone of zones) {
+                        if (zone.contains(bubble)) {
+                            bubble.applyForce(p.createVector(zone.speed, 0));
+                            break;
+                        }
                     }
-                    resetGame(true);
-                } else if (bubble.isDead()) {
-                    resetGame(false);
+
+                    // Check for scoring
+                    for (const ring of seaweedRings) {
+                        ring.checkCollision(bubble);
+                    }
+
+                    let hasCollidedWithThorn = false;
+                    // Check for thorn collisions
+                    for (const thorn of thorns) {
+                        if (thorn.handleCollision(bubble)) {
+                            hasCollidedWithThorn = true;
+                            break;
+                        }
+                    }
+
+                    bubble.update();
+                    bubble.display();
+
+                    // Handle game over conditions
+                    if (hasCollidedWithThorn) {
+                        for (let i = 0; i < TINY_BUBBLE_COUNT; i++) {
+                            popParticles.push(new TinyBubble(bubble.position.x, bubble.position.y));
+                        }
+                        score = 0; // Reset score on collision
+                        bubble = null;
+                        gameState = 'waiting';
+                    } else if (bubble.isDead()) {
+                        bubble = null;
+                        gameState = 'waiting';
+                    }
                 }
 
                 displayScore();
             };
+
+            // Listen for a mouse press to start the game
+            p.mousePressed = () => {
+                // Only start if the game is in the 'waiting' state
+                if (gameState === 'waiting') {
+                    // Define a clickable zone at the bottom of the canvas
+                    const clickableHeight = 100; // The height of the clickable area from the bottom
+                    const clickableYStart = p.height - clickableHeight;
+
+                    // Check if the mouse click is within the bottom area of the canvas
+                    if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > clickableYStart && p.mouseY < p.height) {
+                        // Create a new bubble at the mouse's horizontal position, near the bottom
+                        bubble = new Bubble(p.mouseX, p.height - 50);
+                        initSeaweedRingsAndThorns(); // Reset obstacles and rings for the new run
+                        gameState = 'playing';
+                    }
+                }
+            };
+            
 
             function initSeaweedRingsAndThorns() {
                 thorns = [];
@@ -422,9 +581,10 @@
                         y = p.random(0, p.height - (p.height / ZONE_COUNT));
                         size = p.random(20, 35);
                         isValidPlacement = true;
+                        // Ensure thorns don't spawn inside seaweed rings
                         for (const ring of seaweedRings) {
                             const distance = p.dist(x, y, ring.position.x, ring.position.y);
-                            if (distance < ring.radius + size / 2 + 10) {
+                            if (distance < ring.radius + size / 2 + 30) { // Increased buffer
                                 isValidPlacement = false;
                                 break;
                             }
@@ -437,6 +597,8 @@
 
             // --- Control and State Functions ---
             function handleInput() {
+                if (!bubble) return;
+
                 let densityFactor = 1;
                 for (const zone of zones) {
                     if (zone.contains(bubble)) {
@@ -447,13 +609,6 @@
                 const force = 2 * densityFactor;
                 if (p.keyIsDown(p.LEFT_ARROW)) bubble.applyForce(p.createVector(-force, 0));
                 if (p.keyIsDown(p.RIGHT_ARROW)) bubble.applyForce(p.createVector(force, 0));
-            }
-
-            function resetGame(isResetScore) {
-                if (isResetScore) score = 0;
-                bubble = new Bubble(p.width / 2, p.height - 50);
-                initSeaweedRingsAndThorns();
-                bubbleCollidedWithThorn = false;
             }
 
             // --- Helper and Visualization Functions ---
@@ -467,18 +622,16 @@
                 }
             }
 
-            // NEW: Function to draw the ocean floor vent
+            // Function to draw the ocean floor vent
             function drawOceanVent() {
-                // Add new smoke particles periodically
                 if (p.frameCount % 5 === 0) {
                     ventParticles.push(new VentParticle(p.width / 2 + p.random(-5, 5), p.height - 20));
                 }
 
                 p.push();
                 p.noStroke();
-                p.fill(40, 30, 25); // Dark, rocky color
+                p.fill(40, 30, 25); 
 
-                // Create a mound shape for the vent
                 p.beginShape();
                 p.vertex(p.width / 2 - 80, p.height);
                 p.curveVertex(p.width / 2 - 80, p.height);
@@ -489,7 +642,6 @@
                 p.vertex(p.width / 2 + 80, p.height);
                 p.endShape(p.CLOSE);
                 
-                // A darker shape for the vent opening
                 p.fill(20, 15, 10);
                 p.beginShape();
                 p.vertex(p.width / 2 - 20, p.height-18);
@@ -511,7 +663,6 @@
             }
         };
 
-        // Create the p5 instance and attach it to the container div.
         new p5(sketch, document.getElementById('canvas-container'));
     </script>
 </body>
