@@ -1,193 +1,296 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Voronoi Diagram</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            font-family: 'Roboto Mono', monospace;
-            overflow: hidden;
-        }
-        canvas {
-            display: block;
-            border: 1px solid #e2e8f0;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-            border-radius: 0.5rem;
-        }
-    </style>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-            }
-        }
-    </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Heat Diffusion Simulation</title>
+  <!-- ES Module Shim for browser compatibility -->
+  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.4/+esm"
+      }
+    }
+  </script>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      background: #111;
+      color: #fff;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    .controls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      z-index: 100;
+      background: rgba(0,0,0,0.7);
+      padding: 15px;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .controls label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .controls input[type="range"] {
+      width: 200px;
+    }
+    .value-display {
+      min-width: 30px;
+      text-align: right;
+    }
+  </style>
 </head>
+<body>
+  <!-- Controls for simulation parameters -->
+  <div class="controls">
+    <label>
+      Diffusion Rate:
+      <input type="range" id="diffusionRate" min="0" max="0.5" step="0.01" value="0.1">
+      <span id="diffusionRateValue" class="value-display">0.10</span>
+    </label>
+    <label>
+      Heat Loss:
+      <input type="range" id="heatLoss" min="0" max="0.05" step="0.001" value="0.005">
+      <span id="heatLossValue" class="value-display">0.005</span>
+    </label>
+    <label>
+      Source Temperature:
+      <input type="range" id="sourceTemp" min="255" max="500" step="5" value="300">
+      <span id="sourceTempValue" class="value-display">300</span>
+    </label>
+  </div>
 
-<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+  <script type="module">
+    import p5 from "p5";
 
-    <div class="w-full max-w-4xl text-center mb-6">
-        <h1 class="text-3xl md:text-4xl font-bold text-gray-800">Interactive Voronoi Diagram</h1>
-        <p class="text-gray-600 mt-2">Click and drag the points to stretch and compress the cells.</p>
-    </div>
+    const sketch = (p) => {
+      // --- Simulation Constants ---
+      const GRID_SIZE = 120;
+      const SCALE = 5;
+      const WIDTH = GRID_SIZE * SCALE;
+      const HEIGHT = GRID_SIZE * SCALE;
+      const ZONE_HEIGHT = GRID_SIZE / 3;
+      
+      // --- Simulation State Variables ---
+      let grid, nextGrid; // Grids to store temperature values
+      let sources = []; // Array to hold heat sources
+      let diffusionRate = 0.1;
+      let heatLoss = 0.005;
+      let sourceTemp = 300;
+      let selectedSource = -1; // Index of the source being dragged, -1 if none
 
-    <div id="canvas-container" class="w-full max-w-4xl aspect-square">
-        <!-- p5.js canvas will be inserted here -->
-    </div>
+      // --- Initialization Functions ---
 
-    <script type="module">
-        import p5 from 'p5';
+      // Initialize heat sources in each zone
+      function initSources() {
+        sources = [
+          { x: 20, y: ZONE_HEIGHT / 2, temp: sourceTemp },
+          { x: 60, y: ZONE_HEIGHT + ZONE_HEIGHT / 2, temp: sourceTemp },
+          { x: 100, y: ZONE_HEIGHT * 2 + ZONE_HEIGHT / 2, temp: sourceTemp }
+        ];
+      }
 
-        const sketch = (p) => {
-            let points = [];
-            const numPoints = 30;
-            let pointColors = [];
-            let selectedPointIndex = -1;
-            const pointRadius = 10;
-            let voronoiImage; // To store the pre-calculated Voronoi image
+      // Initialize grid with ambient temperature
+      function initGrid() {
+        grid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+        nextGrid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+      }
 
-            // --- Setup ---
-            p.setup = () => {
-                const container = p.select('#canvas-container');
-                // Use .elt.clientWidth to get the actual rendered size of the container
-                const canvas = p.createCanvas(container.elt.clientWidth, container.elt.clientHeight);
-                canvas.parent(container);
-                p.colorMode(p.HSB, 360, 100, 100);
+      // --- Core Simulation Logic ---
 
-                // Create an image buffer for drawing the Voronoi diagram
-                voronoiImage = p.createImage(p.width, p.height);
+      // Define different materials/conductivities
+      function getConductivity(x, y) {
+        if (y < ZONE_HEIGHT) return 0.5;       // Metal
+        if (y < ZONE_HEIGHT * 2) return 0.1;   // Wood
+        return 0.05;                           // Insulator
+      }
 
-                // Generate initial random points and assign a permanent color
-                for (let i = 0; i < numPoints; i++) {
-                    points.push(p.createVector(p.random(p.width), p.random(p.height)));
-                    pointColors.push(p.color(p.random(360), 70, 90));
-                }
-                
-                // Initial calculation of the Voronoi diagram
-                calculateVoronoi();
-            };
-            
-            // --- Window Resized ---
-            p.windowResized = () => {
-                const container = p.select('#canvas-container');
-                // Use .elt.clientWidth here as well for consistency
-                p.resizeCanvas(container.elt.clientWidth, container.elt.clientHeight);
-                // Recreate the image buffer and recalculate
-                voronoiImage = p.createImage(p.width, p.height);
-                calculateVoronoi();
-            };
-
-            // --- Main Drawing Loop ---
-            p.draw = () => {
-                // Display the pre-calculated Voronoi image
-                p.image(voronoiImage, 0, 0);
-
-                // The border drawing logic was commented out and not very effective,
-                // so it has been removed for clarity. The pixel-based calculation
-                // implicitly defines the borders.
-                
-                // --- Render Seed Points ---
-                p.noStroke();
-                for (let i = 0; i < points.length; i++) {
-                    p.fill(0, 0, 10); // Dark gray for points
-                    p.circle(points[i].x, points[i].y, pointRadius);
-                }
-                
-                // --- Handle Mouse Interaction Cues ---
-                handleMouseCues();
-            };
-
-            // --- Voronoi Calculation Function ---
-            function calculateVoronoi() {
-                // Bail out if canvas has no size, preventing errors
-                if (p.width === 0 || p.height === 0) return;
-                
-                voronoiImage.loadPixels();
-                // Iterate through every pixel of the image
-                for (let x = 0; x < p.width; x++) {
-                    for (let y = 0; y < p.height; y++) {
-                        let closestDistSq = Infinity; // Use squared distance for performance
-                        let closestIndex = -1;
-
-                        // Find the closest seed point to the current pixel
-                        for (let i = 0; i < points.length; i++) {
-                            // Manual distance squared calculation is faster than p.dist()
-                            const dx = x - points[i].x;
-                            const dy = y - points[i].y;
-                            const dSq = dx * dx + dy * dy;
-                            
-                            if (dSq < closestDistSq) {
-                                closestDistSq = dSq;
-                                closestIndex = i;
-                            }
-                        }
-                        
-                        // Set the pixel color to the color of the closest seed point
-                        if (closestIndex !== -1) {
-                            voronoiImage.set(x, y, pointColors[closestIndex]);
-                        }
-                    }
-                }
-                voronoiImage.updatePixels();
+      // Update temperature grid using heat diffusion
+      function updateGrid() {
+        // Iterate over every cell in the grid
+        for (let i = 0; i < GRID_SIZE; i++) {
+          for (let j = 0; j < GRID_SIZE; j++) {
+            // Skip heat sources
+            if (sources.some(s => 
+              i >= s.x - 2 && i <= s.x + 2 && 
+              j >= s.y - 2 && j <= s.y + 2)) {
+              nextGrid[i][j] = grid[i][j];
+              continue;
             }
             
-            // --- Helper function to find which point is under the mouse ---
-            const getPointUnderMouse = () => {
-                for (let i = 0; i < points.length; i++) {
-                    if (p.dist(p.mouseX, p.mouseY, points[i].x, points[i].y) < pointRadius) {
-                        return i;
-                    }
-                }
-                return -1;
-            };
+            // --- Heat Diffusion Calculation (Laplacian) ---
+            let laplacian = 0;
+            let neighbors = 0;
             
-            // --- Mouse Press Event ---
-            p.mousePressed = () => {
-                // Ensure the click is within the canvas bounds
-                if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
-                    selectedPointIndex = getPointUnderMouse();
-                    // Prevent default browser action (e.g., text selection)
-                    return false;
-                }
-            };
-            
-            // --- Mouse Drag Event ---
-            p.mouseDragged = () => {
-                if (selectedPointIndex !== -1) {
-                    points[selectedPointIndex].x = p.constrain(p.mouseX, 0, p.width);
-                    points[selectedPointIndex].y = p.constrain(p.mouseY, 0, p.height);
-                    // Recalculate the diagram while dragging for real-time feedback
-                    calculateVoronoi();
-                }
-            };
-            
-            // --- Mouse Release Event ---
-            p.mouseReleased = () => {
-                selectedPointIndex = -1;
-            };
-            
-            function handleMouseCues() {
-                 const hoveringIndex = getPointUnderMouse();
-                if (selectedPointIndex !== -1) {
-                    p.cursor('grabbing');
-                } else if (hoveringIndex !== -1) {
-                    p.cursor('grab');
-                    p.noStroke();
-                    p.fill(0, 0, 100, 0.3); // Semi-transparent white highlight
-                    p.circle(points[hoveringIndex].x, points[hoveringIndex].y, pointRadius * 1.5);
-                } else {
-                    p.cursor(p.ARROW);
-                }
+            // Get neighboring cells
+            for (let dx = -1; dx <= 1; dx++) {
+              for (let dy = -1; dy <= 1; dy++) {
+                if (dx === 0 && dy === 0) continue;
+                
+                let ni = (i + dx + GRID_SIZE) % GRID_SIZE;
+                let nj = (j + dy + GRID_SIZE) % GRID_SIZE;
+                
+                laplacian += grid[ni][nj];
+                neighbors++;
+              }
             }
-        };
+            
+            // Average temperature of neighbors
+            laplacian /= neighbors;
+            
+            // Get local conductivity
+            let conductivity = getConductivity(i, j);
+            
+            // Update temperature with diffusion and heat loss
+            let newTemp = grid[i][j] + diffusionRate * conductivity * (laplacian - grid[i][j]);
+            newTemp -= heatLoss; // Natural cooling
+            nextGrid[i][j] = Math.max(0, newTemp); // Ensure temperature doesn't drop below 0
+          }
+        }
+        
+        // Swap grids
+        [grid, nextGrid] = [nextGrid, grid];
+        
+        // Re-apply the constant temperature to the heat source locations
+        sources.forEach(source => {
+          for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+              let i = Math.floor(source.x + dx);
+              let j = Math.floor(source.y + dy);
+              
+              if (i >= 0 && i < GRID_SIZE && j >= 0 && j < GRID_SIZE) {
+                grid[i][j] = source.temp;
+              }
+            }
+          }
+        });
+      }
 
-        new p5(sketch);
+      // --- Drawing and Visualization ---
 
-    </script>
+      // Draw the grid cells, coloring them based on temperature
+      function drawGrid() {
+        p.noStroke();
+        for (let i = 0; i < GRID_SIZE; i++) {
+          for (let j = 0; j < GRID_SIZE; j++) {
+            let temp = grid[i][j];
+            // Map temperature for color interpolation
+            let colorVal = p.map(temp, 0, sourceTemp, 0, 255);
+            
+            // Create a color from blue (cold) to red (hot)
+            let c = p.lerpColor(
+              p.color(0, 0, 255), // Cold color
+              p.color(255, 0, 0), // Hot color
+              colorVal / 255
+            );
+            
+            p.fill(c);
+            p.rect(i * SCALE, j * SCALE, SCALE, SCALE);
+          }
+        }
+      }
+
+      // Draw the heat sources as yellow circles
+      function drawSources() {
+        p.fill(255, 255, 0);
+        sources.forEach(source => {
+          p.ellipse(source.x * SCALE, source.y * SCALE, 10, 10);
+        });
+      }
+
+      // Draw lines to separate material zones and add labels
+      function drawZones() {
+        p.stroke(255);
+        p.strokeWeight(2);
+        p.line(0, ZONE_HEIGHT * SCALE, WIDTH, ZONE_HEIGHT * SCALE);
+        p.line(0, ZONE_HEIGHT * 2 * SCALE, WIDTH, ZONE_HEIGHT * 2 * SCALE);
+        
+        p.fill(255);
+        p.noStroke();
+        p.textSize(16);
+        p.text("Metal", 10, 20);
+        p.text("Wood", 10, ZONE_HEIGHT * SCALE + 20);
+        p.text("Insulator", 10, ZONE_HEIGHT * 2 * SCALE + 20);
+      }
+      
+      // --- User Interaction ---
+
+      // FIX: Replaced handleMouse() with p5.js event functions for reliability.
+      p.mousePressed = () => {
+        // Check if the mouse is clicking on any source
+        for (let i = 0; i < sources.length; i++) {
+          let s = sources[i];
+          let d = p.dist(p.mouseX, p.mouseY, s.x * SCALE, s.y * SCALE);
+          if (d < 10) { // 10 is the radius of the source ellipse
+            selectedSource = i;
+            return; 
+          }
+        }
+      };
+      
+      p.mouseDragged = () => {
+          if (selectedSource !== -1) {
+            // Update the selected source's position, constraining it within the canvas
+            sources[selectedSource].x = p.constrain(p.mouseX / SCALE, 0, GRID_SIZE - 1);
+            sources[selectedSource].y = p.constrain(p.mouseY / SCALE, 0, GRID_SIZE - 1);
+          }
+      };
+
+      p.mouseReleased = () => {
+        selectedSource = -1; // Deselect source when mouse is released
+      };
+
+
+      // --- p5.js Setup and Draw Loop ---
+
+      // Setup is called once at the beginning
+      p.setup = () => {
+        p.createCanvas(WIDTH, HEIGHT);
+        initGrid();
+        initSources();
+        
+        // Link HTML controls to simulation variables
+        document.getElementById('diffusionRate').addEventListener('input', (e) => {
+          diffusionRate = parseFloat(e.target.value);
+          document.getElementById('diffusionRateValue').textContent = diffusionRate.toFixed(2);
+        });
+        
+        document.getElementById('heatLoss').addEventListener('input', (e) => {
+          heatLoss = parseFloat(e.target.value);
+          document.getElementById('heatLossValue').textContent = heatLoss.toFixed(3);
+        });
+        
+        document.getElementById('sourceTemp').addEventListener('input', (e) => {
+          sourceTemp = parseInt(e.target.value);
+          document.getElementById('sourceTempValue').textContent = sourceTemp;
+          // Update the temperature of all sources when the slider changes
+          sources.forEach(s => s.temp = sourceTemp);
+        });
+      };
+
+      // Draw is called continuously in a loop
+      p.draw = () => {
+        updateGrid();
+        drawGrid();
+        drawSources();
+        drawZones();
+        // FIX: Removed call to the old handleMouse() function.
+      };
+    };
+
+    // Create a new p5 instance to run the sketch
+    new p5(sketch, document.body);
+  </script>
 </body>
-
 </html>

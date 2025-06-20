@@ -90,11 +90,11 @@
 </head>
 <body class="bg-gray-100 text-gray-800 flex flex-col items-center justify-center p-4 min-h-screen">
 
-    <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-6 text-center">2D Heat Diffusion Simulation</h1>
+    <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-6 text-center">2D Heat Diffusion Simulation (3-Zone)</h1>
 
     <div class="canvas-and-legend-container">
         <!-- Canvas Container -->
-        <div id="canvas-container" class="rounded-lg overflow-hidden shadow-2xl border-4 border-gray-300">
+        <div id="canvas-container" class="rounded-lg overflow-hidden shadow-2xl border-4 border-gray-300 cursor-grab">
         </div>
         
         <!-- Legend Container -->
@@ -109,53 +109,38 @@
 
 
     <!-- Controls Panel -->
-    <div class="w-full max-w-4xl mt-6">
+    <div class="w-full max-w-5xl mt-6">
         <div class="bg-white p-4 rounded-lg shadow-lg border border-gray-200">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                 
-                <!-- Brush Settings Column -->
-                <div class="space-y-3 border-b md:border-b-0 md:border-r border-gray-200 pb-4 md:pb-0 md:pr-6">
-                     <div class="flex items-center">
-                         <h2 class="text-lg font-bold">Brush Settings</h2>
-                         <div class="tooltip ml-2">
-                            <svg class="w-4 h-4 text-gray-400 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            <span class="tooltiptext"><b>Temperature:</b> Sets how hot the brush is.<br><b>Brush Size:</b> Changes the brush's diameter.</span>
-                        </div>
-                    </div>
-                    <div>
-                        <label for="temp-slider" class="block text-sm font-medium">Temperature: <span id="temp-value" class="font-bold text-indigo-600">1000</span></label>
-                        <input id="temp-slider" type="range" min="100" max="2000" value="1000" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                    </div>
-                    <div>
-                        <label for="size-slider" class="block text-sm font-medium">Brush Size: <span id="size-value" class="font-bold text-indigo-600">20</span></label>
-                        <input id="size-slider" type="range" min="5" max="50" value="20" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                    </div>
-                </div>
-
                 <!-- Simulation Settings Column -->
                 <div class="space-y-3 border-b md:border-b-0 md:border-r border-gray-200 pb-4 md:pb-0 md:pr-6">
                     <div class="flex items-center">
                         <h2 class="text-lg font-bold">Simulation</h2>
                         <div class="tooltip ml-2">
                             <svg class="w-4 h-4 text-gray-400 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            <span class="tooltiptext"><b>Conductivity:</b> Controls how quickly heat spreads. Each half of the canvas has its own conductivity value. Higher values mean faster diffusion.</span>
+                            <span class="tooltiptext"><b>Conductivity:</b> Controls how quickly heat spreads. The canvas is split into three zones, each with its own conductivity value.</span>
                         </div>
                     </div>
                     <div class="space-y-4">
                         <div>
-                            <label for="left-conductivity-slider" class="block text-sm font-medium">Left Conductivity: <span id="left-conductivity-value" class="font-bold text-indigo-600">0.1</span></label>
-                            <input id="left-conductivity-slider" type="range" min="0.01" max="0.25" step="0.001" value="0.1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            <label for="left-conductivity-slider" class="block text-sm font-medium">Left Conductivity: <span id="left-conductivity-value" class="font-bold text-indigo-600">0.01</span></label>
+                            <input id="left-conductivity-slider" type="range" min="0.01" max="0.25" step="0.001" value="0.01" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
                         </div>
                         <div>
-                            <label for="right-conductivity-slider" class="block text-sm font-medium">Right Conductivity: <span id="right-conductivity-value" class="font-bold text-indigo-600">0.1</span></label>
-                            <input id="right-conductivity-slider" type="range" min="0.01" max="0.25" step="0.001" value="0.1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            <label for="middle-conductivity-slider" class="block text-sm font-medium">Middle Conductivity: <span id="middle-conductivity-value" class="font-bold text-indigo-600">0.1</span></label>
+                            <input id="middle-conductivity-slider" type="range" min="0.01" max="0.25" step="0.001" value="0.1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <label for="right-conductivity-slider" class="block text-sm font-medium">Right Conductivity: <span id="right-conductivity-value" class="font-bold text-indigo-600">0.25</span></label>
+                            <input id="right-conductivity-slider" type="range" min="0.01" max="0.25" step="0.001" value="0.25" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
                         </div>
                     </div>
                 </div>
 
                 <!-- Actions Column -->
-                <div class="flex flex-col justify-center items-center h-full">
-                     <p class="text-gray-600 text-sm text-center mb-3">Click and drag on the canvas to apply heat and create diffusion patterns.</p>
+                <div class="flex flex-col justify-center items-center h-full space-y-4">
+                     <p class="text-center text-gray-600">Click and drag the heat sources on the canvas to move them.</p>
                      <button id="reset-btn" class="w-full md:w-auto bg-red-500 text-white py-3 px-6 rounded-md shadow-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition">Reset Simulation</button>
                 </div>
             </div>
@@ -168,7 +153,6 @@
 
         const sketch = (p) => {
             // --- Canvas and Grid Setup ---
-            // Ensure canvas dimensions are never negative
             let canvasWidth = Math.max(1, Math.min(600, window.innerWidth - 100));
             let canvasHeight = Math.max(1, Math.min(450, window.innerHeight - 300));
             let cols, rows;
@@ -179,21 +163,20 @@
             let conductivityGrid; // Stores thermal conductivity values
 
             // --- Simulation Parameters ---
-            let leftConductivity = 0.1;
-            let rightConductivity = 0.1;
+            let leftConductivity = 0.01;
+            let middleConductivity = 0.1;
+            let rightConductivity = 0.25;
             
-            // --- Brush Parameters ---
-            let brushTemp = 1000;
-            let brushSize = 20;
+            // --- Heat Source Parameters ---
+            let heatSources = [];
+            let sourceBeingDragged = null;
 
             // --- UI Elements ---
-            const tempSlider = document.getElementById('temp-slider');
-            const sizeSlider = document.getElementById('size-slider');
             const leftConductivitySlider = document.getElementById('left-conductivity-slider');
+            const middleConductivitySlider = document.getElementById('middle-conductivity-slider');
             const rightConductivitySlider = document.getElementById('right-conductivity-slider');
-            const tempValue = document.getElementById('temp-value');
-            const sizeValue = document.getElementById('size-value');
             const leftConductivityValue = document.getElementById('left-conductivity-value');
+            const middleConductivityValue = document.getElementById('middle-conductivity-value');
             const rightConductivityValue = document.getElementById('right-conductivity-value');
             const resetBtn = document.getElementById('reset-btn');
 
@@ -205,89 +188,134 @@
                 rows = p.height;
 
                 initializeGrids();
+                initializeHeatSources();
                 drawLegend();
                 
                 p.pixelDensity(1);
                 
                 // --- Setup UI Event Listeners ---
-                tempSlider.oninput = () => {
-                    brushTemp = parseFloat(tempSlider.value);
-                    tempValue.textContent = brushTemp;
-                };
-                sizeSlider.oninput = () => {
-                    brushSize = parseInt(sizeSlider.value);
-                    sizeValue.textContent = brushSize;
-                };
-                 leftConductivitySlider.oninput = () => {
+                leftConductivitySlider.oninput = () => {
                     leftConductivity = parseFloat(leftConductivitySlider.value);
-                    leftConductivityValue.textContent = leftConductivity;
+                    leftConductivityValue.textContent = leftConductivity.toFixed(3);
                     initializeConductivityGrid();
                 };
-                 rightConductivitySlider.oninput = () => {
+                middleConductivitySlider.oninput = () => {
+                    middleConductivity = parseFloat(middleConductivitySlider.value);
+                    middleConductivityValue.textContent = middleConductivity.toFixed(3);
+                    initializeConductivityGrid();
+                };
+                rightConductivitySlider.oninput = () => {
                     rightConductivity = parseFloat(rightConductivitySlider.value);
-                    rightConductivityValue.textContent = rightConductivity;
+                    rightConductivityValue.textContent = rightConductivity.toFixed(3);
                     initializeConductivityGrid();
                 };
 
                 resetBtn.onclick = () => {
+                    // Reset sliders to min, default, max
+                    leftConductivitySlider.value = 0.01;
+                    middleConductivitySlider.value = 0.1;
+                    rightConductivitySlider.value = 0.25;
+                    // Trigger the oninput event to update values and grid
+                    leftConductivitySlider.oninput();
+                    middleConductivitySlider.oninput();
+                    rightConductivitySlider.oninput();
+
                     initializeGrids();
+                    initializeHeatSources(); // Also reset heat source positions
                     renderHeatMap();
                 };
             };
 
             // --- p5.js draw loop ---
             p.draw = () => {
-                handleMouseDrawing();
                 updateHeatDiffusion();
+                applyConstantHeatFromSources();
                 renderHeatMap();
+                renderHeatSources(); // This function now also renders the crosshairs
             };
 
             // --- Grid Initialization ---
             function initializeGrids() {
-                // Ensure cols and rows are valid before creating arrays
                 if (cols <= 0 || rows <= 0) return;
                 heatGrid = Array(cols).fill(0).map(() => Array(rows).fill(0));
                 nextHeatGrid = Array(cols).fill(0).map(() => Array(rows).fill(0));
                 conductivityGrid = Array(cols).fill(0).map(() => Array(rows).fill(0));
                 initializeConductivityGrid();
             }
+
+            // --- Heat Source Initialization (Updated to place one in each zone) ---
+            function initializeHeatSources() {
+                heatSources = [];
+                const zoneWidth = p.width / 3;
+                const commonProps = {
+                    radius: 12,
+                    temperature: 2000,
+                    isDragging: false
+                };
+
+                // Source 1: Left Zone
+                heatSources.push({
+                    ...commonProps,
+                    x: p.random(20, zoneWidth - 20),
+                    y: p.random(20, p.height - 20),
+                });
+                
+                // Source 2: Middle Zone
+                heatSources.push({
+                    ...commonProps,
+                    x: p.random(zoneWidth + 20, 2 * zoneWidth - 20),
+                    y: p.random(20, p.height - 20),
+                });
+
+                // Source 3: Right Zone
+                heatSources.push({
+                    ...commonProps,
+                    x: p.random(2 * zoneWidth + 20, p.width - 20),
+                    y: p.random(20, p.height - 20),
+                });
+            }
             
+            // --- Conductivity Grid Setup for 3 Zones ---
             function initializeConductivityGrid() {
-                 // Ensure cols and rows are valid before creating arrays
                  if (cols <= 0 || rows <= 0) return;
-                 const midpoint = Math.floor(cols / 2);
+                 const oneThird = Math.floor(cols / 3);
+                 const twoThirds = Math.floor(2 * cols / 3);
                  for(let x = 0; x < cols; x++) {
                     for(let y = 0; y < rows; y++) {
-                        conductivityGrid[x][y] = (x < midpoint) ? leftConductivity : rightConductivity;
+                        if (x < oneThird) {
+                            conductivityGrid[x][y] = leftConductivity;
+                        } else if (x < twoThirds) {
+                            conductivityGrid[x][y] = middleConductivity;
+                        } else {
+                            conductivityGrid[x][y] = rightConductivity;
+                        }
                     }
                  }
             }
 
-            // --- User Input Handling ---
-            function handleMouseDrawing() {
-                if (p.mouseIsPressed && p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
-                    applyBrush(p.mouseX, p.mouseY, brushTemp, brushSize);
-                }
-            }
-            
-            // --- Brush Application Logic ---
-            function applyBrush(x, y, value, size) {
-                x = Math.floor(x);
-                y = Math.floor(y);
-                const radius = Math.floor(size / 2);
-                
-                for (let i = -radius; i <= radius; i++) {
-                    for (let j = -radius; j <= radius; j++) {
-                        if (i * i + j * j <= radius * radius) {
-                            const col = x + i;
-                            const row = y + j;
-                            if (col >= 0 && col < cols && row >= 0 && row < rows) {
-                                heatGrid[col][row] = value;
+            // --- Heat Source Application Logic ---
+            function applyConstantHeatFromSources() {
+                for (const source of heatSources) {
+                    const x = Math.floor(source.x);
+                    const y = Math.floor(source.y);
+                    const radius = Math.floor(source.radius);
+
+                    for (let i = -radius; i <= radius; i++) {
+                        for (let j = -radius; j <= radius; j++) {
+                            // Apply heat in a circular area
+                            if (i * i + j * j <= radius * radius) {
+                                const col = x + i;
+                                const row = y + j;
+                                // Check boundaries
+                                if (col >= 0 && col < cols && row >= 0 && row < rows) {
+                                    heatGrid[col][row] = source.temperature;
+                                }
                             }
                         }
                     }
                 }
             }
+
 
             // --- Core Diffusion Logic ---
             function updateHeatDiffusion() {
@@ -295,10 +323,8 @@
                 for (let x = 1; x < cols - 1; x++) {
                     for (let y = 1; y < rows - 1; y++) {
                         const currentHeat = heatGrid[x][y];
-                        // Get the specific conductivity for this cell
                         const diffusionRate = conductivityGrid[x][y];
                         
-                        // Calculate the Laplacian (average of neighbors minus the current cell's value)
                         const laplacian = (
                             heatGrid[x + 1][y] +
                             heatGrid[x - 1][y] +
@@ -307,17 +333,12 @@
                             4 * currentHeat
                         );
 
-                        // Update heat based on the diffusion equation
                         let newHeat = currentHeat + (laplacian * diffusionRate);
-                        
-                        // Apply a slight cooling factor to prevent heat from staying indefinitely
-                        newHeat *= 0.9995; 
+                        newHeat *= 0.999; // Cooling factor
 
-                        // Store the new value in the next grid, ensuring it's within bounds
                         nextHeatGrid[x][y] = p.constrain(newHeat, 0, 5000);
                     }
                 }
-                // Swap the grids for the next frame
                 [heatGrid, nextHeatGrid] = [nextHeatGrid, heatGrid];
             }
 
@@ -327,37 +348,15 @@
                 for (let x = 0; x < cols; x++) {
                     for (let y = 0; y < rows; y++) {
                         const heat = heatGrid[x][y];
-                        
                         let r, g, b;
-
-                        // Color mapping from heat value to RGB
                         if (heat > 0.1) {
-                             if (heat < 100) { // Dark blue to blue
-                                r = 0;
-                                g = 0;
-                                b = p.map(heat, 0, 100, 139, 255);
-                            } else if (heat < 250) { // Blue to cyan
-                                r = 0;
-                                g = p.map(heat, 100, 250, 0, 255);
-                                b = 255;
-                            } else if (heat < 500) { // Cyan to green
-                                r = 0;
-                                g = 255;
-                                b = p.map(heat, 250, 500, 255, 0);
-                            } else if (heat < 750) { // Green to yellow
-                                r = p.map(heat, 500, 750, 0, 255);
-                                g = 255;
-                                b = 0;
-                            } else { // Yellow to bright red
-                                r = 255;
-                                g = p.map(p.constrain(heat, 750, 2000), 750, 2000, 255, 0);
-                                b = 0;
-                            }
-                        } else {
-                            r = g = b = 240; // Default background color (light gray)
-                        }
+                             if (heat < 100) { r = 0; g = 0; b = p.map(heat, 0, 100, 139, 255); }
+                             else if (heat < 250) { r = 0; g = p.map(heat, 100, 250, 0, 255); b = 255; }
+                             else if (heat < 500) { r = 0; g = 255; b = p.map(heat, 250, 500, 255, 0); }
+                             else if (heat < 750) { r = p.map(heat, 500, 750, 0, 255); g = 255; b = 0; }
+                             else { r = 255; g = p.map(p.constrain(heat, 750, 2000), 750, 2000, 255, 0); b = 0; }
+                        } else { r = g = b = 240; }
                         
-                        // Set the pixel color in the pixel array
                         const index = (x + y * p.width) * 4;
                         p.pixels[index + 0] = r;
                         p.pixels[index + 1] = g;
@@ -366,18 +365,81 @@
                     }
                 }
                 
-                // Draw a faint line to divide the two conductivity zones
-                const midpoint = Math.floor(cols / 2);
-                for (let y = 0; y < p.height; y++) {
-                    const index = (midpoint + y * p.width) * 4;
-                    // Blend the line color with the existing pixel color for a subtle effect
-                    p.pixels[index + 0] = p.pixels[index + 0] * 0.6 + 100 * 0.4;
-                    p.pixels[index + 1] = p.pixels[index + 1] * 0.6 + 100 * 0.4;
-                    p.pixels[index + 2] = p.pixels[index + 2] * 0.6 + 100 * 0.4;
-                }
+                // --- Updated Divider Drawing Logic ---
+                const oneThird = Math.floor(cols / 3);
+                const twoThirds = Math.floor(2 * cols / 3);
+                
+                const drawDivider = (xPos) => {
+                    const dividerColor = 50; // Dark gray color
+                    for (let y = 0; y < p.height; y++) {
+                        const index = (xPos + y * p.width) * 4;
+                        p.pixels[index + 0] = dividerColor; // R
+                        p.pixels[index + 1] = dividerColor; // G
+                        p.pixels[index + 2] = dividerColor; // B
+                        p.pixels[index + 3] = 255;          // Alpha
+                    }
+                };
+                drawDivider(oneThird);
+                drawDivider(twoThirds);
 
                 p.updatePixels();
             }
+
+            // --- Heat Source and Crosshair Visualization ---
+            function renderHeatSources() {
+                const crosshairSize = 16;
+                const halfSize = crosshairSize / 2;
+
+                for (const source of heatSources) {
+                    // Draw the main orange circle for the heat source
+                    p.strokeWeight(2);
+                    p.stroke(255, 150, 0, 200); // Fiery orange outline
+                    p.fill(255, 100, 0, 180); // Semi-transparent fiery orange
+                    p.circle(source.x, source.y, source.radius * 2);
+
+                    // Draw the crosshair on top of the source
+                    p.strokeWeight(1.5);
+                    p.stroke(255, 255, 255, 200); // Semi-transparent white for good contrast
+                    // Horizontal line
+                    p.line(source.x - halfSize, source.y, source.x + halfSize, source.y);
+                    // Vertical line
+                    p.line(source.x, source.y - halfSize, source.x, source.y + halfSize);
+                }
+            }
+            
+            // --- Drag and Drop Logic ---
+            p.mousePressed = () => {
+                if (p.mouseX < 0 || p.mouseX > p.width || p.mouseY < 0 || p.mouseY > p.height) return;
+
+                for (let i = heatSources.length - 1; i >= 0; i--) {
+                    const source = heatSources[i];
+                    const distance = p.dist(p.mouseX, p.mouseY, source.x, source.y);
+                    if (distance < source.radius) {
+                        source.isDragging = true;
+                        sourceBeingDragged = source;
+                        // Move the selected source to the end of the array to draw it on top.
+                        heatSources.splice(i, 1);
+                        heatSources.push(source);
+                        document.getElementById('canvas-container').style.cursor = 'grabbing';
+                        return; // Stop after finding one source
+                    }
+                }
+            };
+
+            p.mouseDragged = () => {
+                if (sourceBeingDragged) {
+                    sourceBeingDragged.x = p.constrain(p.mouseX, 0, p.width);
+                    sourceBeingDragged.y = p.constrain(p.mouseY, 0, p.height);
+                }
+            };
+
+            p.mouseReleased = () => {
+                if (sourceBeingDragged) {
+                    sourceBeingDragged.isDragging = false;
+                    sourceBeingDragged = null;
+                    document.getElementById('canvas-container').style.cursor = 'grab';
+                }
+            };
             
             // --- Legend Drawing ---
             function drawLegend() {
@@ -396,29 +458,11 @@
                 for (let y = 0; y < h; y++) {
                     const heat = mapValue(y, 0, h, maxHeat, 0);
                     let r, g, b;
-                    
-                    if (heat < 100) { // Dark blue to blue
-                        r = 0;
-                        g = 0;
-                        b = mapValue(heat, 0, 100, 139, 255);
-                    } else if (heat < 250) { // Blue to cyan
-                        r = 0;
-                        g = mapValue(heat, 100, 250, 0, 255);
-                        b = 255;
-                    } else if (heat < 500) { // Cyan to green
-                        r = 0;
-                        g = 255;
-                        b = mapValue(heat, 250, 500, 255, 0);
-                    } else if (heat < 750) { // Green to yellow
-                        r = mapValue(heat, 500, 750, 0, 255);
-                        g = 255;
-                        b = 0;
-                    } else { // Yellow to bright red
-                        r = 255;
-                        g = mapValue(heat, 750, maxHeat, 255, 0);
-                        b = 0;
-                    }
-
+                    if (heat < 100) { r=0; g=0; b=mapValue(heat,0,100,139,255); }
+                    else if (heat < 250) { r=0; g=mapValue(heat,100,250,0,255); b=255; }
+                    else if (heat < 500) { r=0; g=255; b=mapValue(heat,250,500,255,0); }
+                    else if (heat < 750) { r=mapValue(heat,500,750,0,255); g=255; b=0; }
+                    else { r=255; g=mapValue(heat,750,maxHeat,255,0); b=0; }
                     ctx.fillStyle = `rgb(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)})`;
                     ctx.fillRect(0, y, w, 1);
                 }
@@ -426,23 +470,19 @@
             
             // --- Handle window resizing ---
             p.windowResized = () => {
-                // Ensure canvas dimensions are never negative
                 canvasWidth = Math.max(1, Math.min(600, window.innerWidth - 100));
                 canvasHeight = Math.max(1, Math.min(450, window.innerHeight - 300));
                 p.resizeCanvas(canvasWidth, canvasHeight);
-
-                // Adjust legend height to match canvas height
                 const legend = document.getElementById('legend-canvas');
                 if(legend) {
                     legend.height = canvasHeight;
                     const legendContainer = document.getElementById('legend-container');
                     legendContainer.style.maxHeight = `${canvasHeight + 8}px`;
                 }
-                
-                // Re-initialize grids with new dimensions
                 cols = p.width;
                 rows = p.height;
                 initializeGrids();
+                initializeHeatSources();
                 drawLegend();
             };
         };

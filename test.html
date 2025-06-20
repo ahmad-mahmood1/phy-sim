@@ -1,223 +1,277 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Heat Diffusion Simulation</title>
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Heat Diffusion Simulation</title>
+  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
     {
-        "imports": {
-            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-        }
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.4/+esm"
+      }
     }
-    </script>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            font-family: Arial, sans-serif;
-            background-color: #f0f0f0;
-        }
-
-        h1 {
-            margin: 20px 0;
-            color: #333;
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
-        }
-
-        #controls {
-            margin: 15px 0;
-            padding: 15px;
-            border-radius: 8px;
-            background-color: #ffffff;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            width: 800px;
-            max-width: 90%;
-        }
-
-        .control-group {
-            margin-bottom: 10px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .control-group label {
-            margin-bottom: 5px;
-            font-weight: bold;
-            color: #555;
-        }
-
-        .control-group input {
-            width: 100%;
-        }
-
-        .value-display {
-            font-size: 0.9em;
-            color: #666;
-            margin-top: 2px;
-            align-self: flex-end;
-        }
-    </style>
+  </script>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      background: #111;
+      color: #fff;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    .controls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      z-index: 100;
+      background: rgba(0,0,0,0.7);
+      padding: 15px;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .controls label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .controls input[type="range"] {
+      width: 200px;
+    }
+    .value-display {
+      min-width: 30px;
+      text-align: right;
+    }
+  </style>
 </head>
-
 <body>
-    <h1>2D Heat Diffusion Simulation</h1>
-    <div id="controls">
-        <div class="control-group">
-            <label for="brush-temp">Brush Temperature (0-255):</label>
-            <input type="range" id="brush-temp" min="0" max="255" value="100">
-            <span id="brush-temp-value" class="value-display">100</span>
-        </div>
-        <div class="control-group">
-            <label for="brush-size">Brush Size (1-20):</label>
-            <input type="range" id="brush-size" min="1" max="20" value="5">
-            <span id="brush-size-value" class="value-display">5</span>
-        </div>
-        <div class="control-group">
-            <label for="left-conductivity">Left-side Conductivity (0.0-0.5):</label>
-            <input type="range" id="left-conductivity" min="0" max="0.5" step="0.01" value="0.2">
-            <span id="left-conductivity-value" class="value-display">0.2</span>
-        </div>
-        <div class="control-group">
-            <label for="right-conductivity">Right-side Conductivity (0.0-0.5):</label>
-            <input type="range" id="right-conductivity" min="0" max="0.5" step="0.01" value="0.1">
-            <span id="right-conductivity-value" class="value-display">0.1</span>
-        </div>
-    </div>
+  <div class="controls">
+    <label>
+      Diffusion Rate:
+      <input type="range" id="diffusionRate" min="0" max="0.5" step="0.01" value="0.1">
+      <span id="diffusionRateValue" class="value-display">0.10</span>
+    </label>
+    <label>
+      Heat Loss:
+      <input type="range" id="heatLoss" min="0" max="0.05" step="0.001" value="0.005">
+      <span id="heatLossValue" class="value-display">0.005</span>
+    </label>
+    <label>
+      Source Temperature:
+      <input type="range" id="sourceTemp" min="255" max="500" step="5" value="300">
+      <span id="sourceTempValue" class="value-display">300</span>
+    </label>
+  </div>
 
-    <script type="module">
-        import p5 from 'p5';
+  <script type="module">
+    import p5 from "p5";
 
-        const sketch = (p) => {
-            let grid, nextGrid;
-            const GRID_SIZE = 100;
-            const CELL_SIZE = 8;
+    const sketch = (p) => {
+      // Simulation constants
+      const GRID_SIZE = 120;
+      const SCALE = 5;
+      const WIDTH = GRID_SIZE * SCALE;
+      const HEIGHT = GRID_SIZE * SCALE;
+      const ZONE_HEIGHT = GRID_SIZE / 3;
+      
+      let grid, nextGrid, sources = [];
+      let diffusionRate = 0.1;
+      let heatLoss = 0.005;
+      let sourceTemp = 300;
+      let selectedSource = -1;
 
-            let brushTemp = 100;
-            let brushSize = 5;
-            let leftConductivity = 0.2;
-            let rightConductivity = 0.1;
-            const COOLING = 0.99;
+      // Initialize heat sources in each zone
+      function initSources() {
+        sources = [
+          { x: 20, y: ZONE_HEIGHT / 2, temp: sourceTemp },
+          { x: 60, y: ZONE_HEIGHT + ZONE_HEIGHT / 2, temp: sourceTemp },
+          { x: 100, y: ZONE_HEIGHT * 2 + ZONE_HEIGHT / 2, temp: sourceTemp }
+        ];
+      }
 
-            p.setup = () => {
-                p.createCanvas(GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE);
-                p.frameRate(30);
+      // Initialize grid with ambient temperature
+      function initGrid() {
+        grid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+        nextGrid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+      }
 
-                grid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
-                nextGrid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+      // Define different materials/conductivities
+      function getConductivity(x, y) {
+        if (y < ZONE_HEIGHT) return 0.5;       // Metal
+        if (y < ZONE_HEIGHT * 2) return 0.1;   // Wood
+        return 0.05;                           // Insulator
+      }
 
-                // Initialize controls
-                document.getElementById('brush-temp').addEventListener('input', (e) => {
-                    brushTemp = parseInt(e.target.value);
-                    document.getElementById('brush-temp-value').textContent = brushTemp;
-                });
-
-                document.getElementById('brush-size').addEventListener('input', (e) => {
-                    brushSize = parseInt(e.target.value);
-                    document.getElementById('brush-size-value').textContent = brushSize;
-                });
-
-                document.getElementById('left-conductivity').addEventListener('input', (e) => {
-                    leftConductivity = parseFloat(e.target.value);
-                    document.getElementById('left-conductivity-value').textContent = leftConductivity;
-                });
-
-                document.getElementById('right-conductivity').addEventListener('input', (e) => {
-                    rightConductivity = parseFloat(e.target.value);
-                    document.getElementById('right-conductivity-value').textContent = rightConductivity;
-                });
-            };
-
-            p.draw = () => {
-                p.background(0);
-
-                applyBrush();
-                diffuseHeat();
-                updateGrid();
-
-                displayGrid();
-            };
-
-            function applyBrush() {
-                if (p.mouseIsPressed) {
-                    const mx = Math.floor(p.mouseX / CELL_SIZE);
-                    const my = Math.floor(p.mouseY / CELL_SIZE);
-
-                    for (let i = -brushSize; i <= brushSize; i++) {
-                        for (let j = -brushSize; j <= brushSize; j++) {
-                            const x = mx + i;
-                            const y = my + j;
-
-                            if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-                                const distance = Math.sqrt(i * i + j * j);
-                                if (distance <= brushSize) {
-                                    const intensity = brushTemp * (1 - distance / brushSize);
-                                    grid[x][y] = Math.min(grid[x][y] + intensity, 255);
-                                }
-                            }
-                        }
-                    }
-                }
+      // Update temperature grid using heat diffusion
+      function updateGrid() {
+        for (let i = 0; i < GRID_SIZE; i++) {
+          for (let j = 0; j < GRID_SIZE; j++) {
+            // Skip heat sources
+            if (sources.some(s => 
+              i >= s.x - 2 && i <= s.x + 2 && 
+              j >= s.y - 2 && j <= s.y + 2)) {
+              nextGrid[i][j] = grid[i][j];
+              continue;
             }
-
-            function diffuseHeat() {
-                for (let i = 0; i < GRID_SIZE; i++) {
-                    for (let j = 0; j < GRID_SIZE; j++) {
-                        const k = i < GRID_SIZE / 2 ? leftConductivity : rightConductivity;
-                        let sum = 0;
-                        let count = 0;
-
-                        if (i > 0) {
-                            sum += grid[i - 1][j];
-                            count++;
-                        }
-                        if (i < GRID_SIZE - 1) {
-                            sum += grid[i + 1][j];
-                            count++;
-                        }
-                        if (j > 0) {
-                            sum += grid[i][j - 1];
-                            count++;
-                        }
-                        if (j < GRID_SIZE - 1) {
-                            sum += grid[i][j + 1];
-                            count++;
-                        }
-
-                        const avg = sum / count;
-                        nextGrid[i][j] = grid[i][j] + k * (avg - grid[i][j]);
-                        nextGrid[i][j] *= COOLING;
-                    }
-                }
+            
+            // Heat diffusion calculation
+            let laplacian = 0;
+            let neighbors = 0;
+            
+            // Get neighboring cells
+            for (let dx = -1; dx <= 1; dx++) {
+              for (let dy = -1; dy <= 1; dy++) {
+                if (dx === 0 && dy === 0) continue;
+                
+                let ni = (i + dx + GRID_SIZE) % GRID_SIZE;
+                let nj = (j + dy + GRID_SIZE) % GRID_SIZE;
+                
+                laplacian += grid[ni][nj];
+                neighbors++;
+              }
             }
-
-            function updateGrid() {
-                for (let i = 0; i < GRID_SIZE; i++) {
-                    for (let j = 0; j < GRID_SIZE; j++) {
-                        grid[i][j] = nextGrid[i][j];
-                    }
-                }
+            
+            // Average temperature of neighbors
+            laplacian /= neighbors;
+            
+            // Get local conductivity
+            let conductivity = getConductivity(i, j);
+            
+            // Update temperature with diffusion and heat loss
+            nextGrid[i][j] = grid[i][j] + diffusionRate * conductivity * (laplacian - grid[i][j]);
+            nextGrid[i][j] -= heatLoss; // Natural cooling
+            nextGrid[i][j] = Math.max(0, nextGrid[i][j]);
+          }
+        }
+        
+        // Swap grids
+        [grid, nextGrid] = [nextGrid, grid];
+        
+        // Update heat sources
+        sources.forEach(source => {
+          for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+              let i = source.x + dx;
+              let j = source.y + dy;
+              
+              if (i >= 0 && i < GRID_SIZE && j >= 0 && j < GRID_SIZE) {
+                grid[i][j] = source.temp;
+              }
             }
+          }
+        });
+      }
 
-            function displayGrid() {
-                p.noStroke();
-                for (let i = 0; i < GRID_SIZE; i++) {
-                    for (let j = 0; j < GRID_SIZE; j++) {
-                        const value = grid[i][j];
-                        p.fill(value);
-                        p.rect(i * CELL_SIZE, j * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-                    }
-                }
+      // Draw temperature visualization
+      function drawGrid() {
+        p.noStroke();
+        for (let i = 0; i < GRID_SIZE; i++) {
+          for (let j = 0; j < GRID_SIZE; j++) {
+            let temp = grid[i][j];
+            let colorVal = p.map(temp, 0, sourceTemp, 0, 255);
+            
+            // Heat map color (blue to red)
+            let c = p.lerpColor(
+              p.color(0, 0, 255),
+              p.color(255, 0, 0),
+              colorVal / 255
+            );
+            
+            p.fill(c);
+            p.rect(i * SCALE, j * SCALE, SCALE, SCALE);
+          }
+        }
+      }
+
+      // Draw heat sources
+      function drawSources() {
+        p.fill(255, 255, 0);
+        sources.forEach(source => {
+          p.ellipse(source.x * SCALE, source.y * SCALE, 10, 10);
+        });
+      }
+
+      // Draw zone separators
+      function drawZones() {
+        p.stroke(255);
+        p.strokeWeight(2);
+        p.line(0, ZONE_HEIGHT * SCALE, WIDTH, ZONE_HEIGHT * SCALE);
+        p.line(0, ZONE_HEIGHT * 2 * SCALE, WIDTH, ZONE_HEIGHT * 2 * SCALE);
+        
+        // Add zone labels
+        p.fill(255);
+        p.noStroke();
+        p.textSize(16);
+        p.text("Metal", 10, 20);
+        p.text("Wood", 10, ZONE_HEIGHT * SCALE + 20);
+        p.text("Insulator", 10, ZONE_HEIGHT * 2 * SCALE + 20);
+      }
+
+      // Mouse interaction for moving sources
+      function handleMouse() {
+        if (p.mouseIsPressed) {
+          if (selectedSource === -1) {
+            // Check if clicking on a source
+            for (let i = 0; i < sources.length; i++) {
+              let s = sources[i];
+              let d = p.dist(p.mouseX, p.mouseY, s.x * SCALE, s.y * SCALE);
+              if (d < 10) {
+                selectedSource = i;
+                break;
+              }
             }
-        };
+          } else {
+            // Update source position
+            sources[selectedSource].x = p.constrain(p.mouseX / SCALE, 0, GRID_SIZE - 1);
+            sources[selectedSource].y = p.constrain(p.mouseY / SCALE, 0, GRID_SIZE - 1);
+          }
+        } else {
+          selectedSource = -1;
+        }
+      }
 
-        new p5(sketch);
-    </script>
+      // Set up simulation canvas
+      p.setup = () => {
+        p.createCanvas(WIDTH, HEIGHT);
+        initGrid();
+        initSources();
+        
+        // Set up controls
+        document.getElementById('diffusionRate').addEventListener('input', (e) => {
+          diffusionRate = parseFloat(e.target.value);
+          document.getElementById('diffusionRateValue').textContent = diffusionRate.toFixed(2);
+        });
+        
+        document.getElementById('heatLoss').addEventListener('input', (e) => {
+          heatLoss = parseFloat(e.target.value);
+          document.getElementById('heatLossValue').textContent = heatLoss.toFixed(3);
+        });
+        
+        document.getElementById('sourceTemp').addEventListener('input', (e) => {
+          sourceTemp = parseInt(e.target.value);
+          document.getElementById('sourceTempValue').textContent = sourceTemp;
+          sources.forEach(s => s.temp = sourceTemp);
+        });
+      };
+
+      // Main simulation loop
+      p.draw = () => {
+        updateGrid();
+        drawGrid();
+        drawSources();
+        drawZones();
+        handleMouse();
+      };
+    };
+
+    // Create p5 instance
+    new p5(sketch, document.body);
+  </script>
 </body>
-
 </html>
