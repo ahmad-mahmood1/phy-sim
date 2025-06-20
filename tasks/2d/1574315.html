@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flocking Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a202c; /* Dark blue-gray background */
+            color: #e2e8f0;
+            font-family: 'Roboto Mono', monospace;
+            text-align: center;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #4a5568;
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            overflow: hidden; /* Ensures canvas corners are rounded */
+        }
+        #info {
+            margin-bottom: 16px;
+            padding: 8px;
+            border-radius: 6px;
+            background-color: rgba(45, 55, 72, 0.7);
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="info">
+       <h1>Flocking Simulation</h1>
+       <p>Click on the canvas to spawn or move the predator drone.</p>
+    </div>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Configuration ---
+            const BOID_COUNT = 81;
+            const PREDATOR_FEAR_RADIUS = 75;
+            const PREDATOR_FLEE_FORCE = 1.5;
+            const SEPARATION_MULTIPLIER = 2.0; 
+            const COHESION_MULTIPLIER = 1.2;
+            const NUM_FLOCKS = 3;
+            let flockColors = [];
+            
+            let flock = [];
+            let predator = null;
+
+            // Bird class represents a single bird in the flock
+            class Bird {
+                constructor(flockId) {
+                    this.position = p.createVector(p.random(p.width), p.random(p.height));
+                    this.velocity = p5.Vector.random2D();
+                    this.velocity.setMag(p.random(2, 4));
+                    this.acceleration = p.createVector();
+                    this.maxForce = 0.2; // Limits the steering force
+                    this.maxSpeed = 4;   // Limits the boid's speed
+                    this.flockId = flockId; // Assign the boid to a flock
+
+                    this.flapSpeed = p.random(0.4, 0.6);
+                    this.flapOffset = p.random(p.TWO_PI);
+                }
+
+                edges() {
+                    if (this.position.x > p.width) {
+                        this.position.x = 0;
+                    } else if (this.position.x < 0) {
+                        this.position.x = p.width;
+                    }
+                    if (this.position.y > p.height) {
+                        this.position.y = 0;
+                    } else if (this.position.y < 0) {
+                        this.position.y = p.height;
+                    }
+                }
+
+                // --- Flocking Behaviors ---
+
+                align(boids) {
+                    let perceptionRadius = 50;
+                    let steering = p.createVector();
+                    let total = 0;
+                    for (let other of boids) {
+                        let d = p.dist(this.position.x, this.position.y, other.position.x, other.position.y);
+                        if (other != this && other.flockId === this.flockId && d < perceptionRadius) {
+                            steering.add(other.velocity);
+                            total++;
+                        }
+                    }
+                    if (total > 0) {
+                        steering.div(total);
+                        steering.setMag(this.maxSpeed);
+                        steering.sub(this.velocity);
+                        steering.limit(this.maxForce);
+                    }
+                    return steering;
+                }
+                
+                cohesion(boids) {
+                    let perceptionRadius = 100;
+                    let steering = p.createVector();
+                    let total = 0;
+                    for (let other of boids) {
+                        let d = p.dist(this.position.x, this.position.y, other.position.x, other.position.y);
+                        if (other != this && other.flockId === this.flockId && d < perceptionRadius) {
+                            steering.add(other.position);
+                            total++;
+                        }
+                    }
+                    if (total > 0) {
+                        steering.div(total);
+                        steering.sub(this.position);
+                        steering.setMag(this.maxSpeed);
+                        steering.sub(this.velocity);
+                        steering.limit(this.maxForce);
+                    }
+                    return steering;
+                }
+
+                separation(boids) {
+                    let perceptionRadius = 24; 
+                    let steering = p.createVector();
+                    let total = 0;
+                    for (let other of boids) {
+                        let d = p.dist(this.position.x, this.position.y, other.position.x, other.position.y);
+                        if (other != this && other.flockId === this.flockId && d < perceptionRadius) {
+                            let diff = p5.Vector.sub(this.position, other.position);
+                            diff.div(d * d); // Weight by distance
+                            steering.add(diff);
+                            total++;
+                        }
+                    }
+                    if (total > 0) {
+                        steering.div(total);
+                        steering.setMag(this.maxSpeed);
+                        steering.sub(this.velocity);
+                        steering.limit(this.maxForce);
+                    }
+                    return steering;
+                }
+
+                flee(target) {
+                    let desired = p5.Vector.sub(this.position, target.position);
+                    let d = desired.mag();
+                    if (d < PREDATOR_FEAR_RADIUS) {
+                        desired.setMag(this.maxSpeed);
+                        desired.sub(this.velocity);
+                        desired.limit(this.maxForce * PREDATOR_FLEE_FORCE * (PREDATOR_FEAR_RADIUS / d));
+                        return desired;
+                    }
+                    return p.createVector(0, 0);
+                }
+
+                flock(boids, predator) {
+                    this.acceleration.mult(0);
+                    
+                    let alignment = this.align(boids);
+                    let cohesion = this.cohesion(boids);
+                    let separation = this.separation(boids);
+
+                    separation.mult(SEPARATION_MULTIPLIER);
+                    cohesion.mult(COHESION_MULTIPLIER);
+
+                    this.acceleration.add(alignment);
+                    this.acceleration.add(cohesion);
+                    this.acceleration.add(separation);
+                    
+                    if (predator) {
+                        let fleeForce = this.flee(predator);
+                        this.acceleration.add(fleeForce);
+                    }
+                }
+
+                update() {
+                    this.position.add(this.velocity);
+                    this.velocity.add(this.acceleration);
+                    this.velocity.limit(this.maxSpeed);
+                }
+
+                // --- MODIFIED: Draw bird with a line body and two separate wings ---
+                show() {
+                    const mainColor = flockColors[this.flockId];
+                    const strokeColor = p.color(p.red(mainColor) * 0.8, p.green(mainColor) * 0.8, p.blue(mainColor) * 0.8);
+
+                    p.push();
+                    p.translate(this.position.x, this.position.y);
+                    p.rotate(this.velocity.heading());
+                    
+                    // Flapping Animation Calculation
+                    const flapMultiplier = (p.sin(p.frameCount * this.flapSpeed + this.flapOffset) + 1) * 0.5 + 0.5;
+                    const len = 7;
+
+                    // --- Wings ---
+                    p.fill(mainColor);
+                    p.stroke(strokeColor);
+                    p.strokeWeight(1);
+                    p.noFill();
+
+                    // Top Wing
+                    p.beginShape();
+                    p.vertex(len / 4, 0); // Start on body
+                    p.curveVertex(len / 4, 0);
+                    p.curveVertex(len / 4, (-len / 1.2) * flapMultiplier);
+                    p.curveVertex(-len / 2, (-len / 2.5) * flapMultiplier);
+                    p.curveVertex(-len * 0.75, 0); // End on body
+                    p.curveVertex(-len * 0.75, 0);
+                    p.endShape();
+
+                    // Bottom Wing
+                    p.beginShape();
+                    p.vertex(len / 4, 0); // Start on body
+                    p.curveVertex(len / 4, 0);
+                    p.curveVertex(len / 4, (len / 1.2) * flapMultiplier);
+                    p.curveVertex(-len / 2, (len / 2.5) * flapMultiplier);
+                    p.curveVertex(-len * 0.75, 0); // End on body
+                    p.curveVertex(-len * 0.75, 0);
+                    p.endShape();
+
+                    // --- Body Line ---
+                    // Draw body on top of the wings
+                    p.stroke(mainColor);
+                    p.strokeWeight(2);
+                    p.line(-len, 0, len, 0); // Line from tail to head
+                    
+                    p.pop();
+                }
+            }
+
+            // Predator class
+            class Predator {
+                constructor(x, y) {
+                    this.position = p.createVector(x, y);
+                    this.velocity = p5.Vector.random2D();
+                    this.velocity.setMag(0.5); 
+                }
+
+                update() {
+                    this.position.add(this.velocity);
+                    this.edges();
+                }
+
+                 edges() {
+                    if (this.position.x > p.width) {
+                        this.position.x = 0;
+                    } else if (this.position.x < 0) {
+                        this.position.x = p.width;
+                    }
+                    if (this.position.y > p.height) {
+                        this.position.y = 0;
+                    } else if (this.position.y < 0) {
+                        this.position.y = p.height;
+                    }
+                }
+
+                move(x, y) {
+                    this.position.set(x, y);
+                    this.velocity = p5.Vector.random2D();
+                    this.velocity.setMag(0.5);
+                }
+                
+                show() {
+                    p.push();
+                    p.translate(this.position.x, this.position.y);
+
+                    p.stroke(200);
+                    p.strokeWeight(2);
+                    p.fill(80);
+                    
+                    let armLength = 15;
+                    let bodySize = 10;
+
+                    p.line(-armLength, -armLength, armLength, armLength);
+                    p.line(-armLength, armLength, armLength, -armLength);
+                    p.ellipse(0, 0, bodySize, bodySize);
+
+                    p.noStroke();
+                    p.fill(255, 50, 50, 200); 
+                    let propellerSize = 12;
+                    let rotation = p.millis() / 150; 
+
+                    p.push();
+                    p.translate(-armLength, -armLength);
+                    p.rotate(rotation);
+                    p.rect(-propellerSize / 2, -2, propellerSize, 4, 2);
+                    p.pop();
+
+                    p.push();
+                    p.translate(armLength, -armLength);
+                    p.rotate(-rotation);
+                    p.rect(-propellerSize / 2, -2, propellerSize, 4, 2);
+                    p.pop();
+
+                    p.push();
+                    p.translate(-armLength, armLength);
+                    p.rotate(-rotation);
+                    p.rect(-propellerSize / 2, -2, propellerSize, 4, 2);
+                    p.pop();
+
+                    p.push();
+                    p.translate(armLength, armLength);
+                    p.rotate(rotation);
+                    p.rect(-propellerSize / 2, -2, propellerSize, 4, 2);
+                    p.pop();
+
+                    p.pop();
+                }
+            }
+
+            p.setup = () => {
+                const container = window.document.getElementById('canvas-container');
+                const w = Math.min(window.innerWidth * 0.8, 800);
+                const h = w * 0.6;
+                p.createCanvas(w, h).parent(container);
+                
+                flockColors = [
+                    p.color(45, 100, 255, 150),   // Blue
+                    p.color(45, 200, 150, 150),  // Teal
+                    p.color(255, 150, 45, 150)   // Orange
+                ];
+
+                const boidsPerFlock = BOID_COUNT / NUM_FLOCKS;
+                for (let i = 0; i < BOID_COUNT; i++) {
+                    const flockId = Math.floor(i / boidsPerFlock);
+                    flock.push(new Bird(flockId));
+                }
+            };
+
+            p.draw = () => {
+                p.background(30, 41, 59);
+
+                if (predator) {
+                    predator.update();
+                    predator.show();
+                }
+                
+                for (let boid of flock) {
+                    boid.edges();
+                    boid.flock(flock, predator);
+                    boid.update();
+                    boid.show();
+                }
+            };
+            
+            p.mousePressed = () => {
+                if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
+                    if (!predator) {
+                        predator = new Predator(p.mouseX, p.mouseY);
+                    } else {
+                        predator.move(p.mouseX, p.mouseY);
+                    }
+                }
+            };
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+</html>
