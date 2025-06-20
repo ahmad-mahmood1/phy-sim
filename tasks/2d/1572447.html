@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zip Line Rescue Mission</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+        }
+        /* Custom styles for sliders */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #d3d3d3;
+            outline: none;
+            opacity: 0.7;
+            -webkit-transition: .2s;
+            transition: opacity .2s;
+            border-radius: 5px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #4A90E2;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #4A90E2;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl">
+        <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800 mb-2">Urban Rescue: Zip Line Mission</h1>
+        <p class="text-center text-gray-600 mb-4">Adjust the anchors and account for wind to create a safe passage!</p>
+    </div>
+
+    <!-- Main container for the simulation and controls -->
+    <div class="w-full max-w-4xl bg-white rounded-lg shadow-2xl p-4 md:p-6">
+        <!-- p5.js canvas will be injected here -->
+        <div id="canvas-container" class="relative w-full h-auto aspect-[16/9] rounded-lg overflow-hidden border-2 border-gray-300">
+        </div>
+        
+        <!-- UI Controls -->
+        <div id="controls-container" class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            
+            <!-- Anchor Controls -->
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <label for="anchor1-slider" class="block font-bold text-gray-700">Start Building Anchor Height</label>
+                <input type="range" id="anchor1-slider" min="100" max="400" value="350" class="w-full mt-2">
+            </div>
+            
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <label for="anchor2-slider" class="block font-bold text-gray-700">Target Building Anchor Height</label>
+                <input type="range" id="anchor2-slider" min="100" max="400" value="200" class="w-full mt-2">
+            </div>
+
+            <!-- Weather and Actions -->
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                 <label for="wind-slider" class="block font-bold text-gray-700">Wind (<span id="wind-label">0</span> mph)</label>
+                <input type="range" id="wind-slider" min="-20" max="20" value="0" step="1" class="w-full mt-2">
+            </div>
+
+        </div>
+        
+        <div class="flex flex-col md:flex-row gap-4 mt-4">
+            <button id="launch-button" class="w-full md:w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200 shadow-md">
+                Launch Rescue Cart
+            </button>
+            <button id="reset-button" class="w-full md:w-1/2 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200 shadow-md">
+                Reset Simulation
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- DOM Elements ---
+            const anchor1Slider = document.getElementById('anchor1-slider');
+            const anchor2Slider = document.getElementById('anchor2-slider');
+            const windSlider = document.getElementById('wind-slider');
+            const launchButton = document.getElementById('launch-button');
+            const resetButton = document.getElementById('reset-button');
+            const windLabel = document.getElementById('wind-label');
+
+
+            // --- Simulation State & Constants ---
+            let cart = null;
+            let isSimulating = false;
+            let message = "";
+            let messageColor = 'black';
+            const G = 0.3; // Gravity constant
+            const CART_MASS = 10;
+            const MAX_TENSION_ANGLE = 5; // degrees. Angle too shallow = zipline snaps
+            const MAX_SAFE_SPEED = 5; // Max speed for a safe landing
+
+            // --- Environment Variables ---
+            let building1, building2;
+            let anchor1, anchor2;
+            let windForce;
+
+            // --- The Rescue Cart Class ---
+            class Cart {
+                constructor(startPos, ziplineVector) {
+                    this.pos = startPos.copy();
+                    this.vel = 0; // Speed along the zipline vector
+                    this.acc = 0;
+                    this.mass = CART_MASS;
+                    this.zipline = ziplineVector.copy().normalize(); // The direction of travel
+                    this.isSafe = false;
+                    this.isLost = false;
+                    this.history = [];
+                }
+
+                applyForces(wind) {
+                    // Calculate component of gravity along the zipline
+                    const gravityForce = G * this.mass;
+                    const angle = this.zipline.heading();
+                    const gravityComponent = gravityForce * p.sin(angle);
+
+                    // Calculate component of wind along the zipline
+                    const windComponent = wind.dot(this.zipline);
+                    
+                    // Total acceleration
+                    this.acc = (gravityComponent + windComponent) / this.mass;
+                }
+
+                update() {
+                    if(this.isSafe || this.isLost) return;
+                    
+                    this.vel += this.acc;
+                    
+                    // Simple friction
+                    this.vel *= 0.995; 
+
+                    const moveVector = this.zipline.copy().mult(this.vel);
+                    this.pos.add(moveVector);
+                    
+                    // Record path for trail effect
+                    this.history.push(this.pos.copy());
+                    if (this.history.length > 50) {
+                        this.history.splice(0, 1);
+                    }
+                }
+
+                checkStatus() {
+                    // Check for safe landing
+                    if (this.pos.x >= building2.x) {
+                        this.isSafe = true;
+                        this.vel = 0;
+                        if (p.abs(this.vel) > MAX_SAFE_SPEED) {
+                             message = "CRASH! Too fast on landing!";
+                             messageColor = '#E53E3E'; // Red
+                        } else {
+                             message = "SUCCESS! Citizen rescued!";
+                             messageColor = '#38A169'; // Green
+                        }
+                    }
+                }
+
+                display() {
+                    // Draw trail
+                    p.beginShape();
+                    p.noFill();
+                    p.stroke(74, 144, 226, 100);
+                    p.strokeWeight(3);
+                    this.history.forEach(v => p.vertex(v.x, v.y));
+                    p.endShape();
+                
+                    // Draw cart
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    p.fill('#F5A623'); // Cart color
+                    p.stroke('#4A4A4A');
+                    p.strokeWeight(2);
+                    p.rect(-10, -10, 20, 10, 3); // Cart body
+                    p.fill('#4A90E2');
+                    p.ellipse(0, 0, 15, 15); // Citizen
+                    p.pop();
+                }
+            }
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(container.offsetWidth, container.offsetHeight);
+                canvas.parent(container);
+                
+                // Initialize environment based on canvas size
+                resetSimulation();
+
+                // --- Event Listeners ---
+                launchButton.onclick = launchSimulation;
+                resetButton.onclick = resetSimulation;
+                windSlider.oninput = () => {
+                    windLabel.textContent = windSlider.value;
+                };
+            };
+            
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+                resetSimulation(); // Reset on resize to recalculate positions
+            }
+
+            p.draw = () => {
+                p.background('#DDEEFF'); // Sky blue
+                
+                // --- Update values from controls ---
+                anchor1.y = p.height - anchor1Slider.value;
+                anchor2.y = p.height - anchor2Slider.value;
+                const windStrength = windSlider.value / 100; // Scale down for physics
+                windForce = p.createVector(windStrength, 0);
+
+                // --- Draw Environment ---
+                drawBuildings();
+                drawAnchors();
+                drawZipline();
+                drawWind();
+                
+                // --- Simulation Logic ---
+                if (isSimulating && cart) {
+                    cart.applyForces(windForce);
+                    cart.update();
+                    cart.checkStatus();
+                    cart.display();
+                    launchButton.disabled = true;
+                } else {
+                    launchButton.disabled = false;
+                    displayMessage(message, messageColor);
+                }
+                
+                // Display pre-launch warnings
+                if (!isSimulating) {
+                    const ziplineVec = p5.Vector.sub(anchor2, anchor1);
+                    const angle = p.abs(p.degrees(ziplineVec.heading()));
+                    if (angle < MAX_TENSION_ANGLE) {
+                         displayMessage("WARNING: Angle too shallow! High tension risk.", '#D97706'); // Amber
+                    } else {
+                        // Clear the warning if angle is okay
+                        if (message.startsWith("WARNING")) message = "";
+                    }
+                }
+            };
+
+            // --- Drawing Functions ---
+            function drawBuildings() {
+                p.fill('#8B9AAD'); // Building color
+                p.noStroke();
+                p.rect(building1.x, building1.y, building1.w, building1.h);
+                p.rect(building2.x, building2.y, building2.w, building2.h);
+                // Windows
+                p.fill('#4A4A4A');
+                for (let y = building1.y + 20; y < p.height - 20; y += 40) {
+                   p.rect(building1.x + 20, y, 20, 20);
+                   p.rect(building1.x + 60, y, 20, 20);
+                }
+                 for (let y = building2.y + 20; y < p.height - 20; y += 40) {
+                   p.rect(building2.x + 20, y, 20, 20);
+                   p.rect(building2.x + 60, y, 20, 20);
+                }
+            }
+            
+            function drawAnchors() {
+                p.fill('#E53E3E');
+                p.stroke('white');
+                p.strokeWeight(3);
+                p.ellipse(anchor1.x, anchor1.y, 20, 20);
+                p.ellipse(anchor2.x, anchor2.y, 20, 20);
+            }
+
+            function drawZipline() {
+                p.strokeWeight(isSimulating ? 4 : 2);
+                p.stroke(isSimulating ? '#4A4A4A' : 'rgba(74, 74, 74, 0.5)');
+                p.line(anchor1.x, anchor1.y, anchor2.x, anchor2.y);
+            }
+            
+            function drawWind() {
+                p.push();
+                p.translate(p.width/2, 30);
+                p.fill(100);
+                p.noStroke();
+                p.text(`Wind: ${windSlider.value} mph`, -30, 15);
+                
+                // Arrow
+                p.stroke(100, 150);
+                p.strokeWeight(2);
+                p.line(0,0, windForce.x * 500, 0);
+                p.push();
+                p.translate(windForce.x * 500, 0);
+                if (windForce.x !== 0) {
+                    let angle = windForce.x > 0 ? 0 : p.PI;
+                    p.rotate(angle);
+                    p.line(0, 0, -10, -5);
+                    p.line(0, 0, -10, 5);
+                }
+                p.pop();
+                p.pop();
+            }
+
+            function displayMessage(msg, color = 'black') {
+                 if (!msg) return;
+                 p.push();
+                 p.textAlign(p.CENTER, p.CENTER);
+                 p.textSize(24);
+                 p.fill(color);
+                 p.stroke('white');
+                 p.strokeWeight(4);
+                 p.text(msg, p.width / 2, p.height / 2);
+                 p.pop();
+            }
+
+            // --- Control Functions ---
+            function launchSimulation() {
+                const ziplineVec = p5.Vector.sub(anchor2, anchor1);
+                const angle = p.abs(p.degrees(ziplineVec.heading()));
+
+                // Check for failure conditions before launch
+                if (anchor1.y > anchor2.y) {
+                    message = "FAIL: Cannot go uphill!";
+                    messageColor = '#E53E3E';
+                    isSimulating = false;
+                    return;
+                }
+                
+                if (angle < MAX_TENSION_ANGLE) {
+                    message = "SNAP! The zip line broke under high tension!";
+                    messageColor = '#E53E3E';
+                    isSimulating = false; // Don't start
+                    return;
+                }
+                
+                message = "";
+                isSimulating = true;
+                cart = new Cart(anchor1, ziplineVec);
+            }
+
+            function resetSimulation() {
+                isSimulating = false;
+                cart = null;
+                message = "";
+
+                const buildingWidth = p.width * 0.15;
+                building1 = { x: 0, y: p.height * 0.2, w: buildingWidth, h: p.height * 0.8 };
+                building2 = { x: p.width - buildingWidth, y: p.height * 0.4, w: buildingWidth, h: p.height * 0.6 };
+
+                anchor1 = p.createVector(building1.w, p.height - anchor1Slider.value);
+                anchor2 = p.createVector(building2.x, p.height - anchor2Slider.value);
+                launchButton.disabled = false;
+            }
+        };
+
+        new p5(sketch, window.document.getElementById('canvas-container'));
+    </script>
+</body>
+
+</html>
