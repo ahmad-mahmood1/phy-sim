@@ -4,474 +4,220 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Curveball Trajectory Simulation</title>
-    <!-- Tailwind CSS for modern styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts for better typography -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- p5.js library -->
+    <title>2D Heat Diffusion Simulation</title>
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
     <script type="importmap">
-            {
-                "imports": {
-                    "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-                }
-            }
-        </script>
+    {
+        "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+        }
+    }
+    </script>
     <style>
-        /* Use Inter font family */
         body {
-            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
         }
 
-        /* Custom styles for sliders for cross-browser consistency */
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
+        h1 {
+            margin: 20px 0;
+            color: #333;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        #controls {
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #ffffff;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            width: 800px;
+            max-width: 90%;
+        }
+
+        .control-group {
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .control-group label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .control-group input {
             width: 100%;
-            height: 8px;
-            background: #d1d5db;
-            /* gray-300 */
-            border-radius: 9999px;
-            outline: none;
-            opacity: 0.7;
-            transition: opacity .2s;
         }
 
-        input[type="range"]:hover {
-            opacity: 1;
-        }
-
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 20px;
-            height: 20px;
-            background: #3b82f6;
-            /* blue-500 */
-            cursor: pointer;
-            border-radius: 50%;
-            border: 2px solid white;
-        }
-
-        input[type="range"]::-moz-range-thumb {
-            width: 20px;
-            height: 20px;
-            background: #3b82f6;
-            /* blue-500 */
-            cursor: pointer;
-            border-radius: 50%;
-            border: 2px solid white;
+        .value-display {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 2px;
+            align-self: flex-end;
         }
     </style>
 </head>
 
-<body class="bg-gray-100 text-gray-800 antialiased">
-
-    <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-        <!-- Header Section -->
-        <div class="text-center mb-8">
-            <h1 class="text-4xl font-bold text-gray-900">Curveball Physics Simulator</h1>
-            <p class="mt-2 text-lg text-gray-600">Adjust the parameters to land the curveball in the catcher's glove.
-            </p>
+<body>
+    <h1>2D Heat Diffusion Simulation</h1>
+    <div id="controls">
+        <div class="control-group">
+            <label for="brush-temp">Brush Temperature (0-255):</label>
+            <input type="range" id="brush-temp" min="0" max="255" value="100">
+            <span id="brush-temp-value" class="value-display">100</span>
         </div>
-
-        <!-- Main Content: Canvas and Controls -->
-        <div class="flex flex-col lg:flex-row gap-8">
-
-            <!-- Simulation Canvas -->
-            <div id="canvas-container"
-                class="flex-grow bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-                <!-- p5.js canvas will be inserted here -->
-            </div>
-
-            <!-- Controls Panel -->
-            <div class="lg:w-96 flex-shrink-0 bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                <h2 class="text-2xl font-bold mb-6 text-gray-800">Pitch Controls</h2>
-                <div class="space-y-6">
-                    <!-- Velocity Slider -->
-                    <div>
-                        <label for="velocity" class="block text-sm font-medium text-gray-700">Initial Velocity (<span
-                                id="velocity-value">85</span> mph)</label>
-                        <input type="range" id="velocity" min="50" max="100" value="85" step="1" class="w-full mt-2">
-                    </div>
-                    <!-- Spin Rate Slider -->
-                    <div>
-                        <label for="spin" class="block text-sm font-medium text-gray-700">Top Spin Rate (<span
-                                id="spin-value">2000</span> rpm)</label>
-                        <!-- FIX: Increased max spin rate to 3000 to accommodate the initial value -->
-                        <input type="range" id="spin" min="0" max="3000" value="2000" step="50" class="w-full mt-2">
-                    </div>
-                    <!-- Launch Angle Slider -->
-                    <div>
-                        <label for="angle" class="block text-sm font-medium text-gray-700">Launch Angle (<span
-                                id="angle-value">4</span>°)</label>
-                        <input type="range" id="angle" min="-5" max="15" value="4" step="0.5" class="w-full mt-2">
-                    </div>
-                </div>
-                <!-- Reset Button -->
-                <div class="mt-8">
-                    <button id="pitch-button"
-                        class="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 ease-in-out shadow-md hover:shadow-lg">
-                        Throw Pitch
-                    </button>
-                </div>
-            </div>
+        <div class="control-group">
+            <label for="brush-size">Brush Size (1-20):</label>
+            <input type="range" id="brush-size" min="1" max="20" value="5">
+            <span id="brush-size-value" class="value-display">5</span>
+        </div>
+        <div class="control-group">
+            <label for="left-conductivity">Left-side Conductivity (0.0-0.5):</label>
+            <input type="range" id="left-conductivity" min="0" max="0.5" step="0.01" value="0.2">
+            <span id="left-conductivity-value" class="value-display">0.2</span>
+        </div>
+        <div class="control-group">
+            <label for="right-conductivity">Right-side Conductivity (0.0-0.5):</label>
+            <input type="range" id="right-conductivity" min="0" max="0.5" step="0.01" value="0.1">
+            <span id="right-conductivity-value" class="value-display">0.1</span>
         </div>
     </div>
 
     <script type="module">
         import p5 from 'p5';
-        // This script block contains the p5.js code for the simulation.
-        // It is written in "instance mode" to avoid polluting the global namespace
-        // and to attach the canvas to a specific container element.
 
         const sketch = (p) => {
-            // --- DOM Elements ---
-            let canvasContainer;
-            let velocitySlider, spinSlider, angleSlider;
-            let velocityValue, spinValue, angleValue;
-            let pitchButton;
+            let grid, nextGrid;
+            const GRID_SIZE = 100;
+            const CELL_SIZE = 8;
 
-            // --- Simulation State ---
-            let ball;
-            let trajectory = []; // Array to store ball's path
-            let isPitching = false;
-            let isThrowBall = false;
-            let pitchResult = ""; // "Hit!", "Miss!", ""
+            let brushTemp = 100;
+            let brushSize = 5;
+            let leftConductivity = 0.2;
+            let rightConductivity = 0.1;
+            const COOLING = 0.99;
 
-            // --- Physics & World Constants ---
-            // These constants are tuned for a visually appealing simulation in a pixel environment.
-            const gravity = new p5.Vector(0, 0.25); // Force of gravity pulling the ball down
-            const airDensity = 0.01; // Simplified air density for drag calculation
-            const magnusScalar = 0.000045; // Coefficient for the Magnus effect
-
-            const pitcherPos = new p5.Vector(50, 250); // Starting position of the pitch
-            const glove = { x: 680, y: 350, w: 50, h: 50 }; // Catcher's glove target
-
-            // ========================================================================
-            // BALL CLASS
-            // Encapsulates all properties and behaviors of the baseball.
-            // ========================================================================
-            class Ball {
-                constructor(pos, vel, spin) {
-                    this.pos = pos.copy(); // p5.Vector for position
-                    this.vel = vel.copy(); // p5.Vector for velocity
-                    this.acc = new p5.Vector(0, 0); // p5.Vector for acceleration
-                    this.radius = 10;
-                    this.mass = 1;
-                    this.spin = spin; // Spin in RPM
-
-                    // For visual rotation
-                    this.angle = 0;
-                    // Convert RPM to radians per second for physics, then per frame in update
-                    this.spinRate = (this.spin / 60) * p.TWO_PI;
-                }
-
-                // applyForce adds a force vector to the acceleration
-                applyForce(force) {
-                    // Newton's 2nd Law: F = m * a  =>  a = F / m
-                    let f = p5.Vector.div(force, this.mass);
-                    this.acc.add(f);
-                }
-
-                // calculateAndApplyForces determines all forces acting on the ball
-                calculateAndApplyForces() {
-                    // 1. Gravity
-                    this.applyForce(gravity);
-
-                    // 2. Air Drag Force
-                    // Drag is opposite to velocity and proportional to velocity squared.
-                    let dragForce = this.vel.copy();
-                    let speed = dragForce.mag();
-                    dragForce.normalize();
-                    dragForce.mult(-1 * airDensity * speed);
-                    this.applyForce(dragForce);
-
-                    // 3. Magnus Force (The "Curve" in Curveball)
-                    // This force is perpendicular to both the velocity and the spin axis.
-                    // For a 2D side view with topspin, this results in a downward force.
-                    // F_magnus is proportional to (spin x velocity).
-                    // The vector (-vel.y, vel.x) is perpendicular to velocity and points down-right for a typical pitch.
-                    let magnusForce = new p5.Vector(-this.vel.y, this.vel.x);
-                    magnusForce.mult(this.spin * magnusScalar);
-                    this.applyForce(magnusForce);
-                }
-
-                // update physics state for each frame
-                update() {
-                    if (!isPitching) return;
-
-                    // Reset acceleration before recalculating forces
-                    this.acc.mult(0);
-
-                    this.calculateAndApplyForces();
-
-                    // Update velocity and position
-                    this.vel.add(this.acc);
-                    this.pos.add(this.vel);
-
-                    // Update visual rotation angle based on spin rate
-                    // Divide by frameRate to make rotation speed independent of hardware
-                    this.angle += this.spinRate / p.frameRate();
-
-                    // Record the new position for drawing the trajectory
-                    trajectory.push(this.pos.copy());
-                }
-
-                // display the ball on the canvas
-                display() {
-                    // FIX: All ball drawing logic is now inside the if-statement and push/pop block.
-                    // This ensures the entire ball (including both seams) rotates correctly,
-                    // and prevents drawing stack errors.
-                    if (isThrowBall) {
-                        p.push(); // Start a new drawing state
-                        p.translate(this.pos.x, this.pos.y); // Move origin to ball's position
-                        p.rotate(this.angle); // Rotate by the current angle
-
-                        // Draw the ball and seams relative to the new (0,0) origin
-                        p.noStroke();
-                        p.fill(255, 255, 255);
-                        p.ellipse(0, 0, this.radius * 2, this.radius * 2);
-
-                        p.stroke(255, 0, 0);
-                        p.strokeWeight(1.5);
-                        p.noFill();
-                        // First seam
-                        p.arc(0, 0, this.radius * 1.8, this.radius * 1.8, p.PI * 0.2, p.PI * 0.8);
-                        // Second seam
-                        p.arc(0, 0, this.radius * 1.8, this.radius * 1.8, p.PI * 1.2, p.PI * 1.8);
-
-                        p.pop(); // Restore original drawing state
-                    }
-                }
-            }
-
-            // ========================================================================
-            // P5.JS SETUP FUNCTION
-            // Runs once when the sketch is created.
-            // ========================================================================
             p.setup = () => {
-                canvasContainer = document.getElementById('canvas-container');
-                const canvasWidth = canvasContainer.offsetWidth;
-                const canvasHeight = Math.min(canvasWidth * 0.6, 500); // Maintain aspect ratio
+                p.createCanvas(GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE);
+                p.frameRate(30);
 
-                let canvas = p.createCanvas(canvasWidth, canvasHeight);
-                canvas.parent('canvas-container');
+                grid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+                nextGrid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
 
-                // --- Connect to HTML controls ---
-                velocitySlider = document.getElementById('velocity');
-                spinSlider = document.getElementById('spin');
-                angleSlider = document.getElementById('angle');
-                velocityValue = document.getElementById('velocity-value');
-                spinValue = document.getElementById('spin-value');
-                angleValue = document.getElementById('angle-value');
-                pitchButton = document.getElementById('pitch-button');
+                // Initialize controls
+                document.getElementById('brush-temp').addEventListener('input', (e) => {
+                    brushTemp = parseInt(e.target.value);
+                    document.getElementById('brush-temp-value').textContent = brushTemp;
+                });
 
-                // --- Add Event Listeners ---
-                const setupListener = (slider, valueEl) => {
-                    slider.addEventListener('input', () => {
-                        valueEl.textContent = slider.value;
-                        throwPitch();
-                    });
-                };
-                setupListener(velocitySlider, velocityValue);
-                setupListener(spinSlider, spinValue);
-                setupListener(angleSlider, angleValue);
-                pitchButton.addEventListener('click', () => throwPitch(true));
+                document.getElementById('brush-size').addEventListener('input', (e) => {
+                    brushSize = parseInt(e.target.value);
+                    document.getElementById('brush-size-value').textContent = brushSize;
+                });
 
-                // Adjust positions based on canvas size
-                pitcherPos.y = p.height / 2;
-                glove.x = p.width - 80;
-                glove.y = p.height * 0.6;
+                document.getElementById('left-conductivity').addEventListener('input', (e) => {
+                    leftConductivity = parseFloat(e.target.value);
+                    document.getElementById('left-conductivity-value').textContent = leftConductivity;
+                });
 
-                // Start with an initial pitch
-                throwPitch();
+                document.getElementById('right-conductivity').addEventListener('input', (e) => {
+                    rightConductivity = parseFloat(e.target.value);
+                    document.getElementById('right-conductivity-value').textContent = rightConductivity;
+                });
             };
 
-            // ========================================================================
-            // P5.JS DRAW FUNCTION
-            // Runs continuously in a loop, redrawing the canvas each frame.
-            // ========================================================================
             p.draw = () => {
-                p.background('#e0f2fe'); // A light sky-blue background
+                p.background(0);
 
-                drawField();
-                drawTrajectory();
+                applyBrush();
+                diffuseHeat();
+                updateGrid();
 
-                if (ball) {
-                    ball.display();
-                    if (isPitching) {
-                        ball.update();
-                        checkPitchLanded();
-                    }
-                }
-
-                drawResultText();
+                displayGrid();
             };
 
-            // --- Drawing Helper Functions ---
+            function applyBrush() {
+                if (p.mouseIsPressed) {
+                    const mx = Math.floor(p.mouseX / CELL_SIZE);
+                    const my = Math.floor(p.mouseY / CELL_SIZE);
 
-            function drawField() {
-                // Draw a patch of grass around the mound instead of the whole bottom
-                p.noStroke();
-                p.fill(134, 184, 114); // A nice green color for grass
-                // An ellipse for the grassy area.
-                p.ellipse(pitcherPos.x, pitcherPos.y + 40, 250, 60);
+                    for (let i = -brushSize; i <= brushSize; i++) {
+                        for (let j = -brushSize; j <= brushSize; j++) {
+                            const x = mx + i;
+                            const y = my + j;
 
-                // Draw Pitcher's mound on top of the grass
-                p.fill(210, 180, 140); // Sandy clay color
-                p.noStroke();
-                // Use an arc to create a small, curved hill shape
-                p.arc(pitcherPos.x, pitcherPos.y + 25, 150, 50, p.PI, p.TWO_PI);
-
-                // --- Draw Glove based on reference image, scaled to original box size ---
-                p.push();
-                p.translate(glove.x, glove.y);
-
-                const w = glove.w;
-                const h = glove.h;
-                const leatherColor = p.color(139, 92, 53);
-                const darkLeatherColor = p.color(74, 43, 23);
-
-                p.strokeJoin(p.ROUND);
-
-                // Main glove shape
-                p.fill(leatherColor);
-                p.stroke(darkLeatherColor);
-                p.strokeWeight(w * 0.08); // Scaled stroke weight
-
-                p.beginShape();
-                p.vertex(w * -0.05, h * 0.5);
-                p.bezierVertex(w * 0.1, -h * 0.2, w * 0.1, -h * 0.4, w * 0.3, -h * 0.45);
-                p.bezierVertex(w * 0.4, -h * 0.5, w * 0.5, -h * 0.5, w * 0.5, -h * 0.4);
-                p.bezierVertex(w * 0.6, -h * 0.45, w * 0.7, -h * 0.45, w * 0.7, -h * 0.35);
-                p.bezierVertex(w * 0.8, -h * 0.3, w * 0.85, -h * 0.2, w * 0.7, h * 0.05);
-                p.bezierVertex(w * 0.65, h * 0.2, w * 0.6, h * 0.4, w * 0.5, h * 0.5);
-                p.vertex(w * -0.05, h * 0.5);
-                p.endShape(p.CLOSE);
-
-                // Thumb Piece
-                p.beginShape();
-                p.vertex(w * -0.05, h * 0.5);
-                p.bezierVertex(w * -0.2, h * 0.4, w * -0.5, h * 0.3, w * -0.5, 0);
-                p.bezierVertex(w * -0.5, -h * 0.2, w * -0.3, -h * 0.25, w * -0.1, -h * 0.1);
-                p.bezierVertex(w * 0.0, h * 0.05, w * -0.05, h * 0.2, w * -0.05, h * 0.5);
-                p.endShape(p.CLOSE);
-
-                // Webbing straps
-                p.noFill();
-                p.stroke(darkLeatherColor);
-                p.strokeWeight(w * 0.12);
-                p.line(w * -0.1, -h * 0.1, w * 0.25, -h * 0.15);
-                p.line(w * -0.05, -h * 0.2, w * 0.2, -h * 0.25);
-
-                // Stitches
-                p.strokeWeight(w * 0.1);
-                p.strokeCap(p.ROUND);
-                p.line(w * 0.35, -h * 0.2, w * 0.45, -h * 0.3);
-                p.line(w * 0.35, -h * 0.3, w * 0.45, -h * 0.2);
-                p.line(w * 0.55, -h * 0.15, w * 0.65, -h * 0.25);
-                p.line(w * 0.55, -h * 0.25, w * 0.65, -h * 0.15);
-
-                p.pop();
-
-            }
-
-            function drawTrajectory() {
-                p.noFill();
-                p.strokeWeight(3);
-                p.stroke(0, 0, 0, 50); // Semi-transparent black
-                p.beginShape();
-                for (let point of trajectory) {
-                    p.vertex(point.x, point.y);
-                }
-                p.endShape();
-            }
-
-            function drawResultText() {
-                if (pitchResult) {
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(48);
-                    p.strokeWeight(5);
-                    p.stroke(255);
-                    if (pitchResult === "Hit!") {
-                        p.fill(34, 197, 94); // Green
-                    } else {
-                        p.fill(239, 68, 68); // Red
+                            if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+                                const distance = Math.sqrt(i * i + j * j);
+                                if (distance <= brushSize) {
+                                    const intensity = brushTemp * (1 - distance / brushSize);
+                                    grid[x][y] = Math.min(grid[x][y] + intensity, 255);
+                                }
+                            }
+                        }
                     }
-                    p.text(pitchResult, p.width / 2, p.height / 2);
                 }
             }
 
-            // --- Core Logic Functions ---
+            function diffuseHeat() {
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    for (let j = 0; j < GRID_SIZE; j++) {
+                        const k = i < GRID_SIZE / 2 ? leftConductivity : rightConductivity;
+                        let sum = 0;
+                        let count = 0;
 
-            function throwPitch(throwBall = false) {
-                isPitching = true;
-                pitchResult = "";
-                trajectory = [];
-                isThrowBall = throwBall;
+                        if (i > 0) {
+                            sum += grid[i - 1][j];
+                            count++;
+                        }
+                        if (i < GRID_SIZE - 1) {
+                            sum += grid[i + 1][j];
+                            count++;
+                        }
+                        if (j > 0) {
+                            sum += grid[i][j - 1];
+                            count++;
+                        }
+                        if (j < GRID_SIZE - 1) {
+                            sum += grid[i][j + 1];
+                            count++;
+                        }
 
-                // Get values from sliders
-                const initialVelocity = parseFloat(velocitySlider.value);
-                const spin = parseFloat(spinSlider.value);
-                const angle = parseFloat(angleSlider.value);
-
-                // Convert angle to radians and create velocity vector
-                // Velocity is scaled for the simulation view
-                let vel = p5.Vector.fromAngle(p.radians(angle), initialVelocity * 0.7);
-                vel.y *= -1; // In p5, y-axis is inverted
-
-                // Create a new ball instance
-                let startPos = pitcherPos.copy();
-                ball = new Ball(startPos, vel, spin);
-                trajectory.push(startPos);
-            }
-
-            function checkPitchLanded() {
-                // Stop the simulation if the ball goes off-screen
-                if (ball.pos.x > p.width || ball.pos.y > p.height || ball.pos.x < 0) {
-                    isPitching = false;
-                    if (isThrowBall && !pitchResult) pitchResult = "Miss!";
-                    return;
-                }
-
-                // Use p5.Vector.dist to check if the ball is close enough to the glove center
-                let gloveCenter = p.createVector(glove.x + 10, glove.y - 10);
-                let ballCenter = ball.pos.copy();
-                let gloveRadius = glove.h / 2;
-                let ballRadius = ball.radius;
-                if (p5.Vector.dist(ballCenter, gloveCenter) < gloveRadius + ballRadius) {
-                    isPitching = false;
-                    pitchResult = isThrowBall ? "Hit!" : "";
-                    return
-                } else if (ball.pos.x >= glove.x + glove.w) {
-                    isPitching = false;
-                    pitchResult = isThrowBall ? "Miss!" : "";
+                        const avg = sum / count;
+                        nextGrid[i][j] = grid[i][j] + k * (avg - grid[i][j]);
+                        nextGrid[i][j] *= COOLING;
+                    }
                 }
             }
 
-            // Make the canvas responsive to window resizing
-            p.windowResized = () => {
-                const canvasWidth = canvasContainer.offsetWidth;
-                const canvasHeight = Math.min(canvasWidth * 0.6, 500);
-                p.resizeCanvas(canvasWidth, canvasHeight);
+            function updateGrid() {
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    for (let j = 0; j < GRID_SIZE; j++) {
+                        grid[i][j] = nextGrid[i][j];
+                    }
+                }
+            }
 
-                // Re-calculate positions and throw a new pitch
-                pitcherPos.y = p.height / 2;
-                glove.x = p.width - 80;
-                glove.y = p.height * 0.6;
-                throwPitch();
-            };
-
+            function displayGrid() {
+                p.noStroke();
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    for (let j = 0; j < GRID_SIZE; j++) {
+                        const value = grid[i][j];
+                        p.fill(value);
+                        p.rect(i * CELL_SIZE, j * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    }
+                }
+            }
         };
 
-        // Create the p5 instance and attach it to the container div
-        new p5(sketch, 'canvas-container');
-
+        new p5(sketch);
     </script>
-
 </body>
 
 </html>
