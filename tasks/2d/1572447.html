@@ -60,7 +60,7 @@
 
     <div class="w-full max-w-4xl">
         <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800 mb-2">Urban Rescue: Zip Line Mission</h1>
-        <p class="text-center text-gray-600 mb-4">Adjust the anchors and account for wind to create a safe passage!</p>
+        <p class="text-center text-gray-600 mb-4">Adjust the anchors, clear the cracked building, and account for wind to create a safe passage!</p>
     </div>
 
     <!-- Main container for the simulation and controls -->
@@ -125,9 +125,66 @@
             const MAX_SAFE_SPEED = 5; // Max speed for a safe landing
 
             // --- Environment Variables ---
-            let building1, building2;
+            let building1, building2, middleBuilding;
             let anchor1, anchor2;
             let windForce;
+
+            // --- Fire Particle System ---
+            class FireParticle {
+                constructor(x, y) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(p.random(-0.5, 0.5), p.random(-0.5, -1.5));
+                    this.lifespan = 255;
+                    this.size = p.random(12, 22);
+                }
+
+                update() {
+                    this.pos.add(this.vel);
+                    this.lifespan -= 6;
+                    this.size *= 0.96;
+                }
+
+                isDead() {
+                    return this.lifespan < 0;
+                }
+
+                display() {
+                    p.noStroke();
+                    const from = p.color(255, 200, 0, this.lifespan);
+                    const to = p.color(255, 50, 0, this.lifespan);
+                    const c = p.lerpColor(from, to, p.map(this.pos.y, this.pos.y + 20, this.pos.y, 0, 1));
+                    p.fill(c);
+                    p.ellipse(this.pos.x, this.pos.y, this.size);
+                }
+            }
+
+            class FireEffect {
+                constructor(x, y) {
+                    this.origin = p.createVector(x, y);
+                    this.particles = [];
+                }
+
+                update() {
+                    // Add new particles
+                    for (let i = 0; i < 2; i++) {
+                        this.particles.push(new FireParticle(this.origin.x + p.random(-5, 5), this.origin.y));
+                    }
+
+                    // Update existing particles
+                    for (let i = this.particles.length - 1; i >= 0; i--) {
+                        this.particles[i].update();
+                        if (this.particles[i].isDead()) {
+                            this.particles.splice(i, 1);
+                        }
+                    }
+                }
+
+                display() {
+                    for (let particle of this.particles) {
+                        particle.display();
+                    }
+                }
+            }
 
             // --- The Rescue Cart Class ---
             class Cart {
@@ -177,13 +234,23 @@
                     // Check for safe landing
                     if (this.pos.x >= building2.x) {
                         this.isSafe = true;
-                        this.vel = 0;
                         if (p.abs(this.vel) > MAX_SAFE_SPEED) {
                              message = "CRASH! Too fast on landing!";
                              messageColor = '#E53E3E'; // Red
                         } else {
                              message = "SUCCESS! Citizen rescued!";
                              messageColor = '#38A169'; // Green
+                        }
+                        this.vel = 0; // Stop movement
+                    }
+
+                    // Check for collision with the middle building's bounding box
+                    if (this.pos.x > middleBuilding.x && this.pos.x < middleBuilding.x + middleBuilding.w) {
+                        if (this.pos.y > middleBuilding.y) {
+                            this.isLost = true;
+                            message = "CRASH! You hit the cracked building!";
+                            messageColor = '#E53E3E';
+                            this.vel = 0; // Stop movement
                         }
                     }
                 }
@@ -243,6 +310,7 @@
 
                 // --- Draw Environment ---
                 drawBuildings();
+                drawMiddleBuilding();
                 drawAnchors();
                 drawZipline();
                 drawWind();
@@ -261,10 +329,13 @@
                 
                 // Display pre-launch warnings
                 if (!isSimulating) {
+                    // Combine pre-launch checks
                     const ziplineVec = p5.Vector.sub(anchor2, anchor1);
                     const angle = p.abs(p.degrees(ziplineVec.heading()));
-                    if (angle < MAX_TENSION_ANGLE) {
-                         displayMessage("WARNING: Angle too shallow! High tension risk.", '#D97706'); // Amber
+                    if (lineRectIntersect(anchor1, anchor2, middleBuilding)) {
+                        displayMessage("WARNING: Path blocked by the building!", '#D97706');
+                    } else if (angle < MAX_TENSION_ANGLE) {
+                         displayMessage("WARNING: Angle too shallow! High tension risk.", '#D97706');
                     } else {
                         // Clear the warning if angle is okay
                         if (message.startsWith("WARNING")) message = "";
@@ -290,6 +361,35 @@
                 }
             }
             
+            function drawMiddleBuilding() {
+                p.noStroke();
+                // Main building structure
+                p.fill('#797C80');
+                p.rect(middleBuilding.x, middleBuilding.y, middleBuilding.w, middleBuilding.h);
+
+                // Draw windows
+                p.fill('#4A4A4A');
+                 middleBuilding.windows.forEach(w => {
+                    p.rect(w.x, w.y, w.w, w.h);
+                });
+                
+                // Draw pre-generated cracks
+                p.noFill();
+                p.stroke(50, 50, 50, 200);
+                p.strokeWeight(2);
+                middleBuilding.cracks.forEach(crackPath => {
+                    p.beginShape();
+                    crackPath.forEach(pt => p.vertex(pt.x, pt.y));
+                    p.endShape();
+                });
+
+                // Update and draw fires on top of the cracks
+                middleBuilding.fires.forEach(fire => {
+                    fire.update();
+                    fire.display();
+                });
+            }
+
             function drawAnchors() {
                 p.fill('#E53E3E');
                 p.stroke('white');
@@ -345,13 +445,18 @@
                 const angle = p.abs(p.degrees(ziplineVec.heading()));
 
                 // Check for failure conditions before launch
+                if (lineRectIntersect(anchor1, anchor2, middleBuilding)) {
+                    message = "FAIL: Zipline goes through building!";
+                    messageColor = '#E53E3E';
+                    isSimulating = false;
+                    return;
+                }
                 if (anchor1.y > anchor2.y) {
                     message = "FAIL: Cannot go uphill!";
                     messageColor = '#E53E3E';
                     isSimulating = false;
                     return;
                 }
-                
                 if (angle < MAX_TENSION_ANGLE) {
                     message = "SNAP! The zip line broke under high tension!";
                     messageColor = '#E53E3E';
@@ -373,10 +478,100 @@
                 building1 = { x: 0, y: p.height * 0.2, w: buildingWidth, h: p.height * 0.8 };
                 building2 = { x: p.width - buildingWidth, y: p.height * 0.4, w: buildingWidth, h: p.height * 0.6 };
 
+                const obstacleX = building1.w + p.width * 0.1;
+                const obstacleW = p.width - building1.w - building2.w - p.width * 0.2;
+                const obstacleH = p.height * 0.25;
+                const obstacleY = p.height - obstacleH;
+                
+                middleBuilding = {
+                    x: obstacleX,
+                    y: obstacleY,
+                    w: obstacleW,
+                    h: obstacleH,
+                    cracks: [], 
+                    windows: [],
+                    fires: []
+                };
+
+                // Generate windows and randomly select some for fires
+                for (let y = middleBuilding.y + 20; y < middleBuilding.y + middleBuilding.h - 20; y += 40) {
+                    for (let x = middleBuilding.x + 20; x < middleBuilding.x + middleBuilding.w - 20; x += 40) {
+                        const windowRect = {x: x, y: y, w: 20, h: 20};
+                       middleBuilding.windows.push(windowRect);
+                       if (p.random() < 0.3) { // 30% chance of fire in a window
+                           middleBuilding.fires.push(new FireEffect(windowRect.x + windowRect.w / 2, windowRect.y + windowRect.h / 2));
+                       }
+                    }
+                }
+
+                // Generate two major cracks that span the full height
+                for (let i = 0; i < 2; i++) {
+                    const crackPath = [];
+                    let currentPos = p.createVector(middleBuilding.x + p.random(middleBuilding.w * 0.1, middleBuilding.w * 0.9), middleBuilding.y);
+                    crackPath.push(currentPos.copy());
+                    
+                    while(currentPos.y < middleBuilding.y + middleBuilding.h) {
+                        const stepX = p.random(-5, 5);
+                        const stepY = p.random(5, 15);
+                        currentPos.add(stepX, stepY);
+                        currentPos.x = p.constrain(currentPos.x, middleBuilding.x, middleBuilding.x + middleBuilding.w);
+                        crackPath.push(currentPos.copy());
+                    }
+                    middleBuilding.cracks.push(crackPath);
+                }
+
+                // Generate 2-3 smaller, partial cracks
+                const numSmallCracks = p.floor(p.random(2, 4));
+                for (let i = 0; i < numSmallCracks; i++) {
+                    const crackPath = [];
+                    // Start from a random point on the building face
+                    let currentPos = p.createVector(p.random(middleBuilding.x, middleBuilding.x + middleBuilding.w), p.random(middleBuilding.y, middleBuilding.y + middleBuilding.h * 0.7));
+                    crackPath.push(currentPos.copy());
+                    const crackLength = p.random(middleBuilding.h * 0.2, middleBuilding.h * 0.5);
+                    const endY = currentPos.y + crackLength;
+
+                    while(currentPos.y < endY) {
+                         const stepX = p.random(-4, 4);
+                         const stepY = p.random(4, 12);
+                         currentPos.add(stepX, stepY);
+                         currentPos.x = p.constrain(currentPos.x, middleBuilding.x, middleBuilding.x + middleBuilding.w);
+                         if (currentPos.y > middleBuilding.y + middleBuilding.h) break; // Don't let it go past the bottom
+                         crackPath.push(currentPos.copy());
+                    }
+                    middleBuilding.cracks.push(crackPath);
+                }
+
                 anchor1 = p.createVector(building1.w, p.height - anchor1Slider.value);
                 anchor2 = p.createVector(building2.x, p.height - anchor2Slider.value);
                 launchButton.disabled = false;
             }
+
+            // --- Collision Helper ---
+            function lineRectIntersect(p1, p2, rect) {
+                // check if the line has hit any of the rectangle's sides
+                const left =   lineLineIntersect(p1, p2, {x: rect.x, y: rect.y}, {x: rect.x, y: rect.y + rect.h});
+                const right =  lineLineIntersect(p1, p2, {x: rect.x + rect.w, y: rect.y}, {x: rect.x + rect.w, y: rect.y + rect.h});
+                const top =    lineLineIntersect(p1, p2, {x: rect.x, y: rect.y}, {x: rect.x + rect.w, y: rect.y});
+                const bottom = lineLineIntersect(p1, p2, {x: rect.x, y: rect.y + rect.h}, {x: rect.x + rect.w, y: rect.y + rect.h});
+
+                return left || right || top || bottom;
+            }
+
+            function lineLineIntersect(p1, p2, p3, p4) {
+                const x1 = p1.x, y1 = p1.y;
+                const x2 = p2.x, y2 = p2.y;
+                const x3 = p3.x, y3 = p3.y;
+                const x4 = p4.x, y4 = p4.y;
+
+                const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+                if (den == 0) return false; // Parallel lines
+
+                const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+                const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / den;
+
+                return t > 0 && t < 1 && u > 0 && u < 1;
+            }
+
         };
 
         new p5(sketch, window.document.getElementById('canvas-container'));
