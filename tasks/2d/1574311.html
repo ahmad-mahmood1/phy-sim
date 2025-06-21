@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jungle Swing</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #3f93a8;
+            font-family: 'Fredoka One', cursive;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            /* Prevent scrollbars */
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 4px solid #4a2e1a;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            border-radius: 15px;
+            overflow: hidden;
+            background: #87ceeb;
+            /* Sky blue fallback */
+        }
+
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.2rem;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 10px 20px;
+            border-radius: 10px;
+            z-index: 10;
+            text-align: center;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="instructions">Hold SPACE to swing, release to switch vines!</div>
+    <div id="canvas-container"></div>
+    <script type="module">
+        import p5 from 'p5';
+
+        // --- Configuration ---
+        const config = {
+            width: 800,
+            height: 600,
+            worldWidth: 7000, // Increased world width for more vines
+            gravity: 0.85,
+            freeFallGravity: 0.15,
+            vineLength: 250,
+            vineSpacing: 550, // Increased distance between vines
+            vineAnchorY: 80,
+            coconutSpawnRate: 0.000,
+            numVines: 35,
+        };
+
+        // --- Dynamic Sizing ---
+        const aspectRatio = config.width / config.height;
+        let canvasWidth = Math.min(window.innerWidth - 40, config.width);
+        let canvasHeight = canvasWidth / aspectRatio;
+
+        if (canvasHeight > window.innerHeight - 40) {
+            canvasHeight = window.innerHeight - 40;
+            canvasWidth = canvasHeight * aspectRatio;
+        }
+        config.width = canvasWidth;
+        config.height = canvasHeight;
+
+
+        // --- Vine Class ---
+        class Vine {
+            constructor(p, x, y) {
+                this.p = p;
+                this.anchor = p.createVector(x, y);
+                this.length = config.vineLength;
+                this.banana = null;
+                if (this.p.random() < 0.3) {
+                    const bananaX = this.anchor.x;
+                    const bananaY = this.anchor.y + this.length * 0.95;
+                    this.banana = new Collectible(p, bananaX, bananaY, 'banana', this);
+                }
+            }
+
+            draw(monkeyPos) {
+                this.p.strokeWeight(5);
+                this.p.stroke(101, 67, 33);
+                this.p.line(this.anchor.x, this.anchor.y, monkeyPos.x, monkeyPos.y);
+
+                this.p.push();
+                this.p.translate(this.anchor.x, this.anchor.y);
+                this.p.fill(34, 139, 34);
+                this.p.noStroke();
+                this.p.ellipse(0, 5, 30, 15);
+                this.p.pop();
+
+                if (this.banana) {
+                    this.banana.draw();
+                }
+            }
+        }
+
+        // --- Monkey Class (with Corrected Physics) ---
+        class Monkey {
+            constructor(p) {
+                this.p = p;
+                this.pos = p.createVector(config.width / 2, config.height / 2);
+                this.vel = p.createVector(0, 0);
+                this.acc = p.createVector(0, 0);
+                this.size = 30;
+                this.isAttached = false;
+                this.attachedVine = null;
+                this.lastAttachedVine = null
+
+                this.angle = p.PI / 4;
+                this.angularVelocity = 0;
+                this.angularAcceleration = 0;
+
+                this.damping = 0.000
+                this.maxAngularVelocity = 0.02
+                this.bumpAngularVelocity = 0.01
+            }
+
+            applyForce(force) {
+                this.acc.add(force);
+            }
+
+            update() {
+                if (this.isAttached) {
+                    // --- [MODIFIED] REALISTIC PENDULUM PHYSICS ---
+                    // Gravity provides the restoring force that causes oscillation.
+                    this.angularVelocity += this.angularAcceleration;
+                    
+                    this.angularAcceleration = (-config.gravity / this.attachedVine.length) * this.p.sin(this.angle);
+
+                    // Apply velocity to angle
+                    this.angle += this.angularVelocity;
+
+
+                    // Calculate new position based on the angle and vine length
+                    this.pos.x = this.attachedVine.anchor.x + this.attachedVine.length * this.p.sin(this.angle);
+                    this.pos.y = this.attachedVine.anchor.y + this.attachedVine.length * this.p.cos(this.angle);
+
+                } else {
+                    // --- CORRECTED FREE-FALL PHYSICS ---
+                    // Apply a constant gravity force
+                    const gravity = this.p.createVector(0, config.freeFallGravity);
+                    this.applyForce(gravity);
+
+                    // Update velocity with acceleration
+                    this.vel.add(this.acc);
+                    // Update position with velocity
+                    this.pos.add(this.vel);
+                    // IMPORTANT: Reset acceleration each frame so gravity isn't compounded
+                    this.acc.mult(0);
+                }
+            }
+
+            /**
+             * Holding space adds a gentle force to counteract damping and build momentum.
+             */
+            handleSwing(isSpaceDown) {
+                // at the middle point
+                if (this.isAttached && isSpaceDown && this.p.round(this.angle) === 0) {
+                    if(Math.abs(this.angularVelocity) < this.maxAngularVelocity){
+                        console.log('bumping from', this.angularAcceleration)
+                        this.angularAcceleration += this.bumpAngularVelocity
+                        console.log('to',this.angularAcceleration)
+                    }
+                }
+            }
+
+
+            /**
+             * The launch velocity is tangential to the swing arc, preserving momentum.
+             */
+            release() {
+                if (!this.isAttached) return;
+
+                // Mark as unattached
+                this.isAttached = false;
+
+                // Calculate speed: v = ω * r (angular velocity * radius)
+                const speed = this.angularVelocity * this.attachedVine.length;
+
+                // The velocity vector is perpendicular to the radius vector from the anchor.
+                // If position is (L*sin(a), L*cos(a)), velocity is (L*cos(a)*ω, -L*sin(a)*ω)
+                // We use the derivative of the position calculation to find the tangential velocity
+                this.vel.x = this.p.cos(this.angle) * speed;
+                this.vel.y = -this.p.sin(this.angle) * speed; // Y is inverted in screen coordinates
+
+                this.lastAttachedVine = this.attachedVine; // Store the last attached vine for potential future use
+                // Set the vine to null
+                this.attachedVine = null;
+            }
+
+            /**
+             * It calculates the new angular velocity based on the monkey's impact velocity.
+             */
+            grab(vine) {
+                this.isAttached = true;
+                this.attachedVine = vine;
+
+                // Vector from vine anchor to monkey's current position
+                const vectorToMonkey = p5.Vector.sub(this.pos, vine.anchor);
+
+                // --- Calculate New Angular Velocity from Impact ---
+                // The tangent is perpendicular to the vector to the monkey
+                const tangent = this.p.createVector(-vectorToMonkey.y, vectorToMonkey.x).normalize();
+                // Project the monkey's linear velocity onto the tangent to get the tangential speed
+                const tangentialSpeed = this.vel.dot(tangent);
+                // Convert tangential speed back to angular velocity: ω = v / r
+                this.angularVelocity = tangentialSpeed / vine.length;
+
+                // --- Snap Position and Angle ---
+                // Snap the monkey's position directly onto the vine's arc
+                vectorToMonkey.setMag(vine.length);
+                this.pos.set(p5.Vector.add(vine.anchor, vectorToMonkey));
+                // Recalculate the angle based on the new, snapped position
+                this.angle = this.p.atan2(vectorToMonkey.x, vectorToMonkey.y);
+
+                // Reset linear physics, as pendulum physics now takes over
+                this.vel.mult(0);
+                this.acc.mult(0);
+            }
+
+            draw() {
+                this.p.push();
+                this.p.translate(this.pos.x, this.pos.y);
+
+                this.p.noStroke();
+                // Ears
+                this.p.fill(160, 120, 80);
+                this.p.ellipse(-this.size * 0.5, -this.size * 0.5, this.size * 0.4);
+                this.p.ellipse(this.size * 0.5, -this.size * 0.5, this.size * 0.4);
+                // Head
+                this.p.fill(139, 69, 19);
+                this.p.ellipse(0, 0, this.size);
+                // Muzzle
+                this.p.fill(245, 222, 179);
+                this.p.ellipse(0, this.size * 0.1, this.size * 0.7, this.size * 0.6);
+                // Eyes
+                this.p.fill(0);
+                this.p.ellipse(-this.size * 0.15, -this.size * 0.1, this.size * 0.1);
+                this.p.ellipse(this.size * 0.15, -this.size * 0.1, this.size * 0.1);
+                this.p.pop();
+            }
+
+            isOutOfBounds() {
+                return this.pos.y > config.height + this.size * 5;
+            }
+        }
+
+        // --- Collectible Class ---
+        class Collectible {
+            constructor(p, x, y, type, vine = null) {
+                this.p = p;
+                this.pos = p.createVector(x, y);
+                this.type = type;
+                this.vine = vine;
+                this.size = this.type === 'banana' ? 25 : 30;
+                this.isCollected = false;
+                this.vel = this.type === 'coconut' ? p.createVector(p.random(-1, 1), p.random(2, 4)) : p.createVector(0, 0);
+            }
+
+            update() {
+                if (this.type === 'coconut') {
+                    this.pos.add(this.vel);
+                }
+            }
+
+            draw() {
+                if (this.isCollected) return;
+                this.p.push();
+                this.p.translate(this.pos.x, this.pos.y);
+                if (this.type === 'banana') {
+                    this.p.fill(255, 223, 0);
+                    this.p.noStroke();
+                    this.p.beginShape();
+                    this.p.curveVertex(-15, 0);
+                    this.p.curveVertex(-15, 0);
+                    this.p.curveVertex(0, -12);
+                    this.p.curveVertex(15, 0);
+                    this.p.curveVertex(10, 10);
+                    this.p.curveVertex(10, 10);
+                    this.p.endShape(this.p.CLOSE);
+                } else { // Coconut
+                    this.p.fill(110, 80, 50);
+                    this.p.stroke(60, 40, 20);
+                    this.p.strokeWeight(2);
+                    this.p.ellipse(0, 0, this.size, this.size);
+                }
+                this.p.pop();
+            }
+
+            checkCollision(monkey) {
+                if (this.isCollected) return false;
+                const d = this.pos.dist(monkey.pos);
+                if (d < (this.size / 2 + monkey.size / 2)) {
+                    this.isCollected = true;
+                    if (this.vine) {
+                        this.vine.banana = null;
+                    }
+                    return true;
+                }
+                return false;
+            }
+
+            isOffScreen(cameraX) {
+                return this.pos.y > config.height + this.size || this.pos.x < cameraX - config.width;
+            }
+        }
+
+
+        // --- Main Sketch ---
+        const sketch = (p) => {
+            let monkey;
+            let vines = [];
+            let coconuts = [];
+            let score = 0;
+            let gameOver = false;
+            let bgLayers = [];
+            let cameraX = 0;
+
+            const resetGame = () => {
+                score = 0;
+                gameOver = false;
+                monkey = new Monkey(p);
+                vines = [];
+                coconuts = [];
+
+                const startX = 300;
+                for (let i = 0; i < config.numVines; i++) {
+                    const x = startX + i * config.vineSpacing;
+                    const y = config.vineAnchorY;
+                    vines.push(new Vine(p, x, y));
+                }
+
+                const startVine = vines[0];
+                monkey.grab(startVine);
+                // Manually set position after grabbing to avoid physics glitches on reset
+                monkey.pos.set(startVine.anchor.x, startVine.anchor.y + startVine.length);
+                monkey.angle = 0;
+                monkey.angularVelocity = 0.01; // Give a little starting push
+                cameraX = monkey.pos.x - config.width / 2;
+            };
+
+            const drawBackground = (camX) => {
+                p.noStroke();
+                // Sky gradient
+                let c1 = p.color(135, 206, 235);
+                let c2 = p.color(240, 248, 255);
+                for (let i = 0; i <= config.height; i++) {
+                    let inter = p.map(i, 0, config.height, 0, 1);
+                    let c = p.lerpColor(c1, c2, inter);
+                    p.stroke(c);
+                    p.line(0, i, config.width, i);
+                }
+
+                // Parallax background trees
+                p.push();
+                bgLayers.forEach((layer) => {
+                    p.push();
+                    p.translate(-camX * layer.scrollFactor, 0);
+                    p.fill(layer.color);
+                    layer.trees.forEach(tree => {
+                        p.beginShape();
+                        p.vertex(tree.x, config.height);
+                        p.vertex(tree.x + tree.w / 2, tree.y);
+                        p.vertex(tree.x + tree.w, config.height);
+                        p.endShape(p.CLOSE);
+                    });
+                    p.pop();
+                });
+                p.pop();
+            };
+
+            p.setup = () => {
+                const canvas = p.createCanvas(config.width, config.height);
+                canvas.parent('canvas-container');
+                p.frameRate(60);
+
+                // Initialize background layers for parallax effect
+                bgLayers.push({ color: p.color(0, 100, 0, 100), trees: [], scrollFactor: 0.1 });
+                bgLayers.push({ color: p.color(34, 139, 34, 150), trees: [], scrollFactor: 0.3 });
+                bgLayers.push({ color: p.color(0, 80, 0, 200), trees: [], scrollFactor: 0.5 });
+                for (let layer of bgLayers) {
+                    for (let i = 0; i < 50; i++) {
+                        layer.trees.push({
+                            x: p.random(-200, config.worldWidth),
+                            y: p.random(config.height * 0.6, config.height * 0.8),
+                            w: p.random(50, 150)
+                        });
+                    }
+                }
+                resetGame();
+            };
+
+            p.draw = () => {
+                // Smooth camera movement
+                cameraX = p.lerp(cameraX, monkey.pos.x - config.width / 2.5, 0.1);
+                if (cameraX < 0) cameraX = 0;
+
+                p.background(135, 206, 250);
+                drawBackground(cameraX);
+
+                p.push();
+                p.translate(-cameraX, 0);
+
+                if (gameOver) {
+                    p.pop(); // Pop camera translation before drawing UI
+                    p.fill(0, 0, 0, 150);
+                    p.rect(0, 0, config.width, config.height);
+                    p.fill(255, 69, 0);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.textSize(64);
+                    p.text("GAME OVER", config.width / 2, config.height / 2 - 40);
+                    p.fill(255);
+                    p.textSize(24);
+                    p.text(`Final Score: ${score}`, config.width / 2, config.height / 2 + 20);
+                    p.text("Press SPACE to restart", config.width / 2, config.height / 2 + 70);
+                    return;
+                }
+
+                monkey.handleSwing(p.keyIsDown(32)); // 32 is SPACE
+                monkey.update();
+
+                // During free-fall, check if we are close enough to any vine to grab it
+                if (!monkey.isAttached) {
+                    for (const vine of vines) {
+                        if (vine === monkey.lastAttachedVine) continue; // Skip the last attached vine to prevent immediate re-grab
+
+                        // Define the resting end point of the vine (straight down from the anchor)
+                        const vineEndPoint = p.createVector(vine.anchor.x, vine.anchor.y + vine.length);
+
+                        // Calculate the distance from the monkey to the vine's end point
+                        const d = monkey.pos.dist(vineEndPoint);
+
+                        // Check if the monkey is within a specific grabbing radius of the vine's end
+                        const grabRadius = 50; // The grabbing distance can be adjusted here
+                        if (d < grabRadius) {
+                            // Check if monkey is moving generally downwards to prevent grabbing on the way up
+                            if (monkey.vel.y > 0) {
+                                monkey.grab(vine);
+                                break; // Grab the first vine in range and stop checking
+                            }
+                        }
+                    }
+                }
+
+                // Draw vines
+                vines.forEach(vine => {
+                    let endPos = vine.anchor.copy().add(0, vine.length);
+                    // If the monkey is attached to this specific vine, draw the vine to the monkey
+                    if (monkey.isAttached && vine === monkey.attachedVine) {
+                        endPos = monkey.pos;
+                    }
+                    vine.draw(endPos);
+                    // Check for banana collision
+                    if (vine.banana && vine.banana.checkCollision(monkey)) {
+                        score++;
+                    }
+                });
+
+                // Draw monkey
+                monkey.draw();
+
+                // Spawn and manage coconuts
+                if (p.random(1) < config.coconutSpawnRate) {
+                    coconuts.push(new Collectible(p, cameraX + p.random(0, config.width), -20, 'coconut'));
+                }
+                for (let i = coconuts.length - 1; i >= 0; i--) {
+                    coconuts[i].update();
+                    coconuts[i].draw();
+                    if (coconuts[i].checkCollision(monkey)) {
+                        gameOver = true; // Game over on coconut collision
+                    }
+                    if (coconuts[i].isOffScreen(cameraX)) {
+                        coconuts.splice(i, 1);
+                    }
+                }
+
+                // Check for game over condition
+                if (monkey.isOutOfBounds()) {
+                    gameOver = true;
+                }
+                p.pop(); // End camera translation
+
+                // Draw Score UI on top
+                p.fill(255, 255, 0);
+                p.stroke(0);
+                p.strokeWeight(3);
+                p.textSize(32);
+                p.textAlign(p.LEFT, p.TOP);
+                p.text(`Score: ${score}`, 20, 20);
+            };
+
+            p.keyReleased = () => {
+                if (p.keyCode === 32) { // 32 is the keyCode for SPACE
+                    if (gameOver) {
+                        resetGame();
+                    } else {
+                        // Releasing the key now triggers the release method.
+                        monkey.release();
+                    }
+                }
+            };
+        };
+
+        // Attach the p5 sketch to the container div
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>
