@@ -7,10 +7,18 @@
     <title>Zip Line Rescue Mission</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+            {
+                "imports": {
+                    "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+                }
+            }
+    </script>
     <style>
         body {
             font-family: 'Roboto Mono', monospace;
         }
+
         /* Custom styles for sliders */
         input[type="range"] {
             -webkit-appearance: none;
@@ -25,6 +33,14 @@
             border-radius: 5px;
         }
 
+        input[type="range"]:disabled {
+            opacity: 0.4;
+        }
+
+        input[type="range"]:disabled::-webkit-slider-thumb {
+            background: #9ca3af;
+        }
+
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
@@ -34,7 +50,7 @@
             cursor: pointer;
             border-radius: 50%;
             border: 2px solid white;
-            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
         }
 
         input[type="range"]::-moz-range-thumb {
@@ -44,133 +60,294 @@
             cursor: pointer;
             border-radius: 50%;
             border: 2px solid white;
-            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Modal Transitions */
+        .modal {
+            transition: opacity 0.3s ease-in-out;
+        }
+
+        .modal-content {
+            transition: transform 0.3s ease-in-out;
+        }
+
+        /* Custom styles for tooltips */
+        .tooltip-text {
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+
+        .group:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        #canvas-container {
+            touch-action: none;
+            /* Ensure the container for p5 canvas is sized */
+            width: 100%;
+            height: 500px;
         }
     </style>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-            }
-        }
-    </script>
 </head>
 
 <body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
 
-    <div class="w-full max-w-4xl">
-        <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800 mb-2">Urban Rescue: Zip Line Mission</h1>
-        <p class="text-center text-gray-600 mb-4">Adjust the anchors, clear the cracked building, and account for wind to create a safe passage!</p>
+    <div class="w-full max-w-5xl text-center">
+        <h1 class="text-2xl md:text-3xl font-bold text-gray-800 mb-2 inline-block align-middle">Urban Rescue: Zip Line
+            Mission (p5.js)</h1>
+        <button id="instructions-button"
+            class="ml-2 bg-blue-500 hover:bg-blue-600 text-white font-bold w-8 h-8 rounded-full text-lg inline-flex items-center justify-center align-middle transition-transform duration-200 hover:scale-110">
+            ?
+        </button>
+        <p class="text-gray-600 mt-2 mb-4">A new challenge awaits! Can you save the citizen?</p>
     </div>
 
-    <!-- Main container for the simulation and controls -->
-    <div class="w-full max-w-4xl bg-white rounded-lg shadow-2xl p-4 md:p-6">
-        <!-- p5.js canvas will be injected here -->
-        <div id="canvas-container" class="relative w-full h-auto aspect-[16/9] rounded-lg overflow-hidden border-2 border-gray-300">
-        </div>
-        
-        <!-- UI Controls -->
-        <div id="controls-container" class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-            
-            <!-- Anchor Controls -->
-            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <label for="anchor1-slider" class="block font-bold text-gray-700">Start Building Anchor Height</label>
-                <input type="range" id="anchor1-slider" min="100" max="400" value="350" class="w-full mt-2">
-            </div>
-            
-            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <label for="anchor2-slider" class="block font-bold text-gray-700">Target Building Anchor Height</label>
-                <input type="range" id="anchor2-slider" min="100" max="400" value="200" class="w-full mt-2">
-            </div>
+    <div class="w-full max-w-[70%] bg-white rounded-lg shadow-2xl p-4 md:p-6 relative">
+        <div id="canvas-container" class="rounded-lg overflow-hidden border-2 border-gray-300"></div>
 
-            <!-- Weather and Actions -->
-            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                 <label for="wind-slider" class="block font-bold text-gray-700">Wind (<span id="wind-label">0</span> mph)</label>
-                <input type="range" id="wind-slider" min="-20" max="20" value="0" step="1" class="w-full mt-2">
+        <div id="game-stats-container" class="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-4 mt-6 text-center">
+            <div class="bg-red-100 p-3 rounded-lg border border-red-200">
+                <h3 class="font-bold text-red-800">PREDICTED SPEED</h3>
+                <p id="speed-display" class="text-2xl font-bold text-green-600">SAFE</p>
             </div>
-
+            <div class="bg-blue-100 p-3 rounded-lg border border-blue-200">
+                <h3 class="font-bold text-blue-800">ROPE MATERIAL</h3>
+                <p id="rope-display" class="text-2xl font-bold text-blue-600">0 / 0</p>
+            </div>
+            <div class="relative group">
+                <div class="bg-purple-100 p-3 rounded-lg border border-purple-200 h-full">
+                    <h3 class="font-bold text-purple-800">STABILITY</h3>
+                    <p id="stability-display" class="text-2xl font-bold text-purple-600">100%</p>
+                </div>
+                <span
+                    class="tooltip-text absolute bottom-full mb-2 w-48 bg-gray-800 text-white text-xs rounded-lg py-2 px-3 z-10 left-1/2 -translate-x-1/2">
+                    Affected by wind and rope angle. Low stability increases the chance of the cart derailing.
+                    <svg class="absolute text-gray-800 h-2 w-full left-0 top-full" x="0px" y="0px" viewBox="0 0 255 255"
+                        xml:space="preserve">
+                        <polygon class="fill-current" points="0,0 127.5,127.5 255,0"></polygon>
+                    </svg>
+                </span>
+            </div>
+            <div class="bg-green-100 p-3 rounded-lg border border-green-200">
+                <h3 class="font-bold text-green-800">WIND</h3>
+                <p id="wind-display" class="text-2xl font-bold text-green-600">0 mph</p>
+            </div>
+            <div class="bg-yellow-100 p-3 rounded-lg border border-yellow-200">
+                <h3 class="font-bold text-yellow-800">SCORE</h3>
+                <p id="score-display" class="text-2xl font-bold text-yellow-600">0</p>
+            </div>
         </div>
-        
+
+        <div id="controls-container" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 col-span-1">
+                <label for="anchor1-slider" class="block font-bold text-gray-700">Start Anchor Height</label>
+                <input type="range" id="anchor1-slider" min="100" value="350" class="w-full mt-2">
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 col-span-1">
+                <label for="anchor2-slider" class="block font-bold text-gray-700">Target Anchor Height</label>
+                <input type="range" id="anchor2-slider" min="100" value="200" class="w-full mt-2">
+            </div>
+        </div>
+
         <div class="flex flex-col md:flex-row gap-4 mt-4">
-            <button id="launch-button" class="w-full md:w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200 shadow-md">
+            <button id="launch-button"
+                class="w-full md:w-1/3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200 shadow-md disabled:bg-gray-400">
                 Launch Rescue Cart
             </button>
-            <button id="reset-button" class="w-full md:w-1/2 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200 shadow-md">
-                Reset Simulation
+            <button id="reset-mission-button"
+                class="w-full md:w-1/3 bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200 shadow-md">
+                Reset Mission
             </button>
+            <button id="new-mission-button"
+                class="w-full md:w-1/3 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200 shadow-md">
+                New Mission
+            </button>
+        </div>
+
+        <div id="success-modal"
+            class="modal absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 pointer-events-none">
+            <div class="modal-content bg-white p-8 rounded-lg shadow-2xl text-center transform scale-90">
+                <h2 class="text-3xl font-bold text-green-600 mb-4">SUCCESS!</h2>
+                <p class="text-gray-700 mb-2">You rescued the citizen!</p>
+                <p class="text-gray-900 mb-6 text-2xl font-bold">Your Score: <span id="modal-score-display">0</span></p>
+                <p class="text-gray-600 mb-6">Can you get a higher score by using less rope or improving stability? Try
+                    the same mission again!</p>
+                <div class="flex flex-col md:flex-row gap-4 justify-center">
+                    <button id="modal-retry-mission-button"
+                        class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg">
+                        Retry Mission
+                    </button>
+                    <button id="modal-new-mission-button"
+                        class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg">
+                        Start New Mission
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="instructions-modal"
+            class="modal absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 pointer-events-none p-4">
+            <div
+                class="modal-content bg-white p-6 md:p-8 rounded-lg shadow-2xl text-left transform scale-90 max-w-lg w-full">
+                <h2 class="text-xl md:text-2xl font-bold text-blue-800 mb-4">Your Mission Briefing</h2>
+                <ul class="list-disc list-inside text-gray-700 space-y-2">
+                    <li><strong>Objective:</strong> Create a safe zipline to rescue the citizen from the far building.
+                    </li>
+                    <li><strong>Controls:</strong> Use the sliders to set the anchor heights for the zipline.</li>
+                    <li><strong>Key Factors:</strong>
+                        <ul class="list-['-_'] list-inside ml-6 mt-1 space-y-1">
+                            <li><strong>Rope Material:</strong> You have a limited amount of rope for each mission.
+                                Don't
+                                exceed it!</li>
+                            <li><strong>Stability:</strong> A low percentage, affected by wind and steep angles, risks
+                                the cart derailing!</li>
+                            <li><strong>Wind:</strong> Dynamic weather can be a friend or foe. It may slow your cart on
+                                a steep slope to prevent a crash, or push it so fast that it becomes dangerous.</li>
+                            <li><strong>Arrival Speed:</strong> If the angle is too steep, the cart will crash on
+                                landing. Keep an eye on the speed prediction.</li>
+                            <li><strong>Tension:</strong> If the angle is too shallow, the rope will snap under the
+                                tension!</li>
+                        </ul>
+                    </li>
+                    <li><strong>Goal:</strong> A successful rescue earns you points!</li>
+                </ul>
+                <div class="text-right mt-6">
+                    <button id="close-instructions-button"
+                        class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg">
+                        Got It!
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script type="module">
+    <script type='module'>
         import p5 from 'p5';
 
-        const sketch = (p) => {
-            // --- DOM Elements ---
-            const anchor1Slider = document.getElementById('anchor1-slider');
-            const anchor2Slider = document.getElementById('anchor2-slider');
-            const windSlider = document.getElementById('wind-slider');
-            const launchButton = document.getElementById('launch-button');
-            const resetButton = document.getElementById('reset-button');
-            const windLabel = document.getElementById('wind-label');
+        // --- DOM Elements ---
+        const canvasContainer = document.getElementById('canvas-container');
+        const anchor1Slider = document.getElementById('anchor1-slider');
+        const anchor2Slider = document.getElementById('anchor2-slider');
+        const launchButton = document.getElementById('launch-button');
+        const newMissionButton = document.getElementById('new-mission-button');
+        const resetMissionButton = document.getElementById('reset-mission-button');
+        const stabilityDisplay = document.getElementById('stability-display');
+        const scoreDisplay = document.getElementById('score-display');
+        const speedDisplay = document.getElementById('speed-display');
+        const ropeDisplay = document.getElementById('rope-display');
+        const windDisplay = document.getElementById('wind-display');
+        const successModal = document.getElementById('success-modal');
+        const modalScoreDisplay = document.getElementById('modal-score-display');
+        const modalNewMissionButton = document.getElementById('modal-new-mission-button');
+        const modalRetryMissionButton = document.getElementById('modal-retry-mission-button');
+        const instructionsModal = document.getElementById('instructions-modal');
+        const instructionsButton = document.getElementById('instructions-button');
+        const closeInstructionsButton = document.getElementById('close-instructions-button');
 
+        // --- p5.js Sketch Definition ---
+        const sketch = (p) => {
+            // --- Gamification State & Constants ---
+            let score = 0;
+            let stability = 100;
+            let wind = 0;
+            let ropeMaterialAvailable = 0;
+            let ropeMaterialUsed = 0;
+            let initialMissionState = {};
+            const MIN_TENSION_ANGLE = 5;
 
             // --- Simulation State & Constants ---
             let cart = null;
             let isSimulating = false;
             let message = "";
             let messageColor = 'black';
-            const G = 0.3; // Gravity constant
+            const G = 0.3;
             const CART_MASS = 10;
-            const MAX_TENSION_ANGLE = 5; // degrees. Angle too shallow = zipline snaps
-            const MAX_SAFE_SPEED = 5; // Max speed for a safe landing
+            const MAX_SAFE_SPEED = 7.5;
 
             // --- Environment Variables ---
             let building1, building2, middleBuilding;
             let anchor1, anchor2;
             let windForce;
+            let windParticles = [];
 
-            // --- Fire Particle System ---
+            // --- Helper Functions (using p5's built-ins where possible) ---
+            const lineLineIntersect = (p1, p2, p3, p4) => {
+                const den = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+                if (den == 0) return false;
+                const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / den;
+                const u = -((p1.x - p2.x) * (p1.y - p3.y) - (p1.y - p2.y) * (p1.x - p3.x)) / den;
+                return t > 0 && t < 1 && u > 0 && u < 1;
+            };
+
+            // --- Simulation Classes (using p5 vectors and drawing) ---
+            class WindParticle {
+                constructor() {
+                    const startX = wind > 0 ? p.random(-50, 0) : p.random(p.width, p.width + 50);
+                    this.pos = p.createVector(startX, p.random(0, p.height));
+                    this.initialY = this.pos.y;
+                    this.len = p.random(35, 60);
+                    this.speed = Math.abs(wind) * p.random(0.1, 0.2) + 3;
+                    this.alpha = 150;
+                    this.waveFrequency = p.random(0.01, 0.05);
+                    this.waveAmplitude = p.random(0.5, 2);
+                }
+                update() {
+                    this.pos.x += this.speed * Math.sign(wind);
+                    this.pos.y = this.initialY + p.sin(this.pos.x * this.waveFrequency) * this.waveAmplitude;
+                }
+                isOffscreen() {
+                    if (wind > 0 && this.pos.x > p.width + this.len) return true;
+                    if (wind < 0 && this.pos.x < -this.len) return true;
+                    return false;
+                }
+                display() {
+                    p.push();
+                    p.stroke(255, this.alpha);
+                    p.strokeWeight(1.5);
+                    p.line(this.pos.x, this.pos.y, this.pos.x + this.len * Math.sign(wind), this.pos.y);
+                    p.pop();
+                }
+            }
+
             class FireParticle {
                 constructor(x, y) {
                     this.pos = p.createVector(x, y);
-                    this.vel = p.createVector(p.random(-0.5, 0.5), p.random(-0.5, -1.5));
+                    const windEffect = wind * 0.05;
+                    this.vel = p.createVector(p.random(-0.5, 0.5) + windEffect, p.random(-0.5, -1.5));
                     this.lifespan = 255;
                     this.size = p.random(12, 22);
                 }
-
                 update() {
                     this.pos.add(this.vel);
                     this.lifespan -= 6;
                     this.size *= 0.96;
                 }
-
-                isDead() {
-                    return this.lifespan < 0;
-                }
-
+                isDead() { return this.lifespan < 0; }
                 display() {
+                    p.push();
                     p.noStroke();
-                    const from = p.color(255, 200, 0, this.lifespan);
-                    const to = p.color(255, 50, 0, this.lifespan);
-                    const c = p.lerpColor(from, to, p.map(this.pos.y, this.pos.y + 20, this.pos.y, 0, 1));
+                    const from = p.color(255, 200, 0);
+                    const to = p.color(255, 50, 0);
+                    const amount = p.map(this.pos.y, this.pos.y + 20, this.pos.y, 0, 1);
+                    const c = p.lerpColor(from, to, amount);
+                    c.setAlpha(this.lifespan);
                     p.fill(c);
                     p.ellipse(this.pos.x, this.pos.y, this.size);
+                    p.pop();
                 }
             }
-
             class FireEffect {
                 constructor(x, y) {
                     this.origin = p.createVector(x, y);
                     this.particles = [];
                 }
-
                 update() {
-                    // Add new particles
                     for (let i = 0; i < 2; i++) {
                         this.particles.push(new FireParticle(this.origin.x + p.random(-5, 5), this.origin.y));
                     }
-
-                    // Update existing particles
                     for (let i = this.particles.length - 1; i >= 0; i--) {
                         this.particles[i].update();
                         if (this.particles[i].isDead()) {
@@ -178,144 +355,472 @@
                         }
                     }
                 }
-
                 display() {
                     for (let particle of this.particles) {
                         particle.display();
                     }
                 }
             }
-
-            // --- The Rescue Cart Class ---
             class Cart {
-                constructor(startPos, ziplineVector) {
+                constructor(startPos, ziplineVector, initialStability) {
                     this.pos = startPos.copy();
-                    this.vel = 0; // Speed along the zipline vector
+                    this.vel = 0;
                     this.acc = 0;
                     this.mass = CART_MASS;
-                    this.zipline = ziplineVector.copy().normalize(); // The direction of travel
+                    this.zipline = ziplineVector.copy().normalize();
+                    this.stability = initialStability;
                     this.isSafe = false;
                     this.isLost = false;
+                    this.isDerailed = false;
+                    this.derailChance = 100 - this.stability;
                     this.history = [];
                 }
-
-                applyForces(wind) {
-                    // Calculate component of gravity along the zipline
+                applyForces(windVec) {
                     const gravityForce = G * this.mass;
                     const angle = this.zipline.heading();
                     const gravityComponent = gravityForce * p.sin(angle);
-
-                    // Calculate component of wind along the zipline
-                    const windComponent = wind.dot(this.zipline);
-                    
-                    // Total acceleration
+                    const windComponent = windVec.dot(this.zipline);
                     this.acc = (gravityComponent + windComponent) / this.mass;
                 }
-
                 update() {
-                    if(this.isSafe || this.isLost) return;
-                    
+                    if (this.isSafe || this.isLost) return;
+                    if (this.isDerailed) {
+                        this.pos.y += 5;
+                        return;
+                    }
+                    if (this.derailChance > 50 && p.random(100) < this.derailChance / 100) {
+                        this.isDerailed = true;
+                        this.isLost = true;
+                        message = "DERAILED! The line was too unstable!";
+                        messageColor = '#E53E3E';
+                        return;
+                    }
                     this.vel += this.acc;
-                    
-                    // Simple friction
-                    this.vel *= 0.995; 
-
+                    this.vel *= 0.995;
                     const moveVector = this.zipline.copy().mult(this.vel);
                     this.pos.add(moveVector);
-                    
-                    // Record path for trail effect
                     this.history.push(this.pos.copy());
                     if (this.history.length > 50) {
                         this.history.splice(0, 1);
                     }
                 }
-
                 checkStatus() {
-                    // Check for safe landing
-                    if (this.pos.x >= building2.x) {
+                    if (this.isLost) return;
+                    if (!this.isSafe && this.pos.x >= building2.x) {
                         this.isSafe = true;
-                        if (p.abs(this.vel) > MAX_SAFE_SPEED) {
-                             message = "CRASH! Too fast on landing!";
-                             messageColor = '#E53E3E'; // Red
-                        } else {
-                             message = "SUCCESS! Citizen rescued!";
-                             messageColor = '#38A169'; // Green
-                        }
-                        this.vel = 0; // Stop movement
-                    }
-
-                    // Check for collision with the middle building's bounding box
-                    if (this.pos.x > middleBuilding.x && this.pos.x < middleBuilding.x + middleBuilding.w) {
-                        if (this.pos.y > middleBuilding.y) {
-                            this.isLost = true;
-                            message = "CRASH! You hit the cracked building!";
+                        let lastVelocity = this.vel;
+                        this.vel = 0;
+                        if (p.abs(lastVelocity) > MAX_SAFE_SPEED) {
+                            message = "CRASH! Too fast on landing!";
                             messageColor = '#E53E3E';
-                            this.vel = 0; // Stop movement
+                        } else {
+                            const baseScore = 500;
+                            const ropeBonus = (ropeMaterialAvailable - ropeMaterialUsed) * 2;
+                            const stabilityBonus = Math.floor(stability) * 5;
+                            score = baseScore + ropeBonus + stabilityBonus;
+                            updateGameUI();
+                            showSuccessModal();
+                        }
+                    }
+                    if (this.pos.x > middleBuilding.x && this.pos.x < middleBuilding.x + middleBuilding.w) {
+                        let p1 = null, p2 = null;
+                        for (let i = 0; i < middleBuilding.topPoints.length - 1; i++) {
+                            if (this.pos.x >= middleBuilding.topPoints[i].x && this.pos.x <= middleBuilding.topPoints[i + 1].x) {
+                                p1 = middleBuilding.topPoints[i];
+                                p2 = middleBuilding.topPoints[i + 1];
+                                break;
+                            }
+                        }
+                        if (p1 && p2) {
+                            const roofYAtCartX = p.map(this.pos.x, p1.x, p2.x, p1.y, p2.y);
+                            if (this.pos.y > roofYAtCartX) {
+                                this.isLost = true;
+                                message = "CRASH! You hit the cracked building!";
+                                messageColor = '#E53E3E';
+                                this.vel = 0;
+                            }
                         }
                     }
                 }
-
                 display() {
+                    p.push();
                     // Draw trail
-                    p.beginShape();
                     p.noFill();
-                    p.stroke(74, 144, 226, 100);
+                    p.stroke('rgba(74, 144, 226, 0.4)');
                     p.strokeWeight(3);
+                    p.beginShape();
                     this.history.forEach(v => p.vertex(v.x, v.y));
                     p.endShape();
-                
+
                     // Draw cart
-                    p.push();
                     p.translate(this.pos.x, this.pos.y);
-                    p.fill('#F5A623'); // Cart color
+                    p.fill('#F5A623');
                     p.stroke('#4A4A4A');
                     p.strokeWeight(2);
-                    p.rect(-10, -10, 20, 10, 3); // Cart body
+                    p.rect(-10, -10, 20, 10, 3); // Rounded rect
+
                     p.fill('#4A90E2');
-                    p.ellipse(0, 0, 15, 15); // Citizen
+                    p.noStroke();
+                    p.ellipse(0, 0, 15, 15);
                     p.pop();
                 }
             }
 
-            p.setup = () => {
-                const container = document.getElementById('canvas-container');
-                const canvas = p.createCanvas(container.offsetWidth, container.offsetHeight);
-                canvas.parent(container);
-                
-                // Initialize environment based on canvas size
-                resetSimulation();
+            // --- Drawing Functions ---
+            function drawBuildings() {
+                p.noStroke();
+                p.fill('#8B9AAD');
+                drawBuilding(building1);
+                drawBuilding(building2);
+            }
+            function drawBuilding(b) {
+                p.fill('#8B9AAD');
+                p.rect(b.x, b.y, b.w, b.h);
+                p.fill('#4A4A4A');
+                for (let y = b.y + 20; y < p.height - 20; y += 40) {
+                    for (let x = b.x + 20; x < b.x + b.w - 20; x += 40) {
+                        p.rect(x, y, 20, 20);
+                    }
+                }
+            }
+            function drawMiddleBuilding() {
+                p.push();
+                p.fill('#797C80');
+                p.noStroke();
+                p.beginShape();
+                p.vertex(middleBuilding.x, p.height);
+                middleBuilding.topPoints.forEach(pt => p.vertex(pt.x, pt.y));
+                p.vertex(middleBuilding.x + middleBuilding.w, p.height);
+                p.endShape(p.CLOSE);
 
-                // --- Event Listeners ---
-                launchButton.onclick = launchSimulation;
-                resetButton.onclick = resetSimulation;
-                windSlider.oninput = () => {
-                    windLabel.textContent = windSlider.value;
-                };
+                p.stroke('rgba(50, 50, 50, 0.8)');
+                p.strokeWeight(2);
+                p.noFill();
+                middleBuilding.cracks.forEach(crackPath => {
+                    p.beginShape();
+                    crackPath.forEach((pt) => p.vertex(pt.x, pt.y));
+                    p.endShape();
+                });
+
+                p.noStroke();
+                p.fill('#4A4A4A');
+                middleBuilding.windows.forEach(w => p.rect(w.x, w.y, w.w, w.h));
+                middleBuilding.fires.forEach(fire => {
+                    fire.update();
+                    fire.display();
+                });
+                p.pop();
+            }
+            function drawAnchors() {
+                p.push();
+                p.fill('#E53E3E');
+                p.stroke('white');
+                p.strokeWeight(3);
+                p.ellipse(anchor1.x, anchor1.y, 20, 20);
+                p.ellipse(anchor2.x, anchor2.y, 20, 20);
+                p.pop();
+            }
+            function drawZipline() {
+                p.push();
+                p.strokeWeight(isSimulating ? 4 : 2);
+                p.stroke(isSimulating ? '#4A4A4A' : 'rgba(74, 74, 74, 0.5)');
+                p.line(anchor1.x, anchor1.y, anchor2.x, anchor2.y);
+                p.pop();
+            }
+            function drawWeatherEffects() {
+                if (p.floor(p.random(0, 5)) === 0 && wind !== 0) {
+                    if (windParticles.length < 100) {
+                        windParticles.push(new WindParticle());
+                    }
+                }
+                for (let i = windParticles.length - 1; i >= 0; i--) {
+                    const particle = windParticles[i];
+                    particle.update();
+                    particle.display();
+                    if (particle.isOffscreen()) {
+                        windParticles.splice(i, 1);
+                    }
+                }
+            }
+            function displayMessage(msg, color = 'black') {
+                if (!msg) return;
+                p.push();
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textFont('"Roboto Mono"');
+                p.textSize(24);
+                p.textStyle(p.BOLD);
+                p.stroke('white');
+                p.strokeWeight(4);
+                p.fill(color);
+                p.text(msg, p.width / 2, p.height / 2);
+                p.pop();
             };
-            
-            p.windowResized = () => {
-                const container = document.getElementById('canvas-container');
-                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
-                resetSimulation(); // Reset on resize to recalculate positions
+
+            // --- UI & Game Logic ---
+            function updateGameUI() {
+                scoreDisplay.textContent = score;
+                stabilityDisplay.textContent = `${Math.floor(stability)}%`;
+                const windDirection = wind > 0 ? "-->" : (wind < 0 ? "<--" : "");
+                windDisplay.textContent = `${windDirection} ${Math.abs(wind)} mph`;
+
+                const ziplineVec = p5.Vector.sub(anchor2, anchor1);
+                ropeMaterialUsed = Math.floor(ziplineVec.mag());
+                ropeDisplay.textContent = `${ropeMaterialUsed} / ${ropeMaterialAvailable}`;
+                const angle = p.abs(p.degrees(ziplineVec.heading()));
+
+                let speedText = 'SAFE', speedColorClass = 'text-green-600';
+                if (angle > 12) { speedText = 'FAST'; speedColorClass = 'text-yellow-600'; }
+                if (angle > 20) { speedText = 'RISKY'; speedColorClass = 'text-orange-500'; }
+                if (angle > 24) { speedText = 'DANGEROUS'; speedColorClass = 'text-red-600'; }
+                if (anchor1.y >= anchor2.y) { speedText = 'STALLED'; speedColorClass = 'text-gray-500'; }
+
+                speedDisplay.textContent = speedText;
+                speedDisplay.className = "text-2xl font-bold " + speedColorClass;
+                stabilityDisplay.classList.toggle('text-red-600', stability < 50);
+                stabilityDisplay.classList.toggle('text-purple-600', stability >= 50);
+                ropeDisplay.classList.toggle('text-red-600', ropeMaterialUsed > ropeMaterialAvailable);
+                ropeDisplay.classList.toggle('text-blue-600', ropeMaterialUsed <= ropeMaterialAvailable);
+            }
+            function calculateStability(angle) {
+                const anglePenalty = angle * 1.2;
+                const windPenalty = p.abs(wind) * 1.5;
+                stability = p.constrain(100 - anglePenalty - windPenalty, 0, 100);
             }
 
+            // --- Mission Control ---
+            function launchSimulation() {
+                let isPathBlocked = false;
+                for (let i = 0; i < middleBuilding.topPoints.length - 1; i++) {
+                    if (lineLineIntersect(anchor1, anchor2, middleBuilding.topPoints[i], middleBuilding.topPoints[i + 1])) {
+                        isPathBlocked = true;
+                        break;
+                    }
+                }
+                const ziplineVec = p5.Vector.sub(anchor2, anchor1);
+                const angle = p.abs(p.degrees(ziplineVec.heading()));
+
+                if (ropeMaterialUsed > ropeMaterialAvailable) { message = "FAIL: Not enough rope material!"; messageColor = '#E53E3E'; isSimulating = false; return; }
+                if (isPathBlocked) { message = "FAIL: Zipline goes through building!"; messageColor = '#E53E3E'; isSimulating = false; return; }
+                if (anchor1.y >= anchor2.y) { message = "FAIL: Cannot go uphill!"; messageColor = '#E53E3E'; isSimulating = false; return; }
+                if (angle < MIN_TENSION_ANGLE) { message = `SNAP! The rope broke under high tension!`; messageColor = '#E53E3E'; isSimulating = false; return; }
+
+                message = "";
+                isSimulating = true;
+                cart = new Cart(anchor1, ziplineVec, stability);
+            }
+
+            function resetMission() {
+                isSimulating = false;
+                cart = null;
+                message = "";
+                score = 0;
+                launchButton.disabled = false;
+                wind = initialMissionState.wind;
+                windParticles = [];
+
+                building1 = { ...initialMissionState.building1 };
+                building2 = { ...initialMissionState.building2 };
+                middleBuilding = {
+                    ...initialMissionState.middleBuilding,
+                    fires: initialMissionState.middleBuilding.fires.map(fire => new FireEffect(fire.origin.x, fire.origin.y))
+                };
+                ropeMaterialAvailable = initialMissionState.ropeMaterialAvailable;
+
+                anchor1Slider.max = p.height - building1.y;
+                anchor2Slider.max = p.height - building2.y;
+
+                const minSliderVal = 100;
+                anchor1Slider.value = minSliderVal + (anchor1Slider.max - minSliderVal) * 0.1;
+                anchor2Slider.value = minSliderVal + (anchor2Slider.max - minSliderVal) * 0.1;
+
+                anchor1 = p.createVector(building1.w, p.height - anchor1Slider.value);
+                anchor2 = p.createVector(building2.x, p.height - anchor2Slider.value);
+                updateGameUI();
+            }
+
+            function findOptimalPath(building1, building2, wind) {
+                let bestPath = null;
+                let bestScore = -Infinity;
+                const startX = building1.w;
+                const endX = building2.x;
+                const deltaX = endX - startX;
+
+                for (let y1 = building1.y + 20; y1 < p.height - 50; y1 += 15) {
+                    for (let angleDeg = MIN_TENSION_ANGLE; angleDeg < 25; angleDeg += 1) {
+                        const angleRad = p.radians(angleDeg);
+                        const deltaY = p.tan(angleRad) * deltaX;
+                        const y2 = y1 + deltaY;
+
+                        if (y2 < building2.y + 20 || y2 > p.height - 50) continue;
+
+                        const path = {
+                            start: p.createVector(startX, y1),
+                            end: p.createVector(endX, y2)
+                        };
+
+                        const gravityComponent = (G * CART_MASS) * p.sin(angleRad);
+                        const windVec = p.createVector(wind / 100, 0);
+                        const pathVec = p5.Vector.sub(path.end, path.start).normalize();
+                        const windComponent = windVec.dot(pathVec);
+                        const acceleration = (gravityComponent + windComponent) / CART_MASS;
+                        const distance = p5.Vector.sub(path.end, path.start).mag();
+
+                        const finalVelocity = p.sqrt(2 * acceleration * distance);
+                        const stability = 100 - (angleDeg * 1.2) - (p.abs(wind) * 1.5);
+
+                        if (finalVelocity < MAX_SAFE_SPEED && stability > 50) {
+                            let score = 1000 - distance * 0.5 - (MAX_SAFE_SPEED - finalVelocity) * 20 + stability;
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestPath = path;
+                            }
+                        }
+                    }
+                }
+                return bestPath;
+            }
+
+            function setupRandomMission() {
+                isSimulating = false;
+                cart = null;
+                message = "";
+                score = 0;
+                launchButton.disabled = false;
+                wind = p.floor(p.random(-15, 15)) || 5;
+                windParticles = [];
+
+                const buildingWidth = p.width * 0.15;
+                const building1Height = p.random(0.9, 0.95);
+                const building2Height = p.random(0.4, 0.9);
+                const gapWidth = p.width * 0.72;
+
+                building1 = { x: 0, y: p.height * (1 - building1Height), w: buildingWidth, h: p.height * building1Height };
+                building2 = { x: buildingWidth + gapWidth, y: p.height * (1 - building2Height), w: p.width - (buildingWidth + gapWidth), h: p.height * building2Height };
+
+                const optimalPath = findOptimalPath(building1, building2, wind);
+                if (!optimalPath) {
+                    console.log("Could not find optimal path, retrying generation.");
+                    setupRandomMission();
+                    return;
+                }
+                const safeAnchor1 = optimalPath.start;
+                const safeAnchor2 = optimalPath.end;
+
+                const obstacleX = building1.w + p.width * 0.05;
+                const obstacleW = gapWidth - (p.width * 0.1);
+                ropeMaterialAvailable = p.floor(p5.Vector.sub(safeAnchor2, safeAnchor1).mag() * 1.2);
+
+                middleBuilding = { x: obstacleX, y: 0, w: obstacleW, cracks: [], windows: [], fires: [], topPoints: [] };
+                const clearanceBuffer = 35;
+                let lastY = p.height;
+                for (let x = obstacleX; x <= obstacleX + obstacleW; x += 15) {
+                    const safeYatX = p.map(x, safeAnchor1.x, safeAnchor2.x, safeAnchor1.y, safeAnchor2.y);
+                    const y = (x === obstacleX) ? safeYatX + clearanceBuffer + p.random(10, 30) : lastY + p.random(-15, 15);
+                    const finalY = p.constrain(y, safeYatX + clearanceBuffer, p.height - 60);
+                    middleBuilding.topPoints.push(p.createVector(x, finalY));
+                    lastY = finalY;
+                }
+
+                middleBuilding.y = middleBuilding.topPoints.reduce((min, pt) => pt.y < min ? pt.y : min, p.height);
+                let maxTopPointY = middleBuilding.topPoints.reduce((max, pt) => pt.y > max ? pt.y : max, 0);
+
+                for (let y = maxTopPointY + 20; y < p.height - 20; y += 40) {
+                    for (let x = middleBuilding.x + 20; x < middleBuilding.x + middleBuilding.w - 20; x += 40) {
+                        const windowRect = { x: x, y: y, w: 20, h: 20 };
+                        middleBuilding.windows.push(windowRect);
+                        if (p.random() < 0.4) {
+                            middleBuilding.fires.push(new FireEffect(windowRect.x + windowRect.w / 2, windowRect.y + windowRect.h / 2));
+                        }
+                    }
+                }
+
+                const numCracks = p.floor(p.random(8, 12));
+                let prevStartPosition = p.createVector(middleBuilding.x + middleBuilding.w * 0.1, maxTopPointY);
+                for (let i = 0; i < numCracks; i++) {
+                    let startPos = (i === 0) ? prevStartPosition.copy() : p.createVector(p.min(prevStartPosition.x + p.random(30, 50), middleBuilding.x + middleBuilding.w - 20), prevStartPosition.y + p.random(-5, 5));
+                    prevStartPosition = startPos.copy();
+                    const crackPath = [startPos.copy()];
+                    let currentPos = startPos.copy();
+                    const endY = currentPos.y + (p.height - middleBuilding.y) * p.random(0.4, 0.9);
+                    while (currentPos.y < endY) {
+                        currentPos.add(p.createVector(p.random(-15, 15), p.random(5, 15)));
+                        currentPos.x = p.constrain(currentPos.x, middleBuilding.x, middleBuilding.x + middleBuilding.w);
+                        crackPath.push(currentPos.copy());
+                    }
+                    middleBuilding.cracks.push(crackPath);
+                }
+
+                anchor1Slider.max = p.height - building1.y;
+                anchor2Slider.max = p.height - building2.y;
+
+                const minSliderVal = 100;
+                anchor1Slider.value = minSliderVal + (anchor1Slider.max - minSliderVal) * 0.1;
+                anchor2Slider.value = minSliderVal + (anchor2Slider.max - minSliderVal) * 0.1;
+
+                initialMissionState = {
+                    wind, building1: { ...building1 }, building2: { ...building2 },
+                    middleBuilding: { ...middleBuilding, fires: middleBuilding.fires.map(f => ({ origin: f.origin.copy() })) },
+                    ropeMaterialAvailable
+                };
+                anchor1 = p.createVector(building1.w, p.height - anchor1Slider.value);
+                anchor2 = p.createVector(building2.x, p.height - anchor2Slider.value);
+                updateGameUI();
+            }
+
+            // --- Modal Control ---
+            function showModal(modalElement) {
+                modalElement.classList.remove('opacity-0', 'pointer-events-none');
+                modalElement.querySelector('.modal-content').classList.remove('scale-90');
+            }
+            function hideModal(modalElement) {
+                modalElement.classList.add('opacity-0');
+                modalElement.querySelector('.modal-content').classList.add('scale-90');
+                setTimeout(() => modalElement.classList.add('pointer-events-none'), 300);
+            }
+            function showSuccessModal() {
+                modalScoreDisplay.textContent = score;
+                showModal(successModal);
+            }
+            const hideSuccessModal = () => hideModal(successModal);
+            const showInstructionsModal = () => showModal(instructionsModal);
+            const hideInstructionsModal = () => hideModal(instructionsModal);
+
+            // --- p5.js Core Functions ---
+            p.setup = () => {
+                p.createCanvas(canvasContainer.offsetWidth, canvasContainer.offsetHeight);
+                p.textFont('"Roboto Mono"');
+
+                launchButton.onclick = launchSimulation;
+                newMissionButton.onclick = setupRandomMission;
+                resetMissionButton.onclick = resetMission;
+                modalNewMissionButton.onclick = () => { hideSuccessModal(); setupRandomMission(); };
+                modalRetryMissionButton.onclick = () => { hideSuccessModal(); resetMission(); };
+                instructionsButton.onclick = showInstructionsModal;
+                closeInstructionsButton.onclick = hideInstructionsModal;
+
+                setupRandomMission();
+            };
+
             p.draw = () => {
-                p.background('#DDEEFF'); // Sky blue
-                
-                // --- Update values from controls ---
+                p.background('#f45c5c');
+
                 anchor1.y = p.height - anchor1Slider.value;
                 anchor2.y = p.height - anchor2Slider.value;
-                const windStrength = windSlider.value / 100; // Scale down for physics
-                windForce = p.createVector(windStrength, 0);
+                windForce = p.createVector(wind / 100, 0);
 
-                // --- Draw Environment ---
+                if (!isSimulating) {
+                    const ziplineVec = p5.Vector.sub(anchor2, anchor1);
+                    const angle = p.abs(p.degrees(ziplineVec.heading()));
+                    calculateStability(angle);
+                    updateGameUI();
+                }
+
                 drawBuildings();
                 drawMiddleBuilding();
-                drawAnchors();
+                drawWeatherEffects();
                 drawZipline();
-                drawWind();
-                
-                // --- Simulation Logic ---
+                drawAnchors();
+
                 if (isSimulating && cart) {
                     cart.applyForces(windForce);
                     cart.update();
@@ -324,257 +829,37 @@
                     launchButton.disabled = true;
                 } else {
                     launchButton.disabled = false;
-                    displayMessage(message, messageColor);
                 }
-                
-                // Display pre-launch warnings
-                if (!isSimulating) {
-                    // Combine pre-launch checks
+
+                if (isSimulating) {
+                    displayMessage(message, messageColor);
+                } else {
                     const ziplineVec = p5.Vector.sub(anchor2, anchor1);
                     const angle = p.abs(p.degrees(ziplineVec.heading()));
-                    if (lineRectIntersect(anchor1, anchor2, middleBuilding)) {
-                        displayMessage("WARNING: Path blocked by the building!", '#D97706');
-                    } else if (angle < MAX_TENSION_ANGLE) {
-                         displayMessage("WARNING: Angle too shallow! High tension risk.", '#D97706');
-                    } else {
-                        // Clear the warning if angle is okay
-                        if (message.startsWith("WARNING")) message = "";
+                    let warningMsg = "";
+                    let isPathBlocked = false;
+                    for (let i = 0; i < middleBuilding.topPoints.length - 1; i++) {
+                        if (lineLineIntersect(anchor1, anchor2, middleBuilding.topPoints[i], middleBuilding.topPoints[i + 1])) {
+                            isPathBlocked = true;
+                            break;
+                        }
                     }
+                    if (ropeMaterialUsed > ropeMaterialAvailable) warningMsg = "WARNING: Not enough rope material!";
+                    else if (stability < 50) warningMsg = "WARNING: Stability is dangerously low!";
+                    else if (isPathBlocked) warningMsg = "WARNING: Path blocked by the building!";
+                    else if (angle < MIN_TENSION_ANGLE) warningMsg = "WARNING: Angle too shallow, rope may snap!";
+                    displayMessage(warningMsg || message, warningMsg ? '#D97706' : messageColor);
                 }
             };
 
-            // --- Drawing Functions ---
-            function drawBuildings() {
-                p.fill('#8B9AAD'); // Building color
-                p.noStroke();
-                p.rect(building1.x, building1.y, building1.w, building1.h);
-                p.rect(building2.x, building2.y, building2.w, building2.h);
-                // Windows
-                p.fill('#4A4A4A');
-                for (let y = building1.y + 20; y < p.height - 20; y += 40) {
-                   p.rect(building1.x + 20, y, 20, 20);
-                   p.rect(building1.x + 60, y, 20, 20);
-                }
-                 for (let y = building2.y + 20; y < p.height - 20; y += 40) {
-                   p.rect(building2.x + 20, y, 20, 20);
-                   p.rect(building2.x + 60, y, 20, 20);
-                }
-            }
-            
-            function drawMiddleBuilding() {
-                p.noStroke();
-                // Main building structure
-                p.fill('#797C80');
-                p.rect(middleBuilding.x, middleBuilding.y, middleBuilding.w, middleBuilding.h);
-
-                // Draw windows
-                p.fill('#4A4A4A');
-                 middleBuilding.windows.forEach(w => {
-                    p.rect(w.x, w.y, w.w, w.h);
-                });
-                
-                // Draw pre-generated cracks
-                p.noFill();
-                p.stroke(50, 50, 50, 200);
-                p.strokeWeight(2);
-                middleBuilding.cracks.forEach(crackPath => {
-                    p.beginShape();
-                    crackPath.forEach(pt => p.vertex(pt.x, pt.y));
-                    p.endShape();
-                });
-
-                // Update and draw fires on top of the cracks
-                middleBuilding.fires.forEach(fire => {
-                    fire.update();
-                    fire.display();
-                });
-            }
-
-            function drawAnchors() {
-                p.fill('#E53E3E');
-                p.stroke('white');
-                p.strokeWeight(3);
-                p.ellipse(anchor1.x, anchor1.y, 20, 20);
-                p.ellipse(anchor2.x, anchor2.y, 20, 20);
-            }
-
-            function drawZipline() {
-                p.strokeWeight(isSimulating ? 4 : 2);
-                p.stroke(isSimulating ? '#4A4A4A' : 'rgba(74, 74, 74, 0.5)');
-                p.line(anchor1.x, anchor1.y, anchor2.x, anchor2.y);
-            }
-            
-            function drawWind() {
-                p.push();
-                p.translate(p.width/2, 30);
-                p.fill(100);
-                p.noStroke();
-                p.text(`Wind: ${windSlider.value} mph`, -30, 15);
-                
-                // Arrow
-                p.stroke(100, 150);
-                p.strokeWeight(2);
-                p.line(0,0, windForce.x * 500, 0);
-                p.push();
-                p.translate(windForce.x * 500, 0);
-                if (windForce.x !== 0) {
-                    let angle = windForce.x > 0 ? 0 : p.PI;
-                    p.rotate(angle);
-                    p.line(0, 0, -10, -5);
-                    p.line(0, 0, -10, 5);
-                }
-                p.pop();
-                p.pop();
-            }
-
-            function displayMessage(msg, color = 'black') {
-                 if (!msg) return;
-                 p.push();
-                 p.textAlign(p.CENTER, p.CENTER);
-                 p.textSize(24);
-                 p.fill(color);
-                 p.stroke('white');
-                 p.strokeWeight(4);
-                 p.text(msg, p.width / 2, p.height / 2);
-                 p.pop();
-            }
-
-            // --- Control Functions ---
-            function launchSimulation() {
-                const ziplineVec = p5.Vector.sub(anchor2, anchor1);
-                const angle = p.abs(p.degrees(ziplineVec.heading()));
-
-                // Check for failure conditions before launch
-                if (lineRectIntersect(anchor1, anchor2, middleBuilding)) {
-                    message = "FAIL: Zipline goes through building!";
-                    messageColor = '#E53E3E';
-                    isSimulating = false;
-                    return;
-                }
-                if (anchor1.y > anchor2.y) {
-                    message = "FAIL: Cannot go uphill!";
-                    messageColor = '#E53E3E';
-                    isSimulating = false;
-                    return;
-                }
-                if (angle < MAX_TENSION_ANGLE) {
-                    message = "SNAP! The zip line broke under high tension!";
-                    messageColor = '#E53E3E';
-                    isSimulating = false; // Don't start
-                    return;
-                }
-                
-                message = "";
-                isSimulating = true;
-                cart = new Cart(anchor1, ziplineVec);
-            }
-
-            function resetSimulation() {
-                isSimulating = false;
-                cart = null;
-                message = "";
-
-                const buildingWidth = p.width * 0.15;
-                building1 = { x: 0, y: p.height * 0.2, w: buildingWidth, h: p.height * 0.8 };
-                building2 = { x: p.width - buildingWidth, y: p.height * 0.4, w: buildingWidth, h: p.height * 0.6 };
-
-                const obstacleX = building1.w + p.width * 0.1;
-                const obstacleW = p.width - building1.w - building2.w - p.width * 0.2;
-                const obstacleH = p.height * 0.25;
-                const obstacleY = p.height - obstacleH;
-                
-                middleBuilding = {
-                    x: obstacleX,
-                    y: obstacleY,
-                    w: obstacleW,
-                    h: obstacleH,
-                    cracks: [], 
-                    windows: [],
-                    fires: []
-                };
-
-                // Generate windows and randomly select some for fires
-                for (let y = middleBuilding.y + 20; y < middleBuilding.y + middleBuilding.h - 20; y += 40) {
-                    for (let x = middleBuilding.x + 20; x < middleBuilding.x + middleBuilding.w - 20; x += 40) {
-                        const windowRect = {x: x, y: y, w: 20, h: 20};
-                       middleBuilding.windows.push(windowRect);
-                       if (p.random() < 0.3) { // 30% chance of fire in a window
-                           middleBuilding.fires.push(new FireEffect(windowRect.x + windowRect.w / 2, windowRect.y + windowRect.h / 2));
-                       }
-                    }
-                }
-
-                // Generate two major cracks that span the full height
-                for (let i = 0; i < 2; i++) {
-                    const crackPath = [];
-                    let currentPos = p.createVector(middleBuilding.x + p.random(middleBuilding.w * 0.1, middleBuilding.w * 0.9), middleBuilding.y);
-                    crackPath.push(currentPos.copy());
-                    
-                    while(currentPos.y < middleBuilding.y + middleBuilding.h) {
-                        const stepX = p.random(-5, 5);
-                        const stepY = p.random(5, 15);
-                        currentPos.add(stepX, stepY);
-                        currentPos.x = p.constrain(currentPos.x, middleBuilding.x, middleBuilding.x + middleBuilding.w);
-                        crackPath.push(currentPos.copy());
-                    }
-                    middleBuilding.cracks.push(crackPath);
-                }
-
-                // Generate 2-3 smaller, partial cracks
-                const numSmallCracks = p.floor(p.random(2, 4));
-                for (let i = 0; i < numSmallCracks; i++) {
-                    const crackPath = [];
-                    // Start from a random point on the building face
-                    let currentPos = p.createVector(p.random(middleBuilding.x, middleBuilding.x + middleBuilding.w), p.random(middleBuilding.y, middleBuilding.y + middleBuilding.h * 0.7));
-                    crackPath.push(currentPos.copy());
-                    const crackLength = p.random(middleBuilding.h * 0.2, middleBuilding.h * 0.5);
-                    const endY = currentPos.y + crackLength;
-
-                    while(currentPos.y < endY) {
-                         const stepX = p.random(-4, 4);
-                         const stepY = p.random(4, 12);
-                         currentPos.add(stepX, stepY);
-                         currentPos.x = p.constrain(currentPos.x, middleBuilding.x, middleBuilding.x + middleBuilding.w);
-                         if (currentPos.y > middleBuilding.y + middleBuilding.h) break; // Don't let it go past the bottom
-                         crackPath.push(currentPos.copy());
-                    }
-                    middleBuilding.cracks.push(crackPath);
-                }
-
-                anchor1 = p.createVector(building1.w, p.height - anchor1Slider.value);
-                anchor2 = p.createVector(building2.x, p.height - anchor2Slider.value);
-                launchButton.disabled = false;
-            }
-
-            // --- Collision Helper ---
-            function lineRectIntersect(p1, p2, rect) {
-                // check if the line has hit any of the rectangle's sides
-                const left =   lineLineIntersect(p1, p2, {x: rect.x, y: rect.y}, {x: rect.x, y: rect.y + rect.h});
-                const right =  lineLineIntersect(p1, p2, {x: rect.x + rect.w, y: rect.y}, {x: rect.x + rect.w, y: rect.y + rect.h});
-                const top =    lineLineIntersect(p1, p2, {x: rect.x, y: rect.y}, {x: rect.x + rect.w, y: rect.y});
-                const bottom = lineLineIntersect(p1, p2, {x: rect.x, y: rect.y + rect.h}, {x: rect.x + rect.w, y: rect.y + rect.h});
-
-                return left || right || top || bottom;
-            }
-
-            function lineLineIntersect(p1, p2, p3, p4) {
-                const x1 = p1.x, y1 = p1.y;
-                const x2 = p2.x, y2 = p2.y;
-                const x3 = p3.x, y3 = p3.y;
-                const x4 = p4.x, y4 = p4.y;
-
-                const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-                if (den == 0) return false; // Parallel lines
-
-                const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
-                const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / den;
-
-                return t > 0 && t < 1 && u > 0 && u < 1;
-            }
-
+            p.windowResized = () => {
+                p.resizeCanvas(canvasContainer.offsetWidth, canvasContainer.offsetHeight);
+                setupRandomMission();
+            };
         };
 
-        new p5(sketch, window.document.getElementById('canvas-container'));
+        // --- Instantiate p5.js ---
+        new p5(sketch, 'canvas-container');
     </script>
 </body>
 

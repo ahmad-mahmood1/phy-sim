@@ -75,6 +75,7 @@
             <h1 class="text-4xl font-bold text-gray-900">Curveball Physics Simulator</h1>
             <p class="mt-2 text-lg text-gray-600">Adjust the parameters to land the curveball in the catcher's glove.
             </p>
+            <p class="font-semibold">Note: The ball needs to have significant overlap with the glove to be considered a <i class="text-green-700">Hit.</i></p>
         </div>
 
         <!-- Main Content: Canvas and Controls -->
@@ -177,14 +178,14 @@
                 calculateAndApplyForces() {
                     // Gravity
                     this.applyForce(gravity);
-                    
+
                     // Air Drag
                     let dragForce = this.vel.copy();
                     let speed = dragForce.mag();
                     dragForce.normalize();
                     dragForce.mult(-1 * airDensity * speed * speed);
                     this.applyForce(dragForce);
-                    
+
                     // Magnus Force (from spin)
                     let magnusForce = new p5.Vector(-this.vel.y, this.vel.x);
                     magnusForce.mult(this.spin * magnusScalar);
@@ -202,10 +203,10 @@
                     // Update velocity and position based on acceleration (Euler integration)
                     this.vel.add(this.acc);
                     this.pos.add(this.vel);
-                    
+
                     // Update visual rotation based on spin
                     this.angle += (this.spinRate / p.frameRate());
-                    
+
                     // Record current position for drawing the trajectory line
                     trajectory.push(this.pos.copy());
                 }
@@ -260,7 +261,7 @@
                 setupListener(velocitySlider, velocityValue);
                 setupListener(spinSlider, spinValue);
                 setupListener(angleSlider, angleValue);
-                
+
                 // Set up the main pitch button
                 pitchButton.addEventListener('click', () => throwPitch(true));
 
@@ -268,7 +269,7 @@
                 pitcherPos.y = p.height * 0.85; // Lower on the screen
                 glove.x = p.width - 80;
                 glove.y = p.height * 0.75; // Higher on the screen
-                
+
                 throwPitch(); // Initial throw to draw the trajectory line
             };
 
@@ -294,7 +295,7 @@
 
             function drawField() {
                 // Define a fixed horizon line for the background visuals, independent of player positions
-                const horizonY = p.height * 0.6; 
+                const horizonY = p.height * 0.6;
 
                 // 1. Sky Gradient
                 let c1 = p.color('#e0f2fe'); // Light sky blue
@@ -420,16 +421,16 @@
                 pitchResult = "";
                 trajectory = [];
                 isThrowBall = throwBall; // Determines if we show the ball and result text
-                
+
                 // Get values from sliders
                 const initialVelocity = parseFloat(velocitySlider.value);
                 const spin = parseFloat(spinSlider.value);
                 const angle = parseFloat(angleSlider.value);
-                
+
                 // Create the velocity vector from angle and magnitude (scaled for simulation)
                 let vel = p5.Vector.fromAngle(p.radians(angle), initialVelocity * 0.23);
                 vel.y *= -1; // Invert Y because p5's y-axis is inverted
-                
+
                 let startPos = pitcherPos.copy();
                 ball = new Ball(startPos, vel, spin);
                 trajectory.push(startPos); // Start trajectory from pitcher's position
@@ -444,17 +445,19 @@
                     return;
                 }
 
-                let gloveCenter = p.createVector(glove.x, glove.y);
+                let gloveCenter = p.createVector(glove.x+10, glove.y);
                 let ballCenter = ball.pos.copy();
-                let gloveRadius = glove.h / 2;
+                let gloveRadius =( glove.h / 2 )* 0.8;
                 let ballRadius = ball.radius;
 
+                p.ellipse(gloveCenter.x,gloveCenter.y,gloveRadius+ballRadius)
+
                 // Check for collision using distance between centers
-                if (p5.Vector.dist(ballCenter, gloveCenter) < gloveRadius + ballRadius) {
+                if (p5.Vector.dist(ballCenter, gloveCenter) < gloveRadius ) {
                     isPitching = false;
                     if (isThrowBall) pitchResult = "Hit!";
                     return
-                } else if (ball.pos.x >= glove.x + glove.w / 2) {
+                } else if (ball.pos.x >= (gloveCenter.x + glove.w / 2)*1.01) {
                     // If ball passes the glove without hitting it
                     isPitching = false;
                     if (isThrowBall) pitchResult = "Miss!";
@@ -466,7 +469,7 @@
                 const canvasWidth = canvasContainer.offsetWidth;
                 const canvasHeight = Math.min(canvasWidth * 0.6, 500);
                 p.resizeCanvas(canvasWidth, canvasHeight);
-                
+
                 // --- RE-CALCULATE POSITIONS ON RESIZE ---
                 pitcherPos.y = p.height * 0.75; // Re-apply the lower position
                 glove.x = p.width - 80;
