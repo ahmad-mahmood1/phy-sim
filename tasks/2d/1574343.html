@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Top-Down Wave Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #111;
+        }
+        canvas {
+            display: block;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border-radius: 8px; /* Added for softer edges */
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Configuration ---
+            const canvasWidth = 800;
+            const canvasHeight = 600;
+            const sandHeight = canvasHeight * 0.45; // 45% of canvas height
+            const sandY = canvasHeight - sandHeight; // This is now the *average* sand line
+
+            let waves = [];
+            let particles = []; // --- NEW: Array to hold sand particles ---
+            let wetSandMask; // Off-screen graphics buffer for the wet sand effect
+
+            // --- NEW: Particle Class ---
+            class Particle {
+                constructor(x, y) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(0, 0);
+                    this.size = p.random(2, 5);
+                    this.color = p.color(p.random(100, 150), p.random(80, 120), p.random(60, 90));
+                }
+
+                update() {
+                    this.pos.add(this.vel);
+                    // --- REMOVED --- The friction/drag line was removed.
+                }
+
+                draw() {
+                    p.noStroke();
+                    p.fill(this.color);
+                    p.ellipse(this.pos.x, this.pos.y, this.size);
+                }
+
+                isOffscreen() {
+                    return (this.pos.x < 0 || this.pos.x > p.width || this.pos.y < 0 || this.pos.y > p.height);
+                }
+            }
+
+
+            /**
+             * Represents a single wave moving down and then back up the screen.
+             */
+            class Wave {
+                constructor() {
+                    this.y = p.random(-50, -20);
+                    this.noiseSeed = p.random(1000); 
+                    this.speed = p.random(1, 2.5);
+                    this.amplitude = p.random(20, 40);
+                    this.lifespan = 255;
+
+                    this.state = 'incoming'; 
+                    this.maxPenetration = sandY + p.random(15, sandHeight * 0.5); 
+                }
+
+                update() {
+                    let yMovement = 0;
+                    if (this.state === 'incoming') {
+                        yMovement = this.speed;
+                        this.y += yMovement;
+                        if (this.y > this.maxPenetration) {
+                            this.state = 'receding';
+                        }
+                    } else { // 'receding' state
+                        yMovement = -this.speed * 0.6;
+                        this.y += yMovement;
+                        this.lifespan -= 1.8; 
+                    }
+                    
+                    this.collideWithParticles(yMovement);
+                }
+                
+                collideWithParticles(yMovement) {
+                    for (const particle of particles) {
+                        const noiseVal = p.noise(this.noiseSeed + particle.pos.x * 0.01, this.y * 0.005);
+                        const waveEdgeY = this.y + p.map(noiseVal, 0, 1, -this.amplitude, this.amplitude);
+
+                        if (p.abs(particle.pos.y - waveEdgeY) < this.amplitude * 0.5) {
+                             let force = p.createVector(p.random(-0.1, 0.1), yMovement * 0.5);
+                             particle.vel.add(force);
+                        }
+                    }
+                }
+
+
+                draw() {
+                    p.noFill();
+                    let alpha = this.lifespan;
+                    if (this.state === 'receding') {
+                         alpha *= 0.8;
+                    }
+
+                    for(let i = 4; i > 0; i--){
+                        p.stroke(255, 255, 255, alpha / (i * 2.5));
+                        p.strokeWeight(i * 4);
+
+                        p.beginShape();
+                        for (let x = -50; x < p.width + 50; x += 20) {
+                            const noiseVal = p.noise(this.noiseSeed + x * 0.01, this.y * 0.005);
+                            const yOffset = p.map(noiseVal, 0, 1, -this.amplitude, this.amplitude);
+                            p.curveVertex(x, this.y + yOffset);
+                        }
+                        p.endShape();
+                    }
+                }
+
+                isAlive() {
+                    return this.y > -this.amplitude && this.lifespan > 0;
+                }
+            }
+
+            p.setup = () => {
+                p.createCanvas(canvasWidth, canvasHeight);
+                wetSandMask = p.createGraphics(p.width, p.height);
+                wetSandMask.pixelDensity(1);
+
+                for (let i = 0; i < 150; i++) {
+                     const shorelineNoise = p.noise(p.random(p.width) * 0.005);
+                     const y = sandY + p.map(shorelineNoise, 0, 1, -20, 20) + p.random(10, sandHeight);
+                     const x = p.random(p.width);
+                     particles.push(new Particle(x, y));
+                }
+            };
+            
+            p.draw = () => {
+                // --- Part 1: Update state and off-screen buffers ---
+                wetSandMask.background(0, 0, 0, 1.5); 
+
+                if (p.frameCount % 30 === 0) {
+                    waves.push(new Wave());
+                }
+                
+                // --- NEW: Reset all particle velocities to zero before calculations ---
+                for (const particle of particles) {
+                    particle.vel.set(0, 0);
+                }
+
+                // Update waves (which now adds velocity to particles for this frame)
+                for (let i = waves.length - 1; i >= 0; i--) {
+                    let w = waves[i];
+                    w.update();
+
+                    if (w.state === 'incoming' && w.y > sandY - w.amplitude) {
+                        drawOnMask(w);
+                    }
+                    
+                    if (!w.isAlive()) {
+                        waves.splice(i, 1);
+                    }
+                }
+
+                // Update particles (which applies the new velocity for one frame)
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update();
+                    if (particles[i].isOffscreen()) {
+                        particles.splice(i, 1);
+                    }
+                }
+
+
+                // --- Part 2: Render everything to the main canvas ---
+                p.background(135, 206, 235);
+                drawSand();
+
+                for (const particle of particles) {
+                    particle.draw();
+                }
+
+                p.image(wetSandMask, 0, 0);
+
+                for (const wave of waves) {
+                    wave.draw();
+                }
+            };
+
+            function drawSand() {
+                p.noStroke();
+                p.fill(230, 205, 160);
+                p.beginShape();
+                p.vertex(0, p.height);
+
+                for (let x = 0; x <= p.width; x++) {
+                    const shorelineNoise = p.noise(x * 0.005);
+                    const shorelineY = sandY + p.map(shorelineNoise, 0, 1, -20, 20);
+                    p.vertex(x, shorelineY);
+                }
+
+                p.vertex(p.width, p.height);
+                p.endShape(p.CLOSE);
+
+                p.stroke(230, 205, 160);
+                p.strokeWeight(2);
+                p.noFill();
+                p.beginShape();
+                for (let x = 0; x <= p.width; x++) {
+                    const shorelineNoise = p.noise(x * 0.005);
+                    const shorelineY = sandY + p.map(shorelineNoise, 0, 1, -20, 20);
+                    p.vertex(x, shorelineY);
+                }
+                p.endShape();
+
+                p.loadPixels();
+                for (let x = 0; x < p.width; x++) {
+                    const shorelineNoise = p.noise(x * 0.005);
+                    const shorelineY = sandY + p.map(shorelineNoise, 0, 1, -20, 20);
+                    for (let y = Math.floor(shorelineY); y < p.height; y++) {
+                        if (y >= p.height) continue;
+                        
+                        const index = (x + y * p.width) * 4;
+                        if (p.pixels[index] === undefined) continue;
+
+                        const texNoise = p.noise(x * 0.08, y * 0.08) * 25;
+                        p.pixels[index] -= texNoise;
+                        p.pixels[index + 1] -= texNoise;
+                        p.pixels[index + 2] -= texNoise;
+                    }
+                }
+                p.updatePixels();
+            }
+
+            function drawOnMask(wave) {
+                wetSandMask.noStroke();
+                wetSandMask.fill(60, 45, 30, 25);
+                
+                wetSandMask.beginShape();
+                
+                for (let x = -50; x <= p.width + 50; x += 10) {
+                    const noiseVal = p.noise(wave.noiseSeed + x * 0.01, wave.y * 0.005);
+                    const yOffset = p.map(noiseVal, 0, 1, -wave.amplitude, wave.amplitude);
+                    wetSandMask.vertex(x, wave.y + yOffset - 4);
+                }
+                
+                for (let x = p.width + 50; x >= -50; x -= 10) {
+                    const noiseVal = p.noise(wave.noiseSeed + x * 0.01, wave.y * 0.005);
+                    const yOffset = p.map(noiseVal, 0, 1, -wave.amplitude, wave.amplitude);
+                    wetSandMask.vertex(x, wave.y + yOffset + 4);
+                }
+                
+                wetSandMask.endShape(p.CLOSE);
+            }
+        };
+
+        new p5(sketch, document.body);
+    </script>
+</body>
+</html>

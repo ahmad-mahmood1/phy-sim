@@ -1,277 +1,169 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Heat Diffusion Simulation</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Beach Simulation</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #f0f0f0;
+    }
+  </style>
   <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
   <script type="importmap">
     {
       "imports": {
-        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.4/+esm"
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
       }
     }
   </script>
-  <style>
-    body {
-      margin: 0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      background: #111;
-      color: #fff;
-      font-family: sans-serif;
-      overflow: hidden;
-    }
-    .controls {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      z-index: 100;
-      background: rgba(0,0,0,0.7);
-      padding: 15px;
-      border-radius: 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .controls label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .controls input[type="range"] {
-      width: 200px;
-    }
-    .value-display {
-      min-width: 30px;
-      text-align: right;
-    }
-  </style>
 </head>
 <body>
-  <div class="controls">
-    <label>
-      Diffusion Rate:
-      <input type="range" id="diffusionRate" min="0" max="0.5" step="0.01" value="0.1">
-      <span id="diffusionRateValue" class="value-display">0.10</span>
-    </label>
-    <label>
-      Heat Loss:
-      <input type="range" id="heatLoss" min="0" max="0.05" step="0.001" value="0.005">
-      <span id="heatLossValue" class="value-display">0.005</span>
-    </label>
-    <label>
-      Source Temperature:
-      <input type="range" id="sourceTemp" min="255" max="500" step="5" value="300">
-      <span id="sourceTempValue" class="value-display">300</span>
-    </label>
-  </div>
-
   <script type="module">
-    import p5 from "p5";
-
+    import p5 from 'p5';
     const sketch = (p) => {
-      // Simulation constants
-      const GRID_SIZE = 120;
-      const SCALE = 5;
-      const WIDTH = GRID_SIZE * SCALE;
-      const HEIGHT = GRID_SIZE * SCALE;
-      const ZONE_HEIGHT = GRID_SIZE / 3;
-      
-      let grid, nextGrid, sources = [];
-      let diffusionRate = 0.1;
-      let heatLoss = 0.005;
-      let sourceTemp = 300;
-      let selectedSource = -1;
+      const particles = [];
+      const wetCells = {};
+      const resolution = 20;
+      const wetDecayRate = 0.98;
 
-      // Initialize heat sources in each zone
-      function initSources() {
-        sources = [
-          { x: 20, y: ZONE_HEIGHT / 2, temp: sourceTemp },
-          { x: 60, y: ZONE_HEIGHT + ZONE_HEIGHT / 2, temp: sourceTemp },
-          { x: 100, y: ZONE_HEIGHT * 2 + ZONE_HEIGHT / 2, temp: sourceTemp }
-        ];
-      }
+      let shorelinePoints = [];
+      let waveOffset = 0;
+      let wavePeakOffset = 0;
 
-      // Initialize grid with ambient temperature
-      function initGrid() {
-        grid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
-        nextGrid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
-      }
-
-      // Define different materials/conductivities
-      function getConductivity(x, y) {
-        if (y < ZONE_HEIGHT) return 0.5;       // Metal
-        if (y < ZONE_HEIGHT * 2) return 0.1;   // Wood
-        return 0.05;                           // Insulator
-      }
-
-      // Update temperature grid using heat diffusion
-      function updateGrid() {
-        for (let i = 0; i < GRID_SIZE; i++) {
-          for (let j = 0; j < GRID_SIZE; j++) {
-            // Skip heat sources
-            if (sources.some(s => 
-              i >= s.x - 2 && i <= s.x + 2 && 
-              j >= s.y - 2 && j <= s.y + 2)) {
-              nextGrid[i][j] = grid[i][j];
-              continue;
-            }
-            
-            // Heat diffusion calculation
-            let laplacian = 0;
-            let neighbors = 0;
-            
-            // Get neighboring cells
-            for (let dx = -1; dx <= 1; dx++) {
-              for (let dy = -1; dy <= 1; dy++) {
-                if (dx === 0 && dy === 0) continue;
-                
-                let ni = (i + dx + GRID_SIZE) % GRID_SIZE;
-                let nj = (j + dy + GRID_SIZE) % GRID_SIZE;
-                
-                laplacian += grid[ni][nj];
-                neighbors++;
-              }
-            }
-            
-            // Average temperature of neighbors
-            laplacian /= neighbors;
-            
-            // Get local conductivity
-            let conductivity = getConductivity(i, j);
-            
-            // Update temperature with diffusion and heat loss
-            nextGrid[i][j] = grid[i][j] + diffusionRate * conductivity * (laplacian - grid[i][j]);
-            nextGrid[i][j] -= heatLoss; // Natural cooling
-            nextGrid[i][j] = Math.max(0, nextGrid[i][j]);
-          }
-        }
-        
-        // Swap grids
-        [grid, nextGrid] = [nextGrid, grid];
-        
-        // Update heat sources
-        sources.forEach(source => {
-          for (let dx = -2; dx <= 2; dx++) {
-            for (let dy = -2; dy <= 2; dy++) {
-              let i = source.x + dx;
-              let j = source.y + dy;
-              
-              if (i >= 0 && i < GRID_SIZE && j >= 0 && j < GRID_SIZE) {
-                grid[i][j] = source.temp;
-              }
-            }
-          }
-        });
-      }
-
-      // Draw temperature visualization
-      function drawGrid() {
-        p.noStroke();
-        for (let i = 0; i < GRID_SIZE; i++) {
-          for (let j = 0; j < GRID_SIZE; j++) {
-            let temp = grid[i][j];
-            let colorVal = p.map(temp, 0, sourceTemp, 0, 255);
-            
-            // Heat map color (blue to red)
-            let c = p.lerpColor(
-              p.color(0, 0, 255),
-              p.color(255, 0, 0),
-              colorVal / 255
-            );
-            
-            p.fill(c);
-            p.rect(i * SCALE, j * SCALE, SCALE, SCALE);
-          }
-        }
-      }
-
-      // Draw heat sources
-      function drawSources() {
-        p.fill(255, 255, 0);
-        sources.forEach(source => {
-          p.ellipse(source.x * SCALE, source.y * SCALE, 10, 10);
-        });
-      }
-
-      // Draw zone separators
-      function drawZones() {
-        p.stroke(255);
-        p.strokeWeight(2);
-        p.line(0, ZONE_HEIGHT * SCALE, WIDTH, ZONE_HEIGHT * SCALE);
-        p.line(0, ZONE_HEIGHT * 2 * SCALE, WIDTH, ZONE_HEIGHT * 2 * SCALE);
-        
-        // Add zone labels
-        p.fill(255);
-        p.noStroke();
-        p.textSize(16);
-        p.text("Metal", 10, 20);
-        p.text("Wood", 10, ZONE_HEIGHT * SCALE + 20);
-        p.text("Insulator", 10, ZONE_HEIGHT * 2 * SCALE + 20);
-      }
-
-      // Mouse interaction for moving sources
-      function handleMouse() {
-        if (p.mouseIsPressed) {
-          if (selectedSource === -1) {
-            // Check if clicking on a source
-            for (let i = 0; i < sources.length; i++) {
-              let s = sources[i];
-              let d = p.dist(p.mouseX, p.mouseY, s.x * SCALE, s.y * SCALE);
-              if (d < 10) {
-                selectedSource = i;
-                break;
-              }
-            }
-          } else {
-            // Update source position
-            sources[selectedSource].x = p.constrain(p.mouseX / SCALE, 0, GRID_SIZE - 1);
-            sources[selectedSource].y = p.constrain(p.mouseY / SCALE, 0, GRID_SIZE - 1);
-          }
-        } else {
-          selectedSource = -1;
-        }
-      }
-
-      // Set up simulation canvas
       p.setup = () => {
-        p.createCanvas(WIDTH, HEIGHT);
-        initGrid();
-        initSources();
-        
-        // Set up controls
-        document.getElementById('diffusionRate').addEventListener('input', (e) => {
-          diffusionRate = parseFloat(e.target.value);
-          document.getElementById('diffusionRateValue').textContent = diffusionRate.toFixed(2);
-        });
-        
-        document.getElementById('heatLoss').addEventListener('input', (e) => {
-          heatLoss = parseFloat(e.target.value);
-          document.getElementById('heatLossValue').textContent = heatLoss.toFixed(3);
-        });
-        
-        document.getElementById('sourceTemp').addEventListener('input', (e) => {
-          sourceTemp = parseInt(e.target.value);
-          document.getElementById('sourceTempValue').textContent = sourceTemp;
-          sources.forEach(s => s.temp = sourceTemp);
-        });
+        p.createCanvas(p.windowWidth, p.windowHeight);
+        p.noiseSeed(p.random(10000));
+        generateShoreline();
+        for (let i = 0; i < 200; i++) {
+          particles.push(new Particle(
+            p.random(p.width), p.random(p.height / 2, p.height),
+            p.random(4, 8), p.random(0.5, 1.5)
+          ));
+        }
+        p.frameRate(30);
       };
 
-      // Main simulation loop
+      function generateShoreline() {
+        shorelinePoints = [];
+        const baseY = p.height * 0.65;
+        const amplitude = p.height * 0.05;
+        for (let x = 0; x < p.width; x += resolution) {
+          const n = p.noise(x * 0.005);
+          const y = baseY + p.map(n, 0, 1, -amplitude, amplitude);
+          shorelinePoints.push({ x, y });
+        }
+      }
+
+      class Particle {
+        constructor(x, y, size, weight) {
+          this.x = x; this.y = y;
+          this.size = size; this.weight = weight;
+          this.color = p.color(255, 240, 200);
+          this.velX = 0; this.velY = 0;
+          this.beenPushed = false;
+        }
+        update() {
+          this.x += this.velX; this.y += this.velY;
+          this.velX *= 0; this.velY *= 0;
+          if (this.y < 0) this.y = 0;
+          const sp = getShorelinePoint(this.x);
+          if (this.y > sp.y) this.y = sp.y;
+          const cell = `${Math.floor(this.x / resolution)},${Math.floor(this.y / resolution)}`;
+          if (wetCells[cell] > 0.2) {
+            const pushX = p.random(-1, 1) * wetCells[cell] * 3;
+            const pushY = p.random(-1, 0) * wetCells[cell] * 2;
+            this.velX = pushX / this.weight;
+            this.velY = pushY / this.weight;
+          }
+        }
+        show() {
+          p.fill(this.color);
+          p.noStroke();
+          p.ellipse(this.x, this.y, this.size);
+        }
+      }
+
+      function getShorelinePoint(x) {
+        let seg = Math.floor(x / resolution);
+        if (seg >= shorelinePoints.length - 1) seg = shorelinePoints.length - 2;
+        const p1 = shorelinePoints[seg];
+        const p2 = shorelinePoints[seg + 1];
+        const t = (x - p1.x) / (p2.x - p1.x);
+        return { x, y: p.lerp(p1.y, p2.y, t) };
+      }
+
       p.draw = () => {
-        updateGrid();
-        drawGrid();
-        drawSources();
-        drawZones();
-        handleMouse();
+        p.background(135, 206, 235);
+
+        const waveY = p.height * 0.15;
+        p.noFill();
+        p.stroke(255, 255, 255, 180);
+        p.strokeWeight(2);
+        p.beginShape();
+        for (let x = 0; x <= p.width; x += 10) {
+          const waveAmp = p.sin(x * 0.02 + waveOffset) * 15;
+          p.vertex(x, waveY + waveAmp);
+        }
+        p.endShape();
+
+        waveOffset += 0.05;
+        wavePeakOffset += 0.03;
+
+        for (let i = 0; i < shorelinePoints.length - 1; i++) {
+          const p1 = shorelinePoints[i];
+          const p2 = shorelinePoints[i + 1];
+          p.fill(194, 178, 128);
+          p.noStroke();
+          p.beginShape();
+          p.vertex(p1.x, p.height);
+          p.vertex(p2.x, p.height);
+          p.vertex(p2.x, p2.y);
+          p.vertex(p1.x, p1.y);
+          p.endShape(p.CLOSE);
+        }
+
+        for (let x = 0; x < p.width; x += resolution) {
+          const waveAmp = p.sin(x * 0.02 + waveOffset) * 15;
+          const waveBase = p.height * 0.15 + waveAmp;
+          const waveBottom = waveBase + 20;
+          const sp = getShorelinePoint(x);
+          if (waveBottom >= sp.y && waveBase < sp.y) {
+            const cell = `${Math.floor(x / resolution)},${Math.floor(sp.y / resolution)}`;
+            wetCells[cell] = (wetCells[cell] || 0) + 0.3;
+          }
+        }
+
+        for (const cell in wetCells) {
+          wetCells[cell] *= wetDecayRate;
+          if (wetCells[cell] < 0.05) delete wetCells[cell];
+        }
+
+        const wetCanvas = p.createGraphics(p.width, p.height);
+        wetCanvas.noStroke();
+        for (const cell in wetCells) {
+          const [cx, cy] = cell.split(',').map(Number);
+          const x = cx * resolution;
+          const y = cy * resolution;
+          wetCanvas.fill(60, 60, 60, wetCells[cell] * 255);
+          wetCanvas.rect(x, y, resolution, resolution);
+        }
+        p.image(wetCanvas, 0, 0);
+
+        for (const p of particles) {
+          p.update();
+          p.show();
+        }
+      };
+
+      p.windowResized = () => {
+        p.resizeCanvas(p.windowWidth, p.windowHeight);
+        generateShoreline();
       };
     };
-
-    // Create p5 instance
-    new p5(sketch, document.body);
+    new p5(sketch);
   </script>
 </body>
 </html>
