@@ -1,169 +1,259 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Beach Simulation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flocking Birds Simulation</title>
   <style>
     body {
       margin: 0;
+      padding: 0;
       overflow: hidden;
-      background: #f0f0f0;
+    }
+
+    canvas {
+      display: block;
+      margin: 0 auto;
+      /* centers the canvas horizontally */
+    }
+
+    #info {
+      position: absolute;
+      top: 10px;
+      width: 100%;
+      text-align: center;
+      color: white;
+      font-family: Arial, sans-serif;
     }
   </style>
+
+  <!-- Import map shim for browsers without native support -->
   <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+
+  <!-- Define all external dependencies in the import map -->
   <script type="importmap">
-    {
-      "imports": {
-        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-      }
-    }
-  </script>
+        {
+            "imports": {
+                "p5": "https://esm.sh/p5@1.9.3"
+            }
+        }
+    </script>
 </head>
+
 <body>
+  <div id="info">Flocking Birds Simulation - Click to move predator</div>
   <script type="module">
     import p5 from 'p5';
-    const sketch = (p) => {
-      const particles = [];
-      const wetCells = {};
-      const resolution = 20;
-      const wetDecayRate = 0.98;
 
-      let shorelinePoints = [];
-      let waveOffset = 0;
-      let wavePeakOffset = 0;
-
-      p.setup = () => {
-        p.createCanvas(p.windowWidth, p.windowHeight);
-        p.noiseSeed(p.random(10000));
-        generateShoreline();
-        for (let i = 0; i < 200; i++) {
-          particles.push(new Particle(
-            p.random(p.width), p.random(p.height / 2, p.height),
-            p.random(4, 8), p.random(0.5, 1.5)
-          ));
+    new p5((sketch) => {
+      // Define the Bird class
+      class Bird {
+        constructor(x, y) {
+          this.position = sketch.createVector(x, y);
+          this.velocity = sketch.createVector(sketch.random(-1, 1), sketch.random(-1, 1));
+          this.velocity.setMag(sketch.random(2, 4));
+          this.acceleration = sketch.createVector();
+          this.maxForce = 0.2;
+          this.maxSpeed = 4;
         }
-        p.frameRate(30);
-      };
 
-      function generateShoreline() {
-        shorelinePoints = [];
-        const baseY = p.height * 0.65;
-        const amplitude = p.height * 0.05;
-        for (let x = 0; x < p.width; x += resolution) {
-          const n = p.noise(x * 0.005);
-          const y = baseY + p.map(n, 0, 1, -amplitude, amplitude);
-          shorelinePoints.push({ x, y });
+        edges() {
+          if (this.position.x > sketch.width) {
+            this.position.x = 0;
+          } else if (this.position.x < 0) {
+            this.position.x = sketch.width;
+          }
+          if (this.position.y > sketch.height) {
+            this.position.y = 0;
+          } else if (this.position.y < 0) {
+            this.position.y = sketch.height;
+          }
         }
-      }
 
-      class Particle {
-        constructor(x, y, size, weight) {
-          this.x = x; this.y = y;
-          this.size = size; this.weight = weight;
-          this.color = p.color(255, 240, 200);
-          this.velX = 0; this.velY = 0;
-          this.beenPushed = false;
+        align(birds) {
+          let perceptionRadius = 50;
+          let steering = sketch.createVector();
+          let total = 0;
+          for (let other of birds) {
+            let d = sketch.dist(
+              this.position.x,
+              this.position.y,
+              other.position.x,
+              other.position.y
+            );
+            if (other !== this && d < perceptionRadius) {
+              steering.add(other.velocity);
+              total++;
+            }
+          }
+          if (total > 0) {
+            steering.div(total);
+            steering.setMag(this.maxSpeed);
+            steering.sub(this.velocity);
+            steering.limit(this.maxForce);
+          }
+          return steering;
         }
+
+        cohesion(birds) {
+          let perceptionRadius = 50;
+          let steering = sketch.createVector();
+          let total = 0;
+          for (let other of birds) {
+            let d = sketch.dist(
+              this.position.x,
+              this.position.y,
+              other.position.x,
+              other.position.y
+            );
+            if (other !== this && d < perceptionRadius) {
+              steering.add(other.position);
+              total++;
+            }
+          }
+          if (total > 0) {
+            steering.div(total);
+            steering.sub(this.position);
+            steering.setMag(this.maxSpeed);
+            steering.sub(this.velocity);
+            steering.limit(this.maxForce);
+          }
+          return steering;
+        }
+
+        separation(birds) {
+          let perceptionRadius = 50;
+          let steering = sketch.createVector();
+          let total = 0;
+          for (let other of birds) {
+            let d = sketch.dist(
+              this.position.x,
+              this.position.y,
+              other.position.x,
+              other.position.y
+            );
+            if (other !== this && d < perceptionRadius) {
+              let diff = sketch.createVector(
+                this.position.x - other.position.x,
+                this.position.y - other.position.y
+              );
+              diff.div(d);
+              steering.add(diff);
+              total++;
+            }
+          }
+          if (total > 0) {
+            steering.div(total);
+            steering.setMag(this.maxSpeed);
+            steering.sub(this.velocity);
+            steering.limit(this.maxForce);
+          }
+          return steering;
+        }
+
+        flee(predator) {
+          let perceptionRadius = 100;
+          let steering = sketch.createVector();
+          let d = sketch.dist(
+            this.position.x,
+            this.position.y,
+            predator.position.x,
+            predator.position.y
+          );
+          if (d < perceptionRadius) {
+            let diff = sketch.createVector(
+              this.position.x - predator.position.x,
+              this.position.y - predator.position.y
+            );
+            diff.div(d);
+            steering.add(diff);
+            steering.setMag(this.maxSpeed);
+            steering.sub(this.velocity);
+            steering.limit(this.maxForce);
+          }
+          return steering;
+        }
+
         update() {
-          this.x += this.velX; this.y += this.velY;
-          this.velX *= 0; this.velY *= 0;
-          if (this.y < 0) this.y = 0;
-          const sp = getShorelinePoint(this.x);
-          if (this.y > sp.y) this.y = sp.y;
-          const cell = `${Math.floor(this.x / resolution)},${Math.floor(this.y / resolution)}`;
-          if (wetCells[cell] > 0.2) {
-            const pushX = p.random(-1, 1) * wetCells[cell] * 3;
-            const pushY = p.random(-1, 0) * wetCells[cell] * 2;
-            this.velX = pushX / this.weight;
-            this.velY = pushY / this.weight;
-          }
+          this.position.add(this.velocity);
+          this.velocity.add(this.acceleration);
+          this.velocity.limit(this.maxSpeed);
+          this.acceleration.mult(0);
         }
+
+        applyForce(force) {
+          this.acceleration.add(force);
+        }
+
+        flock(birds, predator) {
+          let alignment = this.align(birds);
+          let cohesion = this.cohesion(birds);
+          let separation = this.separation(birds);
+          let fleeing = this.flee(predator);
+
+          alignment.mult(1.0);
+          cohesion.mult(1.0);
+          separation.mult(1.5);
+          fleeing.mult(2.0);
+
+          this.applyForce(alignment);
+          this.applyForce(cohesion);
+          this.applyForce(separation);
+          this.applyForce(fleeing);
+        }
+
         show() {
-          p.fill(this.color);
-          p.noStroke();
-          p.ellipse(this.x, this.y, this.size);
+          sketch.stroke(255);
+          sketch.strokeWeight(2);
+          sketch.fill(255, 100);
+          sketch.ellipse(this.position.x, this.position.y, 10, 10);
         }
       }
 
-      function getShorelinePoint(x) {
-        let seg = Math.floor(x / resolution);
-        if (seg >= shorelinePoints.length - 1) seg = shorelinePoints.length - 2;
-        const p1 = shorelinePoints[seg];
-        const p2 = shorelinePoints[seg + 1];
-        const t = (x - p1.x) / (p2.x - p1.x);
-        return { x, y: p.lerp(p1.y, p2.y, t) };
+      // Define the Predator class
+      class Predator {
+        constructor(x, y) {
+          this.position = sketch.createVector(x, y);
+        }
+
+        show() {
+          sketch.stroke(255, 0, 0);
+          sketch.strokeWeight(2);
+          sketch.fill(255, 0, 0);
+          sketch.ellipse(this.position.x, this.position.y, 20, 20);
+        }
       }
 
-      p.draw = () => {
-        p.background(135, 206, 235);
+      // Sketch variables
+      let birds = [];
+      let predator;
 
-        const waveY = p.height * 0.15;
-        p.noFill();
-        p.stroke(255, 255, 255, 180);
-        p.strokeWeight(2);
-        p.beginShape();
-        for (let x = 0; x <= p.width; x += 10) {
-          const waveAmp = p.sin(x * 0.02 + waveOffset) * 15;
-          p.vertex(x, waveY + waveAmp);
+      sketch.setup = () => {
+        sketch.createCanvas(800, 600);
+        for (let i = 0; i < 100; i++) {
+          birds.push(new Bird(sketch.random(sketch.width), sketch.random(sketch.height)));
         }
-        p.endShape();
-
-        waveOffset += 0.05;
-        wavePeakOffset += 0.03;
-
-        for (let i = 0; i < shorelinePoints.length - 1; i++) {
-          const p1 = shorelinePoints[i];
-          const p2 = shorelinePoints[i + 1];
-          p.fill(194, 178, 128);
-          p.noStroke();
-          p.beginShape();
-          p.vertex(p1.x, p.height);
-          p.vertex(p2.x, p.height);
-          p.vertex(p2.x, p2.y);
-          p.vertex(p1.x, p1.y);
-          p.endShape(p.CLOSE);
-        }
-
-        for (let x = 0; x < p.width; x += resolution) {
-          const waveAmp = p.sin(x * 0.02 + waveOffset) * 15;
-          const waveBase = p.height * 0.15 + waveAmp;
-          const waveBottom = waveBase + 20;
-          const sp = getShorelinePoint(x);
-          if (waveBottom >= sp.y && waveBase < sp.y) {
-            const cell = `${Math.floor(x / resolution)},${Math.floor(sp.y / resolution)}`;
-            wetCells[cell] = (wetCells[cell] || 0) + 0.3;
-          }
-        }
-
-        for (const cell in wetCells) {
-          wetCells[cell] *= wetDecayRate;
-          if (wetCells[cell] < 0.05) delete wetCells[cell];
-        }
-
-        const wetCanvas = p.createGraphics(p.width, p.height);
-        wetCanvas.noStroke();
-        for (const cell in wetCells) {
-          const [cx, cy] = cell.split(',').map(Number);
-          const x = cx * resolution;
-          const y = cy * resolution;
-          wetCanvas.fill(60, 60, 60, wetCells[cell] * 255);
-          wetCanvas.rect(x, y, resolution, resolution);
-        }
-        p.image(wetCanvas, 0, 0);
-
-        for (const p of particles) {
-          p.update();
-          p.show();
-        }
+        predator = new Predator(sketch.width / 2, sketch.height / 2);
       };
 
-      p.windowResized = () => {
-        p.resizeCanvas(p.windowWidth, p.windowHeight);
-        generateShoreline();
+      sketch.draw = () => {
+        sketch.background(0);
+        for (let bird of birds) {
+          bird.edges();
+          bird.flock(birds, predator);
+          bird.update();
+          bird.show();
+        }
+        predator.show();
       };
-    };
-    new p5(sketch);
+
+      sketch.mousePressed = () => {
+        predator.position.x = sketch.mouseX;
+        predator.position.y = sketch.mouseY;
+      };
+    });
   </script>
 </body>
+
 </html>
