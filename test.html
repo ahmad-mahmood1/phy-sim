@@ -2,258 +2,239 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Flocking Birds Simulation</title>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-    }
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>2D Vine Trellis Simulation</title>
 
-    canvas {
-      display: block;
-      margin: 0 auto;
-      /* centers the canvas horizontally */
-    }
-
-    #info {
-      position: absolute;
-      top: 10px;
-      width: 100%;
-      text-align: center;
-      color: white;
-      font-family: Arial, sans-serif;
-    }
-  </style>
-
-  <!-- Import map shim for browsers without native support -->
-  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-
-  <!-- Define all external dependencies in the import map -->
-  <script type="importmap">
+    <!--
+        Adapted from the basic P5.js template:
+        https://github.com/processing/p5.js/wiki/p5.js-overview#inline-p5js-in-html
+    -->
+    <script type="importmap">
         {
             "imports": {
-                "p5": "https://esm.sh/p5@1.9.3"
+                "p5": "https://esm.sh/p5@1.9.0"
             }
         }
     </script>
+
+    <style>
+        /* Center the canvas horizontally and make it responsive */
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+    </style>
 </head>
 
 <body>
-  <div id="info">Flocking Birds Simulation - Click to move predator</div>
-  <script type="module">
-    import p5 from 'p5';
+    <script type="module">
+        // Import p5.js as a module
+        import p5 from "p5";
 
-    new p5((sketch) => {
-      // Define the Bird class
-      class Bird {
-        constructor(x, y) {
-          this.position = sketch.createVector(x, y);
-          this.velocity = sketch.createVector(sketch.random(-1, 1), sketch.random(-1, 1));
-          this.velocity.setMag(sketch.random(2, 4));
-          this.acceleration = sketch.createVector();
-          this.maxForce = 0.2;
-          this.maxSpeed = 4;
-        }
+        // Create a new p5 instance using a function passed to its constructor
+        new p5((sketch) => {
+            // --- Simulation Configuration ---
+            const cols = 10;
+            const rows = 7;
+            const poleRadius = 15;
+            const spacing = 50;
+            const vineThickness = 5;
+            const toolRadius = 15;
+            const mouseInfluenceRadius = 50;
 
-        edges() {
-          if (this.position.x > sketch.width) {
-            this.position.x = 0;
-          } else if (this.position.x < 0) {
-            this.position.x = sketch.width;
-          }
-          if (this.position.y > sketch.height) {
-            this.position.y = 0;
-          } else if (this.position.y < 0) {
-            this.position.y = sketch.height;
-          }
-        }
+            // UI control flags
+            let startButton;
+            let started = false;
+            let win = false;
+            let lose = false;
+            let winMessage = "The vine has successfully reached its destination!";
+            let loseMessage = "The vine has hit a tool and withered away...";
 
-        align(birds) {
-          let perceptionRadius = 50;
-          let steering = sketch.createVector();
-          let total = 0;
-          for (let other of birds) {
-            let d = sketch.dist(
-              this.position.x,
-              this.position.y,
-              other.position.x,
-              other.position.y
-            );
-            if (other !== this && d < perceptionRadius) {
-              steering.add(other.velocity);
-              total++;
+            // Store the trellis poles, garden tools, and visited poles
+            let poles = [];
+            let tools = [];
+            let visitedPoles = [];
+
+            // Track the vine's current position
+            let currentPole;
+
+            // Store the mouse position and whether it's over the start
+            let mousePos = { x: 0, y: 0 };
+            let isMouseOverStart = false;
+
+            // --- p5.js Setup Function ---
+            sketch.setup = () => {
+                sketch.createCanvas(cols * spacing, rows * spacing);
+                sketch.textAlign(sketch.CENTER, sketch.CENTER);
+                initializePoles();
+                initializeTools();
+                startButton = sketch.createButton("Start");
+                startButton.position(10, 10);
+                startButton.mousePressed(() => {
+                    if (!started) {
+                        started = true;
+                        currentPole = poles[0];
+                        visitedPoles = [currentPole];
+                    }
+                });
+            };
+
+            // --- p5.js Draw Function ---
+            sketch.draw = () => {
+                sketch.background(240);
+
+                // Draw the trellis poles
+                poles.forEach((pole) => {
+                    sketch.fill(100);
+                    sketch.ellipse(pole.x, pole.y, poleRadius * 2);
+                });
+
+                // Draw the garden tools
+                tools.forEach((tool) => {
+                    sketch.fill(255, 0, 0);
+                    sketch.ellipse(tool.x, tool.y, toolRadius * 2);
+                });
+
+                if (!started) {
+                    startButton.show();
+                    return;
+                }
+
+                startButton.hide();
+
+                // Determine if the mouse is over the starting pole
+                if (!isMouseOverStart) {
+                    isMouseOverStart =
+                        sketch.dist(mousePos.x, mousePos.y, currentPole.x, currentPole.y) <
+                        poleRadius;
+                }
+
+                // Only update and draw the vine if the simulation has started
+                if (started) {
+                    updateVine();
+
+                    // Draw the vine path by connecting all visited poles
+                    sketch.stroke(0, 255, 0);
+                    sketch.strokeWeight(vineThickness);
+                    sketch.noFill();
+                    sketch.beginShape();
+                    visitedPoles.forEach((pole) => sketch.vertex(pole.x, pole.y));
+                    sketch.endShape();
+
+                    // Draw the current pole
+                    sketch.fill(0, 255, 0);
+                    sketch.ellipse(currentPole.x, currentPole.y, poleRadius * 2);
+                }
+
+                // Check win and lose conditions only when the vine is actively growing
+                if (started && !win && !lose) {
+                    checkWin();
+                    checkLose();
+                }
+
+                // Display win or lose message if the game is over
+                if (win) {
+                    sketch.fill(0);
+                    sketch.textSize(24);
+                    sketch.text(winMessage, sketch.width / 2, sketch.height / 2);
+                } else if (lose) {
+                    sketch.fill(0);
+                    sketch.textSize(24);
+                    sketch.text(loseMessage, sketch.width / 2, sketch.height / 2);
+                }
+            };
+
+            // --- p5.js Mouse Event Handlers ---
+            sketch.mouseMoved = () => {
+                mousePos.x = sketch.mouseX;
+                mousePos.y = sketch.mouseY;
+            };
+
+            // --- Simulation Initialization Functions ---
+            function initializePoles() {
+                for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        poles.push({ x: i * spacing, y: j * spacing });
+                    }
+                }
             }
-          }
-          if (total > 0) {
-            steering.div(total);
-            steering.setMag(this.maxSpeed);
-            steering.sub(this.velocity);
-            steering.limit(this.maxForce);
-          }
-          return steering;
-        }
 
-        cohesion(birds) {
-          let perceptionRadius = 50;
-          let steering = sketch.createVector();
-          let total = 0;
-          for (let other of birds) {
-            let d = sketch.dist(
-              this.position.x,
-              this.position.y,
-              other.position.x,
-              other.position.y
-            );
-            if (other !== this && d < perceptionRadius) {
-              steering.add(other.position);
-              total++;
+            function initializeTools() {
+                for (let i = 1; i < cols - 1; i++) {
+                    if (sketch.random() < 0.3) {
+                        const y = sketch.floor(sketch.random(rows)) * spacing;
+                        tools.push({ x: i * spacing, y });
+                    }
+                }
             }
-          }
-          if (total > 0) {
-            steering.div(total);
-            steering.sub(this.position);
-            steering.setMag(this.maxSpeed);
-            steering.sub(this.velocity);
-            steering.limit(this.maxForce);
-          }
-          return steering;
-        }
 
-        separation(birds) {
-          let perceptionRadius = 50;
-          let steering = sketch.createVector();
-          let total = 0;
-          for (let other of birds) {
-            let d = sketch.dist(
-              this.position.x,
-              this.position.y,
-              other.position.x,
-              other.position.y
-            );
-            if (other !== this && d < perceptionRadius) {
-              let diff = sketch.createVector(
-                this.position.x - other.position.x,
-                this.position.y - other.position.y
-              );
-              diff.div(d);
-              steering.add(diff);
-              total++;
+            // --- Vine Update Logic ---
+            function updateVine() {
+                if (!started || win || lose) return;
+
+                // Start growing the vine once the mouse moves over the start
+                if (!isMouseOverStart) return;
+
+                // Determine the direction to grow based on the mouse's position
+                const dx = mousePos.x - currentPole.x;
+                const dy = mousePos.y - currentPole.y;
+                const distance = sketch.dist(mousePos.x, mousePos.y, currentPole.x, currentPole.y);
+
+                // Only consider movement if the mouse is within the influence radius
+                if (distance < mouseInfluenceRadius) {
+                    let targetPole = findNearestPole(
+                        currentPole.x + dx * (mouseInfluenceRadius / distance),
+                        currentPole.y + dy * (mouseInfluenceRadius / distance)
+                    );
+
+                    // Only move if a valid, unvisited pole is found
+                    if (targetPole && !visitedPoles.includes(targetPole)) {
+                        currentPole = targetPole;
+                        visitedPoles.push(currentPole);
+                    }
+                }
             }
-          }
-          if (total > 0) {
-            steering.div(total);
-            steering.setMag(this.maxSpeed);
-            steering.sub(this.velocity);
-            steering.limit(this.maxForce);
-          }
-          return steering;
-        }
 
-        flee(predator) {
-          let perceptionRadius = 100;
-          let steering = sketch.createVector();
-          let d = sketch.dist(
-            this.position.x,
-            this.position.y,
-            predator.position.x,
-            predator.position.y
-          );
-          if (d < perceptionRadius) {
-            let diff = sketch.createVector(
-              this.position.x - predator.position.x,
-              this.position.y - predator.position.y
-            );
-            diff.div(d);
-            steering.add(diff);
-            steering.setMag(this.maxSpeed);
-            steering.sub(this.velocity);
-            steering.limit(this.maxForce);
-          }
-          return steering;
-        }
+            // --- Helper Functions ---
+            function findNearestPole(x, y) {
+                let nearestPole = null;
+                let minDistance = Infinity;
 
-        update() {
-          this.position.add(this.velocity);
-          this.velocity.add(this.acceleration);
-          this.velocity.limit(this.maxSpeed);
-          this.acceleration.mult(0);
-        }
+                poles.forEach((pole) => {
+                    const distance = sketch.dist(x, y, pole.x, pole.y);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearestPole = pole;
+                    }
+                });
 
-        applyForce(force) {
-          this.acceleration.add(force);
-        }
+                return nearestPole;
+            }
 
-        flock(birds, predator) {
-          let alignment = this.align(birds);
-          let cohesion = this.cohesion(birds);
-          let separation = this.separation(birds);
-          let fleeing = this.flee(predator);
+            // --- Win/Lose Condition Checks ---
+            function checkWin() {
+                if (currentPole.x === (cols - 1) * spacing) {
+                    win = true;
+                }
+            }
 
-          alignment.mult(1.0);
-          cohesion.mult(1.0);
-          separation.mult(1.5);
-          fleeing.mult(2.0);
-
-          this.applyForce(alignment);
-          this.applyForce(cohesion);
-          this.applyForce(separation);
-          this.applyForce(fleeing);
-        }
-
-        show() {
-          sketch.stroke(255);
-          sketch.strokeWeight(2);
-          sketch.fill(255, 100);
-          sketch.ellipse(this.position.x, this.position.y, 10, 10);
-        }
-      }
-
-      // Define the Predator class
-      class Predator {
-        constructor(x, y) {
-          this.position = sketch.createVector(x, y);
-        }
-
-        show() {
-          sketch.stroke(255, 0, 0);
-          sketch.strokeWeight(2);
-          sketch.fill(255, 0, 0);
-          sketch.ellipse(this.position.x, this.position.y, 20, 20);
-        }
-      }
-
-      // Sketch variables
-      let birds = [];
-      let predator;
-
-      sketch.setup = () => {
-        sketch.createCanvas(800, 600);
-        for (let i = 0; i < 100; i++) {
-          birds.push(new Bird(sketch.random(sketch.width), sketch.random(sketch.height)));
-        }
-        predator = new Predator(sketch.width / 2, sketch.height / 2);
-      };
-
-      sketch.draw = () => {
-        sketch.background(0);
-        for (let bird of birds) {
-          bird.edges();
-          bird.flock(birds, predator);
-          bird.update();
-          bird.show();
-        }
-        predator.show();
-      };
-
-      sketch.mousePressed = () => {
-        predator.position.x = sketch.mouseX;
-        predator.position.y = sketch.mouseY;
-      };
-    });
-  </script>
+            function checkLose() {
+                for (const tool of tools) {
+                    if (sketch.dist(currentPole.x, currentPole.y, tool.x, tool.y) < toolRadius) {
+                        lose = true;
+                        break;
+                    }
+                }
+            }
+        });
+    </script>
 </body>
 
 </html>

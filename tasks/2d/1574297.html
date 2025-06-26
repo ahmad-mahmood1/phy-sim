@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        #game-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        #canvas-container {
+            position: relative;
+            /* This is crucial for the overlay positioning */
+            border: 2px solid #444;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+            width: 90vw;
+            height: 70vh;
+            max-width: 800px;
+            max-height: 550px;
+        }
+
+        .game-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            /* Hidden by default */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.75);
+            color: white;
+            text-align: center;
+        }
+
+        .overlay-title {
+            font-size: 48px;
+            font-weight: bold;
+            margin: 0;
+        }
+
+        .overlay-subtitle {
+            font-size: 18px;
+            margin-top: 10px;
+        }
+
+        #win-screen .overlay-title {
+            color: #2ecc71;
+        }
+
+        #lose-screen .overlay-title {
+            color: #e74c3c;
+        }
+
+
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        #instructions-container {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #555;
+            text-align: center;
+            max-width: 80%;
+        }
+
+        button {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 16px;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 2px solid #555;
+            cursor: pointer;
+            background-color: #fff;
+            box-shadow: 0 4px #999;
+            transition: all 0.1s ease-in-out;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            box-shadow: 0 4px #888;
+        }
+
+        button:active:not(:disabled) {
+            box-shadow: 0 2px #666;
+            transform: translateY(2px);
+        }
+
+        #start-btn {
+            background-color: #86e38b;
+        }
+
+        #reset-btn {
+            background-color: #f0a3a3;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <h1 id="game-title">Creeping Fig Plant</h1>
+    <div id="canvas-container">
+        <!-- The p5 canvas will be created here -->
+        <div id="win-screen" class="game-overlay">
+            <h2 class="overlay-title">You Win!</h2>
+            <p class="overlay-subtitle">Press Reset to play again.</p>
+        </div>
+        <div id="lose-screen" class="game-overlay">
+            <h2 class="overlay-title">Game Over!</h2>
+            <p class="overlay-subtitle">Press Reset to play again.</p>
+        </div>
+    </div>
+    <div id="controls">
+        <button id="start-btn">Start Game</button>
+        <button id="reset-btn">Reset Game</button>
+    </div>
+    <div id="instructions-container">
+        <p>After starting the game, guide the vine with your mouse to reach the red planter. The vine only grows along
+            the trellis slats!</p>
+    </div>
+
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let figVine;
+            let gardenTools = [];
+            let brickWallTexture, mudTexture;
+            let startJardiniere, endJardiniere;
+            let vineStartPos, vineEndPos;
+            let gameState = 'idle'; // 'idle', 'ready', 'playing', 'won', 'lost'
+
+            let verticalSlatsX = [];
+            let horizontalSlatsY = [];
+
+            const startBtn = document.getElementById('start-btn');
+            const resetBtn = document.getElementById('reset-btn');
+            const winScreen = document.getElementById('win-screen');
+            const loseScreen = document.getElementById('lose-screen');
+            const instructionsContainer = document.getElementById('instructions-container');
+
+            let isInitialized = false;
+
+            function findClosest(value, arr) {
+                if (!arr || arr.length === 0) {
+                    return 0;
+                }
+                return arr.reduce((prev, curr) => {
+                    return (Math.abs(curr - value) < Math.abs(prev - value) ? curr : prev);
+                });
+            }
+
+            function setGameState(newState) {
+                gameState = newState;
+                winScreen.style.display = (gameState === 'won') ? 'flex' : 'none';
+                loseScreen.style.display = (gameState === 'lost') ? 'flex' : 'none';
+
+                if (gameState === 'won' || gameState === 'lost') {
+                    startBtn.disabled = true;
+                }
+
+                switch (gameState) {
+                    case 'idle':
+                        instructionsContainer.innerHTML = '<p>Press Start Game, then guide the vine with your mouse to reach the red planter.</p>';
+                        break;
+                    case 'ready':
+                        instructionsContainer.innerHTML = '<p>Move your mouse to the green planter to begin growing!</p>';
+                        startBtn.disabled = true;
+                        break;
+                    case 'playing':
+                        instructionsContainer.innerHTML = '<p>Guide the vine along the trellis. Avoid the tools!</p>';
+                        break;
+                }
+            }
+
+            function generateSolutionPath(startNode, endNode) {
+                const gridW = verticalSlatsX.length;
+                const gridH = horizontalSlatsY.length;
+
+                if (gridW === 0 || gridH === 0) return new Set();
+
+                const stack = [];
+                const visited = Array(gridW).fill(null).map(() => Array(gridH).fill(false));
+
+                stack.push(startNode);
+                visited[startNode.c][startNode.r] = true;
+
+                while (stack.length > 0) {
+                    let current = stack[stack.length - 1];
+                    if (current.c === endNode.c && current.r === endNode.r) break;
+
+                    let {
+                        c,
+                        r
+                    } = current;
+                    const directions = [
+                        [1, 0],
+                        [0, 1],
+                        [-1, 0],
+                        [0, -1]
+                    ];
+                    p.shuffle(directions, true);
+
+                    let foundNeighbor = false;
+                    for (const [dc, dr] of directions) {
+                        let nc = c + dc;
+                        let nr = r + dr;
+                        if (nc >= 0 && nc < gridW && nr >= 0 && nr < gridH && !visited[nc][nr]) {
+                            visited[nc][nr] = true;
+                            stack.push({
+                                c: nc,
+                                r: nr
+                            });
+                            foundNeighbor = true;
+                            break;
+                        }
+                    }
+                    if (!foundNeighbor) stack.pop();
+                }
+
+                const solutionSegments = new Set();
+                for (let i = 0; i < stack.length - 1; i++) {
+                    const p1 = stack[i],
+                        p2 = stack[i + 1];
+                    const segStr1 = `${p1.c},${p1.r}-${p2.c},${p2.r}`;
+                    const segStr2 = `${p2.c},${p2.r}-${p1.c},${p1.r}`;
+                    solutionSegments.add(segStr1 < segStr2 ? segStr1 : segStr2);
+                }
+                return solutionSegments;
+            }
+
+            function setupLevel() {
+                gardenTools = [];
+                const toolTypes = ['trowel', 'rake', 'shovel', 'pruningShears', 'gardenFork', 'wateringCan'];
+
+                const startC = verticalSlatsX.indexOf(findClosest(vineStartPos.x, verticalSlatsX));
+                const startR = horizontalSlatsY.indexOf(findClosest(vineStartPos.y, horizontalSlatsY));
+                const endC = verticalSlatsX.indexOf(findClosest(vineEndPos.x, verticalSlatsX));
+                const endR = horizontalSlatsY.indexOf(findClosest(vineEndPos.y, horizontalSlatsY));
+
+                const solutionPath = generateSolutionPath({
+                    c: startC,
+                    r: startR
+                }, {
+                    c: endC,
+                    r: endR
+                });
+
+                const allSegments = [];
+                for (let r = 0; r < horizontalSlatsY.length; r++)
+                    for (let c = 0; c < verticalSlatsX.length - 1; c++) allSegments.push(`${c},${r}-${c + 1},${r}`);
+                for (let c = 0; c < verticalSlatsX.length; c++)
+                    for (let r = 0; r < horizontalSlatsY.length - 1; r++) allSegments.push(`${c},${r}-${c},${r + 1}`);
+
+                const lastColIndex = verticalSlatsX.length - 1;
+                let availableSegmentsSet = new Set(allSegments.filter(seg => {
+                    const [p1Str, p2Str] = seg.split('-');
+                    const [c1,] = p1Str.split(',').map(Number);
+                    const [c2,] = p2Str.split(',').map(Number);
+                    if (c1 === 0 && c2 === 0) return false;
+                    if (c1 === 0 && c2 === 1) return false;
+                    if (c1 === lastColIndex && c2 === lastColIndex) return false;
+                    if (c1 === lastColIndex - 1 && c2 === lastColIndex) return false;
+                    const segStr1 = `${p1Str}-${p2Str}`;
+                    const segStr2 = `${p2Str}-${p1Str}`;
+                    return !solutionPath.has(segStr1) && !solutionPath.has(segStr2);
+                }));
+
+                const middleColsStart = 2;
+                const middleColsEnd = lastColIndex - 2;
+
+                for (let c = middleColsStart; c <= middleColsEnd; c++) {
+                    let colVerticalSegments = [];
+                    for (let r = 0; r < horizontalSlatsY.length - 1; r++) {
+                        const seg = `${c},${r}-${c},${r + 1}`;
+                        if (availableSegmentsSet.has(seg)) {
+                            colVerticalSegments.push(seg);
+                        }
+                    }
+                    p.shuffle(colVerticalSegments, true);
+                    let toolsToPlaceInCol = p.random([1, 2]);
+                    let placedCount = 0;
+                    while (placedCount < toolsToPlaceInCol && colVerticalSegments.length > 0) {
+                        const seg = colVerticalSegments.shift();
+                        if (!seg) continue;
+                        const [p1Str, p2Str] = seg.split('-');
+                        const [c1, r1] = p1Str.split(',').map(Number);
+                        const [c2, r2] = p2Str.split(',').map(Number);
+                        const toolX = (verticalSlatsX[c1] + verticalSlatsX[c2]) / 2;
+                        const toolY = (horizontalSlatsY[r1] + horizontalSlatsY[r2]) / 2;
+                        gardenTools.push(new GardenTool(p.random(toolTypes), toolX, toolY, 15, p.random(-p.PI / 16, p.PI / 16)));
+                        placedCount++;
+                        availableSegmentsSet.delete(seg);
+                        const adjacentAbove = `${c1},${r1 - 1}-${c1},${r1}`;
+                        const adjacentBelow = `${c1},${r2}-${c1},${r2 + 1}`;
+                        availableSegmentsSet.delete(adjacentAbove);
+                        availableSegmentsSet.delete(adjacentBelow);
+                        colVerticalSegments = colVerticalSegments.filter(s => s !== adjacentAbove && s !== adjacentBelow);
+                    }
+                }
+
+                let remainingHorizontal = [...availableSegmentsSet].filter(seg => {
+                    const [p1Str,] = seg.split('-');
+                    const [, r1] = p1Str.split(',').map(Number);
+                    const [, p2Str] = seg.split('-');
+                    const [, r2] = p2Str.split(',').map(Number);
+                    return r1 === r2;
+                });
+                p.shuffle(remainingHorizontal, true);
+
+                const numExtraTools = 3;
+                for (let i = 0; i < numExtraTools && i < remainingHorizontal.length; i++) {
+                    const seg = remainingHorizontal[i];
+                    const [p1Str, p2Str] = seg.split('-');
+                    const [c1, r1] = p1Str.split(',').map(Number);
+                    const [c2, r2] = p2Str.split(',').map(Number);
+                    const toolX = (verticalSlatsX[c1] + verticalSlatsX[c2]) / 2;
+                    const toolY = (horizontalSlatsY[r1] + horizontalSlatsY[r2]) / 2;
+                    gardenTools.push(new GardenTool(p.random(toolTypes), toolX, toolY, 15, p.random(-p.PI / 16, p.PI / 16)));
+                }
+
+                figVine = new FigVine(vineStartPos.copy(), startC, startR);
+            }
+
+            function resetGame() {
+                if (!isInitialized) return;
+                setupLevel();
+                setGameState('idle');
+                startBtn.disabled = false;
+            }
+
+            function initializeGame() {
+                if (isInitialized || p.width === 0 || p.height === 0) {
+                    return;
+                }
+                brickWallTexture = p.createGraphics(p.width, p.height);
+                generateBrickTexture(brickWallTexture);
+
+                mudTexture = p.createGraphics(100, 100);
+                generateMudTexture(mudTexture);
+
+                const slatWidth = 20;
+                const numVerticalDivisions = 8;
+                verticalSlatsX = [];
+                for (let i = 0; i <= numVerticalDivisions; i++) {
+                    const x = p.map(i, 0, numVerticalDivisions, -p.width / 2 + slatWidth / 2, p.width / 2 - slatWidth / 2);
+                    verticalSlatsX.push(x);
+                }
+                const numHorizontalDivisions = 6;
+                horizontalSlatsY = [];
+                for (let i = 0; i <= numHorizontalDivisions; i++) {
+                    const y = p.map(i, 0, numHorizontalDivisions, -p.height / 2 + slatWidth / 2, p.height / 2 - slatWidth / 2);
+                    horizontalSlatsY.push(y);
+                }
+                // Move vases down
+                const jardiniereCenterY = p.height / 2 - 30;
+                startJardiniere = {
+                    pos: p.createVector(-p.width / 2 + 50, jardiniereCenterY, 20),
+                    color: p.color(100, 180, 100)
+                };
+                endJardiniere = {
+                    pos: p.createVector(p.width / 2 - 50, jardiniereCenterY, 20),
+                    color: p.color(255, 120, 120)
+                };
+
+                vineStartPos = p.createVector(verticalSlatsX[0], findClosest(startJardiniere.pos.y, horizontalSlatsY), startJardiniere.pos.z);
+                vineEndPos = p.createVector(verticalSlatsX[verticalSlatsX.length - 1], findClosest(endJardiniere.pos.y, horizontalSlatsY), endJardiniere.pos.z);
+
+                const startC = verticalSlatsX.indexOf(vineStartPos.x);
+                const startR = horizontalSlatsY.indexOf(vineStartPos.y);
+
+                setupLevel();
+                startBtn.addEventListener('click', () => {
+                    if (gameState === 'idle') {
+                        setGameState('ready');
+                    }
+                });
+                resetBtn.addEventListener('click', resetGame);
+                isInitialized = true;
+            }
+
+            p.setup = () => {
+                const canvasContainer = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight, p.WEBGL);
+                canvas.parent(canvasContainer);
+            };
+
+            p.windowResized = () => {
+                const canvasContainer = document.getElementById('canvas-container');
+                p.resizeCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight);
+                isInitialized = false; // Force re-initialization
+                verticalSlatsX = [];
+                horizontalSlatsY = [];
+                initializeGame();
+            };
+
+            p.draw = () => {
+                if (!isInitialized) {
+                    initializeGame();
+                    return;
+                }
+                if (gameState === 'ready') {
+                    const mousePos2D = p.createVector(p.mouseX - p.width / 2, p.mouseY - p.height / 2);
+                    if (mousePos2D.dist(p.createVector(startJardiniere.pos.x, startJardiniere.pos.y)) < 40) {
+                        setGameState('playing');
+                    }
+                }
+                p.background(220);
+                p.orbitControl(1, 1, 0.1);
+                drawBackground();
+                drawTrellis();
+                drawJardinieres();
+                for (const tool of gardenTools) {
+                    tool.draw();
+                }
+                const mouseTarget = p.createVector(p.mouseX - p.width / 2, p.mouseY - p.height / 2, 15);
+                figVine.update(gardenTools, mouseTarget);
+                figVine.draw();
+            };
+
+            function drawBackground() {
+                p.push();
+                p.translate(0, 0, -10);
+                p.noStroke();
+                p.texture(brickWallTexture);
+                p.plane(p.width, p.height);
+                p.pop();
+            }
+
+            function drawJardinieres() {
+                [startJardiniere, endJardiniere].forEach(j => {
+                    p.push();
+                    p.translate(j.pos);
+                    p.noStroke();
+                    // Decreased the height 'h' of the vase
+                    const tW = 70,
+                        tD = 70,
+                        bW = 50,
+                        bD = 50,
+                        h = 50;
+                    p.fill(j.color);
+                    const v = [p.createVector(-tW / 2, -h / 2, -tD / 2), p.createVector(tW / 2, -h / 2, -tD / 2), p.createVector(tW / 2, -h / 2, tD / 2), p.createVector(-tW / 2, -h / 2, tD / 2), p.createVector(-bW / 2, h / 2, -bD / 2), p.createVector(bW / 2, h / 2, -bD / 2), p.createVector(bW / 2, h / 2, bD / 2), p.createVector(-bW / 2, h / 2, bD / 2)];
+                    p.beginShape(p.QUADS);
+                    p.vertex(v[3].x, v[3].y, v[3].z);
+                    p.vertex(v[2].x, v[2].y, v[2].z);
+                    p.vertex(v[6].x, v[6].y, v[6].z);
+                    p.vertex(v[7].x, v[7].y, v[7].z);
+                    p.vertex(v[0].x, v[0].y, v[0].z);
+                    p.vertex(v[1].x, v[1].y, v[1].z);
+                    p.vertex(v[5].x, v[5].y, v[5].z);
+                    p.vertex(v[4].x, v[4].y, v[4].z);
+                    p.vertex(v[0].x, v[0].y, v[0].z);
+                    p.vertex(v[3].x, v[3].y, v[3].z);
+                    p.vertex(v[7].x, v[7].y, v[7].z);
+                    p.vertex(v[4].x, v[4].y, v[4].z);
+                    p.vertex(v[1].x, v[1].y, v[1].z);
+                    p.vertex(v[2].x, v[2].y, v[2].z);
+                    p.vertex(v[6].x, v[6].y, v[6].z);
+                    p.vertex(v[5].x, v[5].y, v[5].z);
+                    p.endShape();
+                    p.push();
+                    p.fill(p.red(j.color) * 0.8, p.green(j.color) * 0.8, p.blue(j.color) * 0.8);
+                    p.translate(0, -h / 2, 0);
+                    p.box(tW + 5, 10, tD + 5);
+                    p.pop();
+
+                    p.push();
+                    p.texture(mudTexture);
+                    p.translate(0, -h / 2 + 7, 0);
+                    p.box(tW - 5, 5, tD - 5);
+                    p.pop();
+
+                    p.pop();
+                });
+            }
+
+            function generateBrickTexture(pg) {
+                const bW = 60,
+                    bH = 25,
+                    m = 6;
+                pg.background(180, 160, 150);
+                pg.fill(210, 105, 30);
+                pg.noStroke();
+                for (let y = 0; y < pg.height; y += bH + m) {
+                    for (let x = -bW; x < pg.width + bW; x += bW + m) {
+                        let o = (p.floor(y / (bH + m)) % 2 === 1) ? -(bW + m) / 2 : 0;
+                        pg.rect(x + o, y, bW, bH, 3);
+                    }
+                }
+            }
+
+            function generateMudTexture(pg) {
+                pg.background(92, 64, 51);
+                pg.noStroke();
+                for (let i = 0; i < 200; i++) {
+                    const x = pg.random(pg.width);
+                    const y = pg.random(pg.height);
+                    const size = pg.random(10, 25);
+                    const c = p.color(p.random(70, 90), p.random(40, 60), p.random(30, 50), 150);
+                    pg.fill(c);
+                    pg.ellipse(x, y, size, size);
+                }
+            }
+
+            function drawTrellis() {
+                p.push();
+                p.fill(139, 69, 19);
+                p.stroke(87, 55, 26);
+                p.strokeWeight(1);
+                const sW = 20,
+                    sD = 15;
+                verticalSlatsX.forEach(x => {
+                    p.push();
+                    p.translate(x, 0, 0);
+                    p.box(sW, p.height, sD);
+                    p.pop();
+                });
+                horizontalSlatsY.forEach(y => {
+                    p.push();
+                    p.translate(0, y, sD / 2);
+                    p.box(p.width, sW, sD);
+                    p.pop();
+                });
+                p.pop();
+            }
+
+            class FigVine {
+                constructor(startPos, startGridC, startGridR) {
+                    this.head = startPos;
+                    this.path = [startPos.copy()];
+                    this.velocity = p.createVector();
+                    this.acceleration = p.createVector();
+                    this.maxSpeed = 2.5;
+                    this.maxForce = 0.3;
+                    this.lastDirection = 'vertical';
+                    this.visitedSegments = new Set();
+                    this.currentGridNode = {
+                        c: startGridC,
+                        r: startGridR
+                    };
+                }
+
+                update(obstacles, target) {
+                    if (gameState !== 'playing') return;
+
+                    const planter = endJardiniere;
+                    const planterWidth = 70;
+                    const planterHeight = 50; // Adjusted height
+                    const winZoneLeft = planter.pos.x - planterWidth / 2;
+                    const winZoneTop = planter.pos.y - planterHeight / 2;
+                    const winZoneBottom = planter.pos.y + planterHeight / 2;
+
+                    if (this.head.x >= winZoneLeft && this.head.y > winZoneTop && this.head.y < winZoneBottom) {
+                        setGameState('won');
+                        return;
+                    }
+
+                    this.checkCollision(obstacles);
+                    if (gameState === 'lost') return;
+
+                    const cVX_head = findClosest(this.head.x, verticalSlatsX);
+                    const cVY_head = findClosest(this.head.y, horizontalSlatsY);
+                    const atIntersection = p.abs(this.head.x - cVX_head) < 5 && p.abs(this.head.y - cVY_head) < 5;
+                    const headC = verticalSlatsX.indexOf(cVX_head);
+                    const headR = horizontalSlatsY.indexOf(cVY_head);
+
+                    if (atIntersection && (headC !== this.currentGridNode.c || headR !== this.currentGridNode.r)) {
+                        const prevNode = this.currentGridNode;
+                        const currentNode = {
+                            c: headC,
+                            r: headR
+                        };
+                        const segStr1 = `${prevNode.c},${prevNode.r}-${currentNode.c},${currentNode.r}`;
+                        const segStr2 = `${currentNode.c},${currentNode.r}-${prevNode.c},${prevNode.r}`;
+                        this.visitedSegments.add(segStr1 < segStr2 ? segStr1 : segStr2);
+                        this.currentGridNode = currentNode;
+                    }
+
+                    let snappedTarget;
+                    const closestVineSlatX = findClosest(this.head.x, verticalSlatsX);
+                    const closestVineSlatY = findClosest(this.head.y, horizontalSlatsY);
+                    const closestMouseSlatX = findClosest(target.x, verticalSlatsX);
+                    const closestMouseSlatY = findClosest(target.y, horizontalSlatsY);
+
+                    if (this.lastDirection === 'vertical') {
+                        snappedTarget = p.createVector(closestVineSlatX, target.y, this.head.z);
+                        if (atIntersection && closestMouseSlatX !== closestVineSlatX) {
+                            const nextC = verticalSlatsX.indexOf(closestMouseSlatX);
+                            const nextR = this.currentGridNode.r;
+                            const segStr1 = `${this.currentGridNode.c},${this.currentGridNode.r}-${nextC},${nextR}`;
+                            const segStr2 = `${nextC},${nextR}-${this.currentGridNode.c},${this.currentGridNode.r}`;
+                            if (!this.visitedSegments.has(segStr1 < segStr2 ? segStr1 : segStr2)) {
+                                this.lastDirection = 'horizontal';
+                                snappedTarget = p.createVector(target.x, closestVineSlatY, this.head.z);
+                            }
+                        }
+                    } else {
+                        snappedTarget = p.createVector(target.x, closestVineSlatY, this.head.z);
+                        if (atIntersection && closestMouseSlatY !== closestVineSlatY) {
+                            const nextC = this.currentGridNode.c;
+                            const nextR = horizontalSlatsY.indexOf(closestMouseSlatY);
+                            const segStr1 = `${this.currentGridNode.c},${this.currentGridNode.r}-${nextC},${nextR}`;
+                            const segStr2 = `${nextC},${nextR}-${this.currentGridNode.c},${this.currentGridNode.r}`;
+                            if (!this.visitedSegments.has(segStr1 < segStr2 ? segStr1 : segStr2)) {
+                                this.lastDirection = 'vertical';
+                                snappedTarget = p.createVector(closestVineSlatX, target.y, this.head.z);
+                            }
+                        }
+                    }
+
+                    let finalTarget = this.seek(snappedTarget);
+                    this.applyForce(finalTarget);
+                    this.velocity.add(this.acceleration);
+                    this.velocity.limit(this.maxSpeed);
+                    this.head.add(this.velocity);
+                    this.acceleration.mult(0);
+
+                    if (this.velocity.mag() > 0.1) {
+                        this.path.push(this.head.copy());
+                    }
+                }
+
+                checkCollision(obstacles) {
+                    for (let obs of obstacles) {
+                        if (this.head.dist(obs.pos) < p.max(obs.width, obs.height) / 2.5) {
+                            setGameState('lost');
+                            return;
+                        }
+                    }
+                }
+                applyForce(force) {
+                    this.acceleration.add(force);
+                }
+                seek(target) {
+                    let desired = p5.Vector.sub(target, this.head);
+                    desired.setMag(this.maxSpeed);
+                    let steer = p5.Vector.sub(desired, this.velocity);
+                    steer.limit(this.maxForce);
+                    return steer;
+                }
+
+                draw() {
+                    const wrapThreshold = 10;
+                    const wrapAmplitude = 8;
+                    const wrapFrequency = 0.1;
+
+                    p.push();
+                    p.stroke(40, 26, 13);
+                    p.strokeWeight(8);
+                    p.noFill();
+                    p.beginShape();
+                    for (let v of this.path) {
+                        let finalX = v.x;
+                        let finalY = v.y;
+                        let finalZ = v.z;
+                        let wrapped = false;
+
+                        for (let x_pole of verticalSlatsX) {
+                            if (p.abs(v.x - x_pole) < wrapThreshold) {
+                                const angle = v.y * wrapFrequency;
+                                finalX = x_pole + p.cos(angle) * wrapAmplitude;
+                                finalZ = v.z + p.sin(angle) * wrapAmplitude;
+                                wrapped = true;
+                                break;
+                            }
+                        }
+
+                        if (!wrapped) {
+                            for (let y_pole of horizontalSlatsY) {
+                                if (p.abs(v.y - y_pole) < wrapThreshold) {
+                                    const angle = v.x * wrapFrequency;
+                                    finalY = y_pole + p.cos(angle) * wrapAmplitude;
+                                    finalZ = v.z + p.sin(angle) * wrapAmplitude;
+                                    break;
+                                }
+                            }
+                        }
+                        p.vertex(finalX, finalY, finalZ);
+                    }
+                    p.endShape();
+                    p.pop();
+
+                    p.push();
+                    p.fill(0, 100, 0);
+                    p.noStroke();
+                    for (let i = 10; i < this.path.length; i += 15) {
+                        const point = this.path[i];
+                        let finalX = point.x;
+                        let finalY = point.y;
+                        let finalZ = point.z + 2;
+                        let wrapped = false;
+
+                        for (let x_pole of verticalSlatsX) {
+                            if (p.abs(point.x - x_pole) < wrapThreshold) {
+                                const angle = point.y * wrapFrequency;
+                                finalX = x_pole + p.cos(angle) * wrapAmplitude;
+                                finalZ = point.z + 2 + p.sin(angle) * wrapAmplitude;
+                                wrapped = true;
+                                break;
+                            }
+                        }
+
+                        if (!wrapped) {
+                            for (let y_pole of horizontalSlatsY) {
+                                if (p.abs(point.y - y_pole) < wrapThreshold) {
+                                    const angle = point.x * wrapFrequency;
+                                    finalY = y_pole + p.cos(angle) * wrapAmplitude;
+                                    finalZ = point.z + 2 + p.sin(angle) * wrapAmplitude;
+                                    break;
+                                }
+                            }
+                        }
+
+                        p.push();
+                        p.translate(finalX, finalY, finalZ);
+                        p.rotateZ(p.noise(i * 0.1) * p.TWO_PI);
+                        p.ellipse(0, -7, 12, 18);
+                        p.pop();
+                    }
+                    p.pop();
+                }
+            }
+
+            class GardenTool {
+                constructor(type, x, y, z, rot) {
+                    this.type = type;
+                    this.pos = p.createVector(x, y, z);
+                    this.rotation = rot;
+                    this.handleColor = p.color(222, 184, 135);
+                    this.metalColor = p.color(211, 211, 211);
+                    this.redColor = p.color(255, 0, 0);
+                    this.greenColor = p.color(0, 200, 0);
+                    const scale = 0.7;
+                    switch (type) {
+                        case 'trowel':
+                            this.width = 30 * scale;
+                            this.height = 110 * scale;
+                            break;
+                        case 'rake':
+                            this.width = 60 * scale;
+                            this.height = 120 * scale;
+                            break;
+                        case 'shovel':
+                            this.width = 50 * scale;
+                            this.height = 180 * scale;
+                            break;
+                        case 'pruningShears':
+                            this.width = 40 * scale;
+                            this.height = 80 * scale;
+                            break;
+                        case 'gardenFork':
+                            this.width = 50 * scale;
+                            this.height = 140 * scale;
+                            break;
+                        case 'wateringCan':
+                            this.width = 100 * scale;
+                            this.height = 100 * scale;
+                            break;
+                        default:
+                            this.width = 50 * scale;
+                            this.height = 100 * scale;
+                    }
+                }
+                draw() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y, this.pos.z);
+                    p.rotateX(p.PI / 12);
+                    p.rotateZ(this.rotation);
+                    p.scale(0.7);
+                    const t = {
+                        'trowel': this.drawTrowel,
+                        'rake': this.drawRake,
+                        'shovel': this.drawShovel,
+                        'pruningShears': this.drawPruningShears,
+                        'gardenFork': this.drawGardenFork,
+                        'wateringCan': this.drawWateringCan,
+                    };
+                    t[this.type].call(this);
+                    p.pop();
+                }
+                drawTrowel() {
+                    p.push();
+                    p.fill(this.handleColor);
+                    p.noStroke();
+                    p.box(10, 70, 10);
+                    p.translate(0, 35, 0);
+                    p.fill(this.metalColor);
+                    p.box(30, 40, 4);
+                    p.pop();
+                }
+                drawRake() {
+                    p.push();
+                    p.fill(this.handleColor);
+                    p.noStroke();
+                    p.box(12, 100, 12);
+                    p.translate(0, 50, 0);
+                    p.fill(this.metalColor);
+                    p.box(60, 12, 6);
+                    p.translate(0, 6, 0);
+                    for (let i = -2; i <= 2; i++) {
+                        p.push();
+                        p.translate(i * 12, 5, 0);
+                        p.box(4, 20, 4);
+                        p.pop();
+                    }
+                    p.pop();
+                }
+                drawShovel() {
+                    p.push();
+                    p.fill(this.handleColor);
+                    p.noStroke();
+                    p.box(15, 120, 15);
+                    p.translate(0, 60, 0);
+                    p.fill(this.metalColor);
+                    p.box(50, 60, 5);
+                    p.pop();
+                }
+                drawPruningShears() {
+                    p.push();
+                    p.fill(this.redColor);
+                    p.noStroke();
+                    p.push();
+                    p.translate(-8, 0, 0);
+                    p.box(10, 40, 8);
+                    p.pop();
+                    p.push();
+                    p.translate(8, 0, 0);
+                    p.box(10, 40, 8);
+                    p.pop();
+                    p.fill(this.metalColor);
+                    p.push();
+                    p.translate(-8, 25, 0);
+                    p.box(6, 30, 2);
+                    p.pop();
+                    p.push();
+                    p.translate(8, 25, 0);
+                    p.box(6, 30, 2);
+                    p.pop();
+                    p.pop();
+                }
+                drawGardenFork() {
+                    p.push();
+                    p.fill(this.handleColor);
+                    p.noStroke();
+                    p.box(15, 100, 15);
+                    p.translate(0, 50, 0);
+                    p.fill(this.metalColor);
+                    p.box(50, 15, 8);
+                    p.translate(0, 7.5, 0);
+                    for (let i = -1; i <= 1; i++) {
+                        p.push();
+                        p.translate(i * 15, 10, 0);
+                        p.box(5, 40, 5);
+                        p.pop();
+                    }
+                    p.pop();
+                }
+                drawWateringCan() {
+                    p.push();
+                    p.fill(this.greenColor);
+                    p.noStroke();
+                    p.cylinder(40, 80);
+                    p.push();
+                    p.translate(0, -30, 40);
+                    p.rotateX(-p.PI / 4);
+                    p.cylinder(10, 60);
+                    p.pop();
+                    p.push();
+                    p.translate(0, 0, -45);
+                    p.rotateX(p.PI / 2);
+                    p.torus(30, 8);
+                    p.pop();
+                    p.pop();
+                }
+            }
+        };
+
+        const container = document.getElementById('canvas-container');
+        window.onload = function () {
+            new p5(sketch, container);
+        }
+
+    </script>
+</body>
+
+</html>
