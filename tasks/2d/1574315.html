@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flocking Simulation</title>
+    <title>Flocking Simulation with Flowing Clouds</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -14,24 +14,25 @@
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #1a202c; /* Dark blue-gray background */
-            color: #e2e8f0;
+            background-color: #e0e8f0;
+            color: #1a202c;
             font-family: 'Roboto Mono', monospace;
             text-align: center;
         }
 
         #canvas-container {
             position: relative;
-            border: 2px solid #4a5568;
-            box-shadow: 0 0 25px rgba(0, 0, 0, 0.5);
+            border: 2px solid #a0aec0;
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.3);
             border-radius: 8px;
-            overflow: hidden; /* Ensures canvas corners are rounded */
+            overflow: hidden;
         }
+
         #info {
             margin-bottom: 16px;
             padding: 8px;
             border-radius: 6px;
-            background-color: rgba(45, 55, 72, 0.7);
+            background-color: rgba(255, 255, 255, 0.7);
         }
     </style>
     <script type="importmap">
@@ -45,8 +46,8 @@
 
 <body>
     <div id="info">
-       <h1>Flocking Simulation</h1>
-       <p>Click on the canvas to spawn or move the predator drone.</p>
+        <h1>Flocking Simulation</h1>
+        <p>Click on the canvas to spawn or move the predator drone.</p>
     </div>
     <div id="canvas-container">
     </div>
@@ -55,54 +56,59 @@
 
         const sketch = (p) => {
             // --- Configuration ---
-            const BOID_COUNT = 81;
+            const BIRD_COUNT = 200;
             const PREDATOR_FEAR_RADIUS = 75;
             const PREDATOR_FLEE_FORCE = 1.5;
-            const SEPARATION_MULTIPLIER = 2.0; 
+            const SEPARATION_MULTIPLIER = 2.0;
             const COHESION_MULTIPLIER = 1.2;
-            const NUM_FLOCKS = 3;
             let flockColors = [];
-            
+
             let flock = [];
             let predator = null;
 
+            const tileCount = 75;    // Number of tiles for the cloud grid. Lower for better performance.
+            const noiseScale = 0.04;   // How "zoomed-in" the noise is.
+
+            let noiseVector;         // The current position in the 2D noise space.
+            let noiseVelocity;       // The speed at which we traverse the noise space.
+            let noiseAcceleration;   // The acceleration for a drifting, non-linear movement.
+
             // Bird class represents a single bird in the flock
             class Bird {
-                constructor(flockId) {
-                    this.position = p.createVector(p.random(p.width), p.random(p.height));
+                constructor(flockId, startX, startY) {
+                    this.position = p.createVector(startX, startY);
                     this.velocity = p5.Vector.random2D();
                     this.velocity.setMag(p.random(2, 4));
                     this.acceleration = p.createVector();
-                    this.maxForce = 0.2; // Limits the steering force
-                    this.maxSpeed = 4;   // Limits the boid's speed
-                    this.flockId = flockId; // Assign the boid to a flock
+                    this.maxForce = 0.2;
+                    this.maxSpeed = 4;
+                    this.flockId = flockId;
 
                     this.flapSpeed = p.random(0.4, 0.6);
                     this.flapOffset = p.random(p.TWO_PI);
                 }
 
                 edges() {
-                    if (this.position.x > p.width) {
-                        this.position.x = 0;
-                    } else if (this.position.x < 0) {
-                        this.position.x = p.width;
-                    }
-                    if (this.position.y > p.height) {
-                        this.position.y = 0;
-                    } else if (this.position.y < 0) {
-                        this.position.y = p.height;
-                    }
+                    if (this.position.x > p.width) this.position.x = 0;
+                    else if (this.position.x < 0) this.position.x = p.width;
+                    if (this.position.y > p.height) this.position.y = 0;
+                    else if (this.position.y < 0) this.position.y = p.height;
                 }
 
-                // --- Flocking Behaviors ---
-
-                align(boids) {
+                align(birds) {
                     let perceptionRadius = 50;
                     let steering = p.createVector();
                     let total = 0;
-                    for (let other of boids) {
-                        let d = p.dist(this.position.x, this.position.y, other.position.x, other.position.y);
-                        if (other != this && other.flockId === this.flockId && d < perceptionRadius) {
+                    for (let other of birds) {
+                        let dx = this.position.x - other.position.x;
+                        let dy = this.position.y - other.position.y;
+
+                        if (p.abs(dx) > p.width / 2) dx = dx > 0 ? dx - p.width : dx + p.width;
+                        if (p.abs(dy) > p.height / 2) dy = dy > 0 ? dy - p.height : dy + p.height;
+
+                        let d = p.sqrt(dx * dx + dy * dy);
+
+                        if (other !== this && d < perceptionRadius) {
                             steering.add(other.velocity);
                             total++;
                         }
@@ -115,21 +121,29 @@
                     }
                     return steering;
                 }
-                
-                cohesion(boids) {
+
+                cohesion(birds) {
                     let perceptionRadius = 100;
                     let steering = p.createVector();
                     let total = 0;
-                    for (let other of boids) {
-                        let d = p.dist(this.position.x, this.position.y, other.position.x, other.position.y);
-                        if (other != this && other.flockId === this.flockId && d < perceptionRadius) {
-                            steering.add(other.position);
+                    for (let other of birds) {
+                        if (other === this) continue;
+
+                        let vector = p5.Vector.sub(other.position, this.position);
+                        if (vector.x > p.width / 2) vector.x -= p.width;
+                        else if (vector.x < -p.width / 2) vector.x += p.width;
+                        if (vector.y > p.height / 2) vector.y -= p.height;
+                        else if (vector.y < -p.height / 2) vector.y += p.height;
+
+                        let d = vector.mag();
+
+                        if (d > 0 && d < perceptionRadius) {
+                            steering.add(vector);
                             total++;
                         }
                     }
                     if (total > 0) {
                         steering.div(total);
-                        steering.sub(this.position);
                         steering.setMag(this.maxSpeed);
                         steering.sub(this.velocity);
                         steering.limit(this.maxForce);
@@ -137,16 +151,25 @@
                     return steering;
                 }
 
-                separation(boids) {
-                    let perceptionRadius = 24; 
+                separation(birds) {
+                    let perceptionRadius = 24;
                     let steering = p.createVector();
                     let total = 0;
-                    for (let other of boids) {
-                        let d = p.dist(this.position.x, this.position.y, other.position.x, other.position.y);
-                        if (other != this && other.flockId === this.flockId && d < perceptionRadius) {
-                            let diff = p5.Vector.sub(this.position, other.position);
-                            diff.div(d * d); // Weight by distance
-                            steering.add(diff);
+                    for (let other of birds) {
+                        if (other === this) continue;
+
+                        let vector = p5.Vector.sub(this.position, other.position);
+                        if (vector.x > p.width / 2) vector.x -= p.width;
+                        else if (vector.x < -p.width / 2) vector.x += p.width;
+                        if (vector.y > p.height / 2) vector.y -= p.height;
+                        else if (vector.y < -p.height / 2) vector.y += p.height;
+
+                        let d = vector.mag();
+
+                        if (d > 0 && d < perceptionRadius) {
+                            vector.normalize();
+                            vector.div(d);
+                            steering.add(vector);
                             total++;
                         }
                     }
@@ -171,20 +194,16 @@
                     return p.createVector(0, 0);
                 }
 
-                flock(boids, predator) {
+                flock(birds, predator) {
                     this.acceleration.mult(0);
-                    
-                    let alignment = this.align(boids);
-                    let cohesion = this.cohesion(boids);
-                    let separation = this.separation(boids);
-
+                    let alignment = this.align(birds);
+                    let cohesion = this.cohesion(birds);
+                    let separation = this.separation(birds);
                     separation.mult(SEPARATION_MULTIPLIER);
                     cohesion.mult(COHESION_MULTIPLIER);
-
                     this.acceleration.add(alignment);
                     this.acceleration.add(cohesion);
                     this.acceleration.add(separation);
-                    
                     if (predator) {
                         let fleeForce = this.flee(predator);
                         this.acceleration.add(fleeForce);
@@ -197,51 +216,40 @@
                     this.velocity.limit(this.maxSpeed);
                 }
 
-                // --- MODIFIED: Draw bird with a line body and two separate wings ---
                 show() {
                     const mainColor = flockColors[this.flockId];
-                    const strokeColor = p.color(p.red(mainColor) * 0.8, p.green(mainColor) * 0.8, p.blue(mainColor) * 0.8);
+                    const darkerColor = p.color(p.red(mainColor) * 0.5, p.green(mainColor) * 0.5, p.blue(mainColor) * 0.5, 200);
 
                     p.push();
                     p.translate(this.position.x, this.position.y);
                     p.rotate(this.velocity.heading());
-                    
-                    // Flapping Animation Calculation
-                    const flapMultiplier = (p.sin(p.frameCount * this.flapSpeed + this.flapOffset) + 1) * 0.5 + 0.5;
-                    const len = 7;
 
-                    // --- Wings ---
-                    p.fill(mainColor);
-                    p.stroke(strokeColor);
+                    const len = 12;
+                    const flap = p.sin(p.frameCount * this.flapSpeed + this.flapOffset);
+                    const wingAngle = flap * p.QUARTER_PI * 0.7;
+
                     p.strokeWeight(1);
-                    p.noFill();
+                    p.fill(mainColor);
+                    p.stroke(darkerColor);
 
-                    // Top Wing
+                    p.push();
+                    p.rotate(-wingAngle);
                     p.beginShape();
-                    p.vertex(len / 4, 0); // Start on body
-                    p.curveVertex(len / 4, 0);
-                    p.curveVertex(len / 4, (-len / 1.2) * flapMultiplier);
-                    p.curveVertex(-len / 2, (-len / 2.5) * flapMultiplier);
-                    p.curveVertex(-len * 0.75, 0); // End on body
-                    p.curveVertex(-len * 0.75, 0);
-                    p.endShape();
+                    p.vertex(len * 0.2, 0); p.vertex(-len * 0.4, 0); p.vertex(-len * 0.2, -len * 0.8);
+                    p.endShape(p.CLOSE);
+                    p.pop();
 
-                    // Bottom Wing
+                    p.push();
+                    p.rotate(wingAngle);
                     p.beginShape();
-                    p.vertex(len / 4, 0); // Start on body
-                    p.curveVertex(len / 4, 0);
-                    p.curveVertex(len / 4, (len / 1.2) * flapMultiplier);
-                    p.curveVertex(-len / 2, (len / 2.5) * flapMultiplier);
-                    p.curveVertex(-len * 0.75, 0); // End on body
-                    p.curveVertex(-len * 0.75, 0);
-                    p.endShape();
+                    p.vertex(len * 0.2, 0); p.vertex(-len * 0.4, 0); p.vertex(-len * 0.2, len * 0.8);
+                    p.endShape(p.CLOSE);
+                    p.pop();
 
-                    // --- Body Line ---
-                    // Draw body on top of the wings
-                    p.stroke(mainColor);
-                    p.strokeWeight(2);
-                    p.line(-len, 0, len, 0); // Line from tail to head
-                    
+                    p.fill(mainColor);
+                    p.stroke(darkerColor);
+                    p.ellipse(0, 0, len, len * 0.5);
+
                     p.pop();
                 }
             }
@@ -251,7 +259,7 @@
                 constructor(x, y) {
                     this.position = p.createVector(x, y);
                     this.velocity = p5.Vector.random2D();
-                    this.velocity.setMag(0.5); 
+                    this.velocity.setMag(0.5);
                 }
 
                 update() {
@@ -259,17 +267,11 @@
                     this.edges();
                 }
 
-                 edges() {
-                    if (this.position.x > p.width) {
-                        this.position.x = 0;
-                    } else if (this.position.x < 0) {
-                        this.position.x = p.width;
-                    }
-                    if (this.position.y > p.height) {
-                        this.position.y = 0;
-                    } else if (this.position.y < 0) {
-                        this.position.y = p.height;
-                    }
+                edges() {
+                    if (this.position.x > p.width) this.position.x = 0;
+                    else if (this.position.x < 0) this.position.x = p.width;
+                    if (this.position.y > p.height) this.position.y = 0;
+                    else if (this.position.y < 0) this.position.y = p.height;
                 }
 
                 move(x, y) {
@@ -277,90 +279,109 @@
                     this.velocity = p5.Vector.random2D();
                     this.velocity.setMag(0.5);
                 }
-                
+
                 show() {
                     p.push();
                     p.translate(this.position.x, this.position.y);
-
-                    p.stroke(200);
+                    p.stroke(80);
                     p.strokeWeight(2);
-                    p.fill(80);
-                    
+                    p.fill(120);
                     let armLength = 15;
                     let bodySize = 10;
-
                     p.line(-armLength, -armLength, armLength, armLength);
                     p.line(-armLength, armLength, armLength, -armLength);
                     p.ellipse(0, 0, bodySize, bodySize);
-
                     p.noStroke();
-                    p.fill(255, 50, 50, 200); 
+                    p.fill(255, 50, 50, 200);
                     let propellerSize = 12;
-                    let rotation = p.millis() / 150; 
-
-                    p.push();
-                    p.translate(-armLength, -armLength);
-                    p.rotate(rotation);
-                    p.rect(-propellerSize / 2, -2, propellerSize, 4, 2);
-                    p.pop();
-
-                    p.push();
-                    p.translate(armLength, -armLength);
-                    p.rotate(-rotation);
-                    p.rect(-propellerSize / 2, -2, propellerSize, 4, 2);
-                    p.pop();
-
-                    p.push();
-                    p.translate(-armLength, armLength);
-                    p.rotate(-rotation);
-                    p.rect(-propellerSize / 2, -2, propellerSize, 4, 2);
-                    p.pop();
-
-                    p.push();
-                    p.translate(armLength, armLength);
-                    p.rotate(rotation);
-                    p.rect(-propellerSize / 2, -2, propellerSize, 4, 2);
-                    p.pop();
-
+                    let rotation = p.millis() / 150;
+                    p.push(); p.translate(-armLength, -armLength); p.rotate(rotation); p.rect(-propellerSize / 2, -2, propellerSize, 4, 2); p.pop();
+                    p.push(); p.translate(armLength, -armLength); p.rotate(-rotation); p.rect(-propellerSize / 2, -2, propellerSize, 4, 2); p.pop();
+                    p.push(); p.translate(-armLength, armLength); p.rotate(-rotation); p.rect(-propellerSize / 2, -2, propellerSize, 4, 2); p.pop();
+                    p.push(); p.translate(armLength, armLength); p.rotate(rotation); p.rect(-propellerSize / 2, -2, propellerSize, 4, 2); p.pop();
                     p.pop();
                 }
             }
+
+            // This function draws the cloud layer using the new method.
+            function drawFlowingClouds() {
+                // Update the noise field's movement vectors
+                noiseVelocity.add(noiseAcceleration);
+                noiseVelocity.limit(0.05); // Prevent clouds from moving too fast
+                noiseVector.add(noiseVelocity);
+
+                // Randomly change acceleration for a subtle, unpredictable drifting effect
+                noiseAcceleration.x = p.random(-0.0001, 0.0001);
+                noiseAcceleration.y = p.random(-0.0001, 0.0001);
+
+                // Draw the grid of tiles
+                let tileSize = p.width / tileCount;
+                for (let row = 0; row < tileCount; row++) {
+                    for (let col = 0; col < tileCount; col++) {
+                        let x = col * tileSize;
+                        let y = row * tileSize;
+
+                        // Calculate the Perlin noise value for each tile
+                        let xnoise = noiseVector.x + col * noiseScale;
+                        let ynoise = noiseVector.y + row * noiseScale;
+                        let noiseValue = p.noise(xnoise, ynoise);
+
+                        // Map the noise value to an alpha (transparency)
+                        // This creates cloud-like shapes from the noise field
+                        let a = p.map(noiseValue, 0.2, 0.6, 0, 255);
+                        p.fill(255, 255, 255, a); // Use white for the clouds
+
+                        p.noStroke();
+                        p.rect(x, y, tileSize, tileSize);
+                    }
+                }
+            }
+
 
             p.setup = () => {
                 const container = window.document.getElementById('canvas-container');
                 const w = Math.min(window.innerWidth * 0.8, 800);
                 const h = w * 0.6;
                 p.createCanvas(w, h).parent(container);
-                
-                flockColors = [
-                    p.color(45, 100, 255, 150),   // Blue
-                    p.color(45, 200, 150, 150),  // Teal
-                    p.color(255, 150, 45, 150)   // Orange
-                ];
 
-                const boidsPerFlock = BOID_COUNT / NUM_FLOCKS;
-                for (let i = 0; i < BOID_COUNT; i++) {
-                    const flockId = Math.floor(i / boidsPerFlock);
-                    flock.push(new Bird(flockId));
+                flockColors = [p.color(211, 211, 211, 180)];
+
+                const centerX = p.width / 2;
+                const centerY = p.height / 2;
+                const radius = p.min(p.width, p.height) / 4;
+
+                for (let i = 0; i < BIRD_COUNT; i++) {
+                    const angle = p.map(i, 0, BIRD_COUNT, 0, p.TWO_PI);
+                    const x = centerX + radius * p.cos(angle);
+                    const y = centerY + radius * p.sin(angle);
+                    flock.push(new Bird(0, x, y));
                 }
+
+                // NEW: Initialize the vectors for the cloud noise field
+                noiseVector = p.createVector(p.random(1000), p.random(1000));
+                noiseVelocity = p.createVector(0.01, 0.005);
+                noiseAcceleration = p.createVector(0, 0);
             };
 
             p.draw = () => {
-                p.background(30, 41, 59);
+                p.background(135, 206, 235);
+
+                // NEW: Call the function to draw the flowing cloud layer
+                drawFlowingClouds();
 
                 if (predator) {
                     predator.update();
                     predator.show();
                 }
-                
-                for (let boid of flock) {
-                    boid.edges();
-                    boid.flock(flock, predator);
-                    boid.update();
-                    boid.show();
+
+                for (let bird of flock) {
+                    bird.edges();
+                    bird.flock(flock, predator);
+                    bird.update();
+                    bird.show();
                 }
             };
-            
+
             p.mousePressed = () => {
                 if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
                     if (!predator) {
@@ -377,4 +398,5 @@
 
     </script>
 </body>
+
 </html>

@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Water Balloon Toss</title>
+    <title>Water Balloon Toss - Submerged Targets</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -14,7 +14,7 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            background-color: #f0f8ff; /* Alice Blue */
+            background-color: #f0f8ff;
             font-family: 'Roboto Mono', monospace;
             color: #333;
         }
@@ -28,7 +28,7 @@
             border-radius: 12px;
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
         }
-        
+
         h1 {
             color: #0056b3;
             margin-bottom: 10px;
@@ -38,9 +38,8 @@
             position: relative;
             border: 2px solid #444;
             border-radius: 8px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-            overflow: hidden; /* Ensures canvas corners are rounded */
-            /* cursor: crosshair; */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
         }
 
         #controls-container {
@@ -79,14 +78,13 @@
     <div id="game-container">
         <h1>Water Balloon Toss</h1>
         <div id="canvas-container">
-            <!-- p5.js canvas will be inserted here -->
         </div>
         <div id="controls-container">
             <label for="currentSlider">Water Current Speed</label><br>
             <input type="range" id="currentSlider" min="1" max="6" value="2.5" step="0.5">
         </div>
         <div id="instructions">
-            <p>Aim with your mouse and click to throw the balloon.<br>Try to hit the moving target!</p>
+            <p>Aim with your mouse and click to throw the balloon.<br>Try to hit the moving targets!</p>
             <p>Based on angle and distance from the player, the trajectory and speed of the balloon are controlled.</p>
         </div>
     </div>
@@ -97,26 +95,62 @@
         const sketch = (p) => {
             // Game objects
             let balloon;
-            let target;
+            let targets = [];
             let particles = []; // For the splash effect
+            let bubbles = [];   // *** NEW: Array for water bubbles ***
 
             // Game state
             let isThrown = false;
             let score = 0;
             let throwPower = 18;
-            let throwAngle = 0
+            let throwAngle = 0;
 
             // Environment
             let gravity;
             let waterLevel;
             let currentSpeed = 1.5;
-            
-            // Platform and Player properties will be initialized in setup
+            let waveHeight;
+            let noiseTime = 0.0;
+
+            // Platform and Player properties
             let platform;
             let playerPos;
 
             // UI Elements
             let slider;
+
+            class Bubble {
+                constructor() {
+                    this.pos = p.createVector(p.random(p.width), p.random(waterLevel, p.height));
+                    this.vel = p.createVector(p.random(0.5, 2), 0); // Bubbles rise
+                    this.r = p.random(2, 6);
+                    this.lifespan = 360;
+                }
+
+                update() {
+                    // Drift with the current
+                    this.pos.x += currentSpeed * 0.2;
+                    this.pos.add(this.vel);
+                    this.lifespan -= 1.5;
+
+                    // Reset bubble if it goes off screen to the right
+                    if (this.pos.x > p.width + this.r) {
+                        this.pos.x = -this.r;
+                    }
+                }
+
+                display() {
+                    p.noStroke();
+                    // Semi-transparent light blue/white
+                    p.fill(200, 225, 255, this.lifespan * 0.5);
+                    p.ellipse(this.pos.x, this.pos.y, this.r * 2);
+                }
+
+                isFinished() {
+                    // Finished if faded or has risen above the water
+                    return this.lifespan < 0 || this.pos.y < waterLevel - waveHeight * 2;
+                }
+            }
 
             // Balloon class representing the projectile
             class Balloon {
@@ -126,44 +160,51 @@
                     this.acc = p.createVector(0, 0);
                     this.r = 12;
                     this.color = p.color(255, 0, 0, 220);
+                    this.wobble = 0;
+                    this.wobbleSpeed = 0.3;
                 }
 
-                // Apply a force (like gravity or the throw)
                 applyForce(force) {
                     this.acc.add(force);
                 }
 
-                // Update balloon's position based on physics
                 update() {
                     this.vel.add(this.acc);
                     this.pos.add(this.vel);
-                    this.acc.mult(0); // Clear acceleration each frame
+                    this.acc.mult(0);
+                    this.wobble += this.wobbleSpeed;
                 }
 
-                // Draw the balloon
                 display() {
-                    p.fill(this.color);
+                    let speed = this.vel.mag();
+                    let stretch = 1 + p.constrain(speed / 70, 0, 1.2);
+                    let angle = this.vel.heading();
+
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    p.rotate(angle);
                     p.noStroke();
-                    p.ellipse(this.pos.x, this.pos.y, this.r * 2);
+                    p.fill(this.color);
+                    let wobbleX = p.sin(this.wobble) * this.r * 0.1;
+                    let wobbleY = p.cos(this.wobble) * this.r * 0.1;
+                    p.ellipse(0, 0, this.r * 2 * stretch + wobbleX, this.r * 2 / stretch + wobbleY);
+                    p.pop();
                 }
 
-                // Check for collision with the target
                 hits(target) {
                     let d = p.dist(this.pos.x, this.pos.y, target.pos.x, target.pos.y);
                     return (d < this.r + target.r);
                 }
 
-                // Check if the balloon is off the screen
                 isOffscreen() {
-                    return (this.pos.x < -this.r || this.pos.x > p.width + this.r || this.pos.y > p.height + this.r);
+                    return (this.pos.x < -this.r * 3 || this.pos.x > p.width + this.r * 3 || this.pos.y > p.height + this.r * 3);
                 }
 
-                // Check if the balloon has hit the water
                 isInWater() {
-                    return this.pos.y > waterLevel + this.r;
+                    let waveY = p.map(p.noise(this.pos.x * 0.02, noiseTime), 0, 1, waterLevel - waveHeight, waterLevel + waveHeight);
+                    return this.pos.y > waveY;
                 }
             }
-            
             // Particle class for splash effects
             class Particle {
                 constructor(x, y) {
@@ -173,7 +214,7 @@
                 }
 
                 update() {
-                    this.vel.y += 0.1; // Particles are affected by gravity
+                    this.vel.y += 0.1;
                     this.pos.add(this.vel);
                     this.lifespan -= 5;
                 }
@@ -189,128 +230,137 @@
                 }
             }
 
-
-            // Target class that floats on the water
+            // Target class that floats and rides the Perlin noise waves
             class Target {
                 constructor(x, y) {
                     this.pos = p.createVector(x, y);
                     this.r = 25;
-                    this.initialY = y;
+                    this.firstPassDone = false
                 }
 
-                // Update target's position based on water current and bobbing
                 update(speed) {
                     this.pos.x += speed;
-                    // Add a bobbing motion using a sine wave for a natural look
-                    this.pos.y = this.initialY + p.sin(p.frameCount * 0.05) * 8;
+                    let noiseX = this.pos.x * 0.008;
+                    this.pos.y = p.map(p.noise(noiseX, noiseTime), 0, 1, waterLevel - waveHeight, waterLevel + waveHeight);
 
-                    // Wrap the target around the screen for continuous play
                     if (this.pos.x > p.width + this.r) {
                         this.pos.x = -this.r;
+                        this.firstPassDone = true
                     }
-                    if (this.pos.x < -this.r) {
+                    if (this.pos.x < -this.r && this.firstPassDone) {
                         this.pos.x = p.width + this.r;
                     }
                 }
 
-                // Draw the target
                 display() {
                     p.stroke(0);
                     p.strokeWeight(2);
-
-                    // Main target body (yellow)
                     p.fill(255, 215, 0);
                     p.ellipse(this.pos.x, this.pos.y, this.r * 2);
-
-                    // Bullseye (red)
                     p.fill(220, 20, 60);
                     p.noStroke();
                     p.ellipse(this.pos.x, this.pos.y, this.r);
                 }
             }
-            
-            // Function to create a splash effect
+
             function createSplash(x, y, numParticles = 20) {
-                 for (let i = 0; i < numParticles; i++) {
+                for (let i = 0; i < numParticles; i++) {
                     particles.push(new Particle(x, y));
                 }
             }
 
+            function spawnTargets() {
+                let numTargets = p.floor(p.random(2, 4));
+                for (let i = 0; i < numTargets; i++) {
+                    let x = -(p.width * 0.05 + i * p.random(100, 200))
+                    targets.push(new Target(x, waterLevel));
+                }
+            }
 
-            // p5.js setup function, runs once at the start
             p.setup = () => {
                 const canvasContainer = document.getElementById('canvas-container');
                 const canvas = p.createCanvas(800, 500);
                 canvas.parent(canvasContainer);
-                
-                // Initialize platform and player positions
-                platform = {
-                    x: 40, // Platform is now further to the left
-                    y: p.height / 2, 
-                    width: 100,
-                    height: 20
-                };
-                playerPos = {
-                    x: platform.x + platform.width / 2, // Center player on platform
-                    y: platform.y - 15,
-                };
+
+                platform = { x: 40, y: p.height / 2, width: 100, height: 20 };
+                playerPos = { x: platform.x + platform.width / 2, y: platform.y - 15 };
 
                 waterLevel = p.height * 0.8;
-                gravity = p.createVector(0, 0.25); // Set gravity force
+                gravity = p.createVector(0, 0.25);
 
-                // Initialize game objects
                 resetBalloon();
-                target = new Target(p.width / 2, waterLevel - 10);
-                
-                // Get the slider from the HTML
+                spawnTargets();
+
                 slider = document.getElementById('currentSlider');
             };
 
-            // p5.js draw function, runs in a loop
             p.draw = () => {
-                p.background(135, 206, 250); // Sky blue
+                p.background(135, 206, 250);
 
-                // Get current speed from the slider
                 currentSpeed = parseFloat(slider.value);
+                waveHeight = p.map(currentSpeed, 1, 6, 10, 25);
+                let noiseIncrement = p.map(currentSpeed, 1, 6, 0.01, 0.025);
+                noiseTime += noiseIncrement;
 
-                // Draw scene elements
-                drawWater();
                 drawPlatform();
                 drawPlayer();
 
-                // Update and display target
-                target.update(currentSpeed);
-                target.display();
-                
-                // Draw aiming line if not thrown
+                for (let target of targets) {
+                    target.update(currentSpeed);
+                    target.display();
+                }
+
+
+                drawWater();
+
+                if (p.random(1) < 0.35) { // Control how many bubbles are made
+                    bubbles.push(new Bubble());
+                }
+
+                for (let i = bubbles.length - 1; i >= 0; i--) {
+                    bubbles[i].update();
+                    bubbles[i].display();
+                    if (bubbles[i].isFinished()) {
+                        bubbles.splice(i, 1);
+                    }
+                }
+
+
+                // --- Balloon and other UI logic remains below ---
                 if (!isThrown) {
                     drawAimingLine();
                 }
 
-                // Handle thrown balloon
                 if (isThrown) {
                     balloon.applyForce(gravity);
                     balloon.update();
 
-                    // Check for hit
-                    if (balloon.hits(target)) {
-                        score++;
-                        createSplash(balloon.pos.x, balloon.pos.y, 30);
-                        resetBalloon();
+                    let hitOccurred = false;
+                    for (let i = targets.length - 1; i >= 0; i--) {
+                        if (balloon.hits(targets[i])) {
+                            score++;
+                            createSplash(balloon.pos.x, balloon.pos.y, 30);
+                            targets.splice(i, 1);
+                            if (targets.length === 0) {
+                                setTimeout(spawnTargets, 500);
+                            }
+                            hitOccurred = true;
+                            break;
+                        }
                     }
-                    // Check for miss (hits water or goes offscreen)
-                    else if (balloon.isInWater()) {
-                        createSplash(balloon.pos.x, waterLevel);
+
+                    if (hitOccurred) {
+                        resetBalloon();
+                    } else if (balloon.isInWater()) {
+                        createSplash(balloon.pos.x, balloon.pos.y);
                         resetBalloon();
                     } else if (balloon.isOffscreen()) {
                         resetBalloon();
                     }
                 }
-                
-                // Display the balloon in its current state
+
                 balloon.display();
-                
-                // Update and display splash particles
+
                 for (let i = particles.length - 1; i >= 0; i--) {
                     particles[i].update();
                     particles[i].display();
@@ -319,88 +369,70 @@
                     }
                 }
 
-                // Display score
                 displayScore();
             };
-            
-            // p5.js mouse press handler
+
             p.mousePressed = () => {
-                // Throw the balloon if it's ready and the click is within the canvas bounds
                 if (!isThrown && p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
                     isThrown = true;
-                    // Calculate and constrain the launch angle
-                    
                     let velocity = p5.Vector.fromAngle(throwAngle, throwPower);
                     balloon.applyForce(velocity);
                 }
             };
-            
-            // Resets the balloon to its starting position
+
             function resetBalloon() {
                 isThrown = false;
                 balloon = new Balloon(playerPos.x, playerPos.y);
             }
-            
-            // Draws the visual elements of the water
-            function drawWater() {
-                // Base water color
-                p.noStroke();
-                p.fill(65, 105, 225, 200); // Royal Blue
-                p.rect(0, waterLevel, p.width, p.height - waterLevel);
 
-                // Animated waves on top
-                p.fill(173, 216, 230, 150); // Light Blue
-                let waveHeight = 10;
-                p.beginShape();
-                p.vertex(0, waterLevel);
-                // Use Perlin noise for a more natural wave motion
-                for (let x = 0; x <= p.width; x += 10) {
-                    let y = waterLevel + p.map(p.noise(x * 0.02, p.frameCount * 0.02), 0, 1, -waveHeight, waveHeight);
-                    p.vertex(x, y);
+            function drawWater() {
+                for (let i = 0; i < 3; i++) {
+                    p.fill(65 - i * 15, 105 - i * 15, 225 - i * 10, 150 + i * 15);
+                    p.noStroke();
+                    p.beginShape();
+
+                    let xOff = 0;
+                    let yOffset = i * 12; // Vertical offset for each layer
+
+                    for (let x = 0; x <= p.width; x += 10) {
+                        let noiseVal = p.noise(xOff, noiseTime + i * 0.1);
+                        let y = p.map(noiseVal, 0, 1, waterLevel - waveHeight, waterLevel + waveHeight);
+                        p.vertex(x, y + yOffset);
+                        xOff += 0.02;
+                    }
+                    p.vertex(p.width, p.height);
+                    p.vertex(0, p.height);
+                    p.endShape(p.CLOSE);
                 }
-                p.vertex(p.width, p.height);
-                p.vertex(0, p.height);
-                p.endShape(p.CLOSE);
             }
-            
-            // Draws the platform where the player stands
+
+
             function drawPlatform() {
                 p.noStroke();
-                // Draw the support structure for the platform
-                p.fill(110, 70, 20); // Darker brown for the pole
+                p.fill(110, 70, 20);
                 p.rect(platform.x + platform.width / 2 - 10, platform.y, 20, p.height - platform.y);
-                
-                // Draw the platform top
-                p.fill(139, 69, 19); // Saddle Brown
+                p.fill(139, 69, 19);
                 p.rect(platform.x, platform.y, platform.width, platform.height, 5);
             }
-            
-            // Draws a simple representation of the player
-            function drawPlayer(){
+
+            function drawPlayer() {
                 p.fill(50);
                 p.noStroke();
-                // Head
                 p.ellipse(playerPos.x, playerPos.y - 10, 20, 20);
-                // Body
                 p.rect(playerPos.x - 10, playerPos.y, 20, 25, 5);
             }
-            
-            // Draws the aiming trajectory line
+
             function drawAimingLine() {
-                // Calculate distance between player and mouse
                 let distanceToMouse = p.dist(playerPos.x, playerPos.y, p.mouseX, p.mouseY);
-                // Constrain line length between 0 and 250
                 let lineLength = p.constrain(distanceToMouse, 0, 200);
 
-                throwPower = p.map(lineLength,0,200,5,20)
+                throwPower = p.map(lineLength, 0, 200, 5, 20)
 
-                // Calculate the angle towards mouse
                 let angle = p.atan2(p.mouseY - playerPos.y, p.mouseX - playerPos.x);
-                let constrainedAngle = p.constrain(angle, -p.PI / 4, 0.2);
+                let constrainedAngle = p.constrain(angle, -p.PI / 1.5, 0.2);
 
-                throwAngle = constrainedAngle; // Update throw angle for balloon launch
+                throwAngle = constrainedAngle;
 
-                // Calculate end point using constrained length and angle
                 let endX = playerPos.x + lineLength * p.cos(constrainedAngle);
                 let endY = playerPos.y + lineLength * p.sin(constrainedAngle);
 
@@ -410,21 +442,16 @@
                 p.line(playerPos.x, playerPos.y, endX, endY);
                 p.drawingContext.setLineDash([]);
 
-                // Draw crosshair at end point
                 const crosshairSize = 10;
                 p.stroke(255, 0, 0);
                 p.strokeWeight(2);
-                // Horizontal line
                 p.line(endX - crosshairSize, endY, endX + crosshairSize, endY);
-                // Vertical line
                 p.line(endX, endY - crosshairSize, endX, endY + crosshairSize);
-                // Center dot
                 p.noStroke();
                 p.fill(255, 0, 0);
                 p.ellipse(endX, endY, 4);
             }
-            
-            // Displays the score on the screen
+
             function displayScore() {
                 p.fill(255);
                 p.stroke(0);
@@ -434,8 +461,7 @@
                 p.text(`Score: ${score}`, 20, 20);
             }
         };
-        
-        // Create the p5 instance
+
         const container = window.document.getElementById('game-container');
         new p5(sketch, container);
     </script>
