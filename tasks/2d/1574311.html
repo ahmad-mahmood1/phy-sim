@@ -116,7 +116,9 @@
             maxVelocity: 10,
             pushForceMagnitude: 3,
             lastPushTime: 0,
-            debouncePushTime: 550
+            debouncePushTime: 1550,
+            vineSegments: 15, // Number of segments for vine physics
+            ropeGravity: 0.5 // Gravity for vine physics
         };
 
         // --- Dynamic Sizing ---
@@ -141,38 +143,136 @@
                 this.banana = null;
 
                 this.isStretchy = isStretchy;
-                this.springConstant = 0.02; // How stiff the spring is
-                this.naturalLength = config.vineLength; // The resting length
+                this.springConstant = 0.02; 
+                this.naturalLength = config.vineLength;
 
+                // --- Physics properties for rope simulation ---
+                this.segments = [];
+                this.segmentLength = this.length / config.vineSegments;
+                for(let i = 0; i <= config.vineSegments; i++) {
+                    const segPos = p.createVector(this.anchor.x, this.anchor.y + i * this.segmentLength);
+                    this.segments.push({
+                        pos: segPos,
+                        oldpos: segPos.copy()
+                    });
+                }
+                this.isSimulating = true; // Vine starts in simulation mode
+                
                 if (this.p.random() < 0.5) {
                     const bananaX = this.anchor.x;
                     const bananaY = this.anchor.y + this.length * 0.95;
                     this.banana = new Collectible(p, bananaX, bananaY, 'banana', this);
                 }
             }
+            
+            // --- Update method for rope physics ---
+            update() {
+                if (!this.isSimulating) return;
 
-            draw(monkeyPos, isAttached) {
-                this.p.strokeWeight(5);
-                this.p.stroke(this.isStretchy ? this.p.color(220, 20, 60) : this.p.color(101, 67, 33));
-                this.p.line(this.anchor.x, this.anchor.y, monkeyPos.x, monkeyPos.y);
-
-                if (!isAttached) {
-                    this.p.push();
-                    this.p.noFill();
-                    this.p.strokeWeight(8);
-                    this.p.stroke(139, 69, 19);
-                    this.p.ellipse(monkeyPos.x, monkeyPos.y, config.grabHandleSize, config.grabHandleSize);
-                    this.p.pop();
+                const p = this.p;
+                for (let i = 0; i < this.segments.length; i++) {
+                    const s = this.segments[i];
+                    if (i > 0) { // Don't apply gravity to the anchor point
+                        const vel = p5.Vector.sub(s.pos, s.oldpos);
+                        vel.mult(0.99); // Damping
+                        s.oldpos.set(s.pos);
+                        s.pos.add(vel);
+                        s.pos.add(0, config.ropeGravity);
+                    }
                 }
 
-                this.p.push();
-                this.p.translate(this.anchor.x, this.anchor.y);
-                this.p.fill(34, 139, 34);
-                this.p.noStroke();
-                this.p.ellipse(0, 5, 30, 15);
-                this.p.pop();
+                // --- Constraints: keep segments connected ---
+                for(let j = 0; j < 5; j++) { // Iterations for stability
+                    for(let i = 0; i < this.segments.length - 1; i++) {
+                        const s1 = this.segments[i];
+                        const s2 = this.segments[i + 1];
 
+                        const delta = p5.Vector.sub(s2.pos, s1.pos);
+                        const dist = delta.mag();
+                        const diff = (this.segmentLength - dist) / dist;
+                        
+                        const offset = delta.mult(diff * 0.5);
+
+                        if(i > 0) { // Don't move the anchor
+                             s1.pos.sub(offset);
+                        }
+                        s2.pos.add(offset);
+                    }
+                }
+            }
+
+            draw(monkeyPos, isAttached) {
+                const p = this.p;
+                const vineMainColor = this.isStretchy ? p.color(200, 40, 60) : p.color(101, 67, 33);
+                const vineEdgeColor = this.isStretchy ? p.color(150, 20, 40) : p.color(80, 47, 13);
+                
+                let endPos;
+                if(isAttached) {
+                    endPos = monkeyPos;
+                    this.isSimulating = false; // Stop simulation when monkey grabs on
+                } else {
+                     this.isSimulating = true; // Resume simulation when monkey lets go
+                     endPos = this.segments[this.segments.length - 1].pos;
+                }
+
+                // --- Drawing logic ---
+                p.noFill();
+                p.strokeWeight(7);
+                p.stroke(vineMainColor);
+                p.beginShape();
+                if(isAttached) {
+                    // Simplified drawing for attached state for performance
+                    p.curveVertex(this.anchor.x, this.anchor.y);
+                    p.curveVertex(this.anchor.x, this.anchor.y);
+                    const midX = (this.anchor.x + endPos.x) / 2;
+                    const midY = (this.anchor.y + endPos.y) / 2;
+                    p.curveVertex(midX + p.noise(midX)*10-5, midY + p.noise(midY)*10-5);
+                    p.curveVertex(endPos.x, endPos.y);
+                    p.curveVertex(endPos.x, endPos.y);
+                } else {
+                    // Draw the simulated rope
+                    for (const s of this.segments) {
+                        p.curveVertex(s.pos.x, s.pos.y);
+                    }
+                }
+                p.endShape();
+                
+                p.strokeWeight(2);
+                p.stroke(vineEdgeColor);
+                 p.beginShape();
+                 if(isAttached) {
+                    p.curveVertex(this.anchor.x, this.anchor.y);
+                    p.curveVertex(this.anchor.x, this.anchor.y);
+                    const midX = (this.anchor.x + endPos.x) / 2;
+                    const midY = (this.anchor.y + endPos.y) / 2;
+                    p.curveVertex(midX + p.noise(midX, 100)*10-5, midY + p.noise(midY, 100)*10-5);
+                    p.curveVertex(endPos.x, endPos.y);
+                    p.curveVertex(endPos.x, endPos.y);
+                 } else {
+                     for (const s of this.segments) {
+                        p.curveVertex(s.pos.x, s.pos.y);
+                    }
+                 }
+                p.endShape();
+        
+                // Draw the grab handle for unattached vines
+                if (!isAttached) {
+                    p.push();
+                    p.noFill();
+                    p.strokeWeight(8);
+                    p.stroke(139, 69, 19);
+                    p.ellipse(endPos.x, endPos.y, config.grabHandleSize, config.grabHandleSize);
+                    p.pop();
+                }
+        
                 if (this.banana) {
+                    if(isAttached) {
+                         this.banana.pos.x = this.anchor.x + (endPos.x - this.anchor.x) * 0.95;
+                         this.banana.pos.y = this.anchor.y + (endPos.y - this.anchor.y) * 0.95;
+                    } else {
+                         const bananaSeg = this.segments[this.segments.length - 2];
+                         this.banana.pos.set(bananaSeg.pos);
+                    }
                     this.banana.draw();
                 }
             }
@@ -270,14 +370,43 @@
 
             release() {
                 if (!this.isAttached) return;
+                
+                const releasedVine = this.attachedVine;
+
+                // --- CORRECTED: Position the vine correctly and impart momentum ---
+                
+                // First, reset the vine's segments to a straight line pointing at the monkey.
+                // This ensures the vine starts its swing from the correct release point.
+                const vineVector = p5.Vector.sub(this.pos, releasedVine.anchor);
+                for (let i = 0; i <= config.vineSegments; i++) {
+                    const s = releasedVine.segments[i];
+                    const fraction = i / config.vineSegments;
+                    
+                    // Position segments along the vector from anchor to monkey
+                    const pos = p5.Vector.add(releasedVine.anchor, p5.Vector.mult(vineVector, fraction));
+                    s.pos.set(pos);
+                    // Set oldpos to the same position to remove any prior momentum from the last simulation state
+                    s.oldpos.set(pos);
+                }
+
+                // Now, impart the monkey's velocity onto the vine segments.
+                // We distribute the velocity along the vine's length for a more realistic effect.
+                for (let i = 0; i <= config.vineSegments; i++) {
+                    const s = releasedVine.segments[i];
+                    const fraction = i / config.vineSegments;
+                    const velocityToApply = p5.Vector.mult(this.vel, fraction);
+                    s.oldpos.sub(velocityToApply);
+                }
+
                 this.isAttached = false;
-                this.lastAttachedVine = this.attachedVine;
+                this.lastAttachedVine = releasedVine;
                 this.attachedVine = null;
             }
 
             grab(vine) {
                 this.isAttached = true;
                 this.attachedVine = vine;
+                vine.isSimulating = false; // Stop simulation on grab
 
                 const vectorToMonkey = this.pos.copy().sub(vine.anchor);
                 vectorToMonkey.setMag(vine.length);
@@ -293,22 +422,62 @@
             draw() {
                 this.p.push();
                 this.p.translate(this.pos.x, this.pos.y);
-
+            
                 if (this.vel.mag() > 0.1) {
                     this.p.rotate(this.vel.heading() + this.p.PI / 2);
                 }
-
+            
+                const bodyColor = this.p.color(139, 69, 19);
+                const limbColor = this.p.color(160, 120, 80);
+                const faceColor = this.p.color(245, 222, 179);
+            
                 this.p.noStroke();
-                this.p.fill(160, 120, 80); // Ears
-                this.p.ellipse(-this.size * 0.5, -this.size * 0.5, this.size * 0.4);
-                this.p.ellipse(this.size * 0.5, -this.size * 0.5, this.size * 0.4);
-                this.p.fill(139, 69, 19); // Head
+                this.p.strokeCap(this.p.ROUND);
+            
+                this.p.stroke(limbColor);
+                this.p.strokeWeight(this.size * 0.2);
+                this.p.noFill();
+                this.p.beginShape();
+                this.p.curveVertex(0, this.size * 0.6);
+                this.p.curveVertex(0, this.size * 0.6);
+                this.p.curveVertex(this.size * 0.8, this.size * 1.3);
+                this.p.curveVertex(this.size * 0.4, this.size * 1.9);
+                this.p.curveVertex(this.size * 0.4, this.size * 1.9);
+                this.p.endShape();
+                
+                this.p.noStroke();
+                this.p.fill(limbColor);
+                this.p.ellipse(this.size * 0.25, this.size * 1.2, this.size * 0.35, this.size * 0.9);
+                this.p.ellipse(-this.size * 0.25, this.size * 1.2, this.size * 0.35, this.size * 0.9);
+            
+                this.p.fill(bodyColor);
+                this.p.ellipse(0, this.size * 0.6, this.size, this.size * 1.2);
+            
+                this.p.stroke(limbColor);
+                this.p.strokeWeight(this.size * 0.35);
+
+                if (this.isAttached) {
+                     this.p.line(0, this.size*0.2, -this.size * 0.2, -this.size * 0.5);
+                     this.p.line(0, this.size*0.2, this.size * 0.2, -this.size * 0.5);
+                } else {
+                    this.p.line(0, this.size*0.2, -this.size * 0.5, this.size*0.3);
+                    this.p.line(0, this.size*0.2, this.size * 0.5, this.size*0.3);
+                }
+                this.p.noStroke();
+
+                this.p.fill(limbColor);
+                this.p.ellipse(-this.size * 0.5, -this.size * 0.5, this.size * 0.5);
+                this.p.ellipse(this.size * 0.5, -this.size * 0.5, this.size * 0.5);
+                this.p.fill(bodyColor);
                 this.p.ellipse(0, 0, this.size);
-                this.p.fill(245, 222, 179); // Muzzle
+                this.p.fill(faceColor);
                 this.p.ellipse(0, this.size * 0.1, this.size * 0.7, this.size * 0.6);
-                this.p.fill(0); // Eyes
+                this.p.fill(0);
                 this.p.ellipse(-this.size * 0.15, -this.size * 0.1, this.size * 0.1);
                 this.p.ellipse(this.size * 0.15, -this.size * 0.1, this.size * 0.1);
+                this.p.fill(80, 50, 20);
+                this.p.ellipse(0, this.size * 0.15, this.size * 0.15, this.size * 0.1);
+            
                 this.p.pop();
             }
 
@@ -386,6 +555,7 @@
             let score = 0;
             let gameOver = false;
             let bgLayers = [];
+            let canopyLeaves = [];
             let cameraX = 0;
 
             const resetGame = () => {
@@ -408,6 +578,7 @@
 
             const drawBackground = (camX) => {
                 p.noStroke();
+                // Sky gradient
                 let c1 = p.color(135, 206, 235);
                 let c2 = p.color(240, 248, 255);
                 for (let i = 0; i <= config.height; i++) {
@@ -418,20 +589,41 @@
                 }
                 p.noStroke();
 
+                // Draw parallax jungle trees
                 p.push();
                 bgLayers.forEach((layer) => {
                     p.push();
                     p.translate(-camX * layer.scrollFactor, 0);
-                    p.fill(layer.color);
+                    
                     layer.trees.forEach(tree => {
-                        p.beginShape();
-                        p.vertex(tree.x, config.height);
-                        p.vertex(tree.x + tree.w / 2, tree.y);
-                        p.vertex(tree.x + tree.w, config.height);
-                        p.endShape(p.CLOSE);
+                        // Trunk
+                        p.fill(layer.trunkColor);
+                        p.rect(tree.x, tree.y, tree.w, config.height - tree.y);
+
+                        // Leaves
+                        p.fill(layer.leafColor);
+                        p.ellipse(tree.x + tree.w / 2, tree.y, tree.w * 1.5, tree.h);
+                        p.ellipse(tree.x + tree.w / 2 - tree.w/2, tree.y + 20, tree.w * 1.5, tree.h);
+                        p.ellipse(tree.x + tree.w / 2 + tree.w/2, tree.y + 20, tree.w * 1.5, tree.h);
+
                     });
                     p.pop();
                 });
+                p.pop();
+            };
+
+            const drawVineCanopy = () => {
+                p.push();
+                p.noStroke();
+                
+                p.fill(24, 80, 24, 255);
+                p.rect(0, 0, config.worldWidth, config.vineAnchorY + 10);
+
+                for (const leaf of canopyLeaves) {
+                    p.fill(leaf.color);
+                    p.ellipse(leaf.x, leaf.y, leaf.w, leaf.h);
+                }
+
                 p.pop();
             };
 
@@ -468,19 +660,53 @@
                 const canvas = p.createCanvas(config.width, config.height);
                 canvas.parent('canvas-container');
                 p.frameRate(60);
+                p.rectMode(p.CORNER);
 
-                bgLayers.push({ color: p.color(0, 100, 0, 100), trees: [], scrollFactor: 0.1 });
-                bgLayers.push({ color: p.color(34, 139, 34, 150), trees: [], scrollFactor: 0.3 });
-                bgLayers.push({ color: p.color(0, 80, 0, 200), trees: [], scrollFactor: 0.5 });
+                bgLayers = [];
+                bgLayers.push({ 
+                    leafColor: p.color(0, 100, 0, 150), 
+                    trunkColor: p.color(87, 58, 27, 150),
+                    trees: [], 
+                    scrollFactor: 0.2 
+                });
+                bgLayers.push({ 
+                    leafColor: p.color(34, 139, 34, 180),
+                    trunkColor: p.color(101, 67, 33, 180),
+                    trees: [], 
+                    scrollFactor: 0.4
+                });
+                bgLayers.push({ 
+                    leafColor: p.color(0, 80, 0, 220), 
+                    trunkColor: p.color(139, 69, 19, 220),
+                    trees: [], 
+                    scrollFactor: 0.6 
+                });
+
                 for (let layer of bgLayers) {
-                    for (let i = 0; i < 50; i++) {
+                    for (let i = 0; i < 120; i++) {
                         layer.trees.push({
-                            x: p.random(-200, config.worldWidth * 2),
-                            y: p.random(config.height * 0.6, config.height * 0.8),
-                            w: p.random(50, 150)
+                            x: p.random(-200, config.worldWidth * 1.5),
+                            y: p.random(config.height * 0.5, config.height * 0.7),
+                            w: p.random(20, 40),
+                            h: p.random(100, 200)
                         });
                     }
                 }
+
+
+                canopyLeaves = [];
+                const canopyBottomY = config.vineAnchorY + 40;
+                for (let i = 0; i < config.worldWidth / 3; i++) {
+                    canopyLeaves.push({
+                        x: p.random(0, config.worldWidth),
+                        y: p.random(0, canopyBottomY),
+                        w: p.random(30, 60),
+                        h: p.random(20, 50),
+                        color: p.color(p.random(30, 60), p.random(100, 150), p.random(30, 60), p.random(150, 220))
+                    });
+                }
+                canopyLeaves.sort((a, b) => a.y - b.y);
+
                 resetGame();
             };
 
@@ -502,7 +728,7 @@
                 p.translate(-cameraX, 0);
 
                 if (gameOver) {
-                    p.pop(); // Pop camera translation
+                    p.pop(); 
                     drawGameOverUI();
                     return;
                 }
@@ -512,7 +738,7 @@
                 if (!monkey.isAttached) {
                     for (const vine of vines) {
                         if (vine === monkey.lastAttachedVine) continue;
-                        const vineEndPoint = vine.anchor.copy().add(p.createVector(0, vine.length));
+                        const vineEndPoint = vine.segments[config.vineSegments].pos;
                         const d = monkey.pos.dist(vineEndPoint);
                         const grabRadius = monkey.size / 2 + config.grabHandleSize / 2;
                         if (d < grabRadius && monkey.vel.y > 0) {
@@ -522,12 +748,11 @@
                         }
                     }
                 }
-
+                
                 vines.forEach(vine => {
+                    vine.update(); // Always update vine physics
                     const isAttached = (monkey.isAttached && vine === monkey.attachedVine);
-                    let endPos = isAttached ?
-                        monkey.pos :
-                        vine.anchor.copy().add(p.createVector(0, vine.length));
+                    let endPos = isAttached ? monkey.pos : null;
                     vine.draw(endPos, isAttached);
                     if (vine.banana && vine.banana.checkCollision(monkey)) {
                         score += 50;
@@ -535,6 +760,9 @@
                 });
 
                 monkey.draw();
+                
+                drawVineCanopy();
+                
 
                 if (p.random(1) < config.coconutSpawnRate) {
                     coconuts.push(new Collectible(p, cameraX + p.random(0, config.width), -20, 'coconut'));
