@@ -1,240 +1,183 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>2D Vine Trellis Simulation</title>
-
-    <!--
-        Adapted from the basic P5.js template:
-        https://github.com/processing/p5.js/wiki/p5.js-overview#inline-p5js-in-html
-    -->
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://esm.sh/p5@1.9.0"
-            }
-        }
-    </script>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ping-Pong Ball Trajectory Simulation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.dom.js"></script>
     <style>
-        /* Center the canvas horizontally and make it responsive */
-        html,
         body {
-            margin: 0;
-            padding: 0;
-            height: 100%;
             display: flex;
-            justify-content: center;
-            align-items: center;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin: 0;
+            height: 100vh;
             background-color: #f0f0f0;
+        }
+        #control-panel {
+            padding: 20px;
+            background-color: white;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        canvas {
+            border: 1px solid #000;
         }
     </style>
 </head>
-
 <body>
-    <script type="module">
-        // Import p5.js as a module
-        import p5 from "p5";
+    <div id="control-panel">
+        <h3>Control Panel</h3>
+        <label for="y-position">Initial Y Position:</label>
+        <input type="range" id="y-position" min="0" max="400" value="200"><br>
+        <label for="speed">Initial Speed:</label>
+        <input type="range" id="speed" min="1" max="20" value="10"><br>
+        <label for="angle">Initial Angle (degrees):</label>
+        <input type="range" id="angle" min="0" max="90" value="45"><br>
+        <button id="run-button">Run</button>
+        <button id="reset-button">Reset</button>
+        <h4>Ricochets:</h4>
+        <div id="ricochet-data"></div>
+    </div>
+    <script>
+        let sketch = (p) => {
+            let ball;
+            let ricochets = [];
+            let isRunning = false;
 
-        // Create a new p5 instance using a function passed to its constructor
-        new p5((sketch) => {
-            // --- Simulation Configuration ---
-            const cols = 10;
-            const rows = 7;
-            const poleRadius = 15;
-            const spacing = 50;
-            const vineThickness = 5;
-            const toolRadius = 15;
-            const mouseInfluenceRadius = 50;
-
-            // UI control flags
-            let startButton;
-            let started = false;
-            let win = false;
-            let lose = false;
-            let winMessage = "The vine has successfully reached its destination!";
-            let loseMessage = "The vine has hit a tool and withered away...";
-
-            // Store the trellis poles, garden tools, and visited poles
-            let poles = [];
-            let tools = [];
-            let visitedPoles = [];
-
-            // Track the vine's current position
-            let currentPole;
-
-            // Store the mouse position and whether it's over the start
-            let mousePos = { x: 0, y: 0 };
-            let isMouseOverStart = false;
-
-            // --- p5.js Setup Function ---
-            sketch.setup = () => {
-                sketch.createCanvas(cols * spacing, rows * spacing);
-                sketch.textAlign(sketch.CENTER, sketch.CENTER);
-                initializePoles();
-                initializeTools();
-                startButton = sketch.createButton("Start");
-                startButton.position(10, 10);
-                startButton.mousePressed(() => {
-                    if (!started) {
-                        started = true;
-                        currentPole = poles[0];
-                        visitedPoles = [currentPole];
-                    }
-                });
+            p.setup = () => {
+                p.createCanvas(600, 400);
+                ball = new Ball(p);
+                p.drawPath();
+                p.setupControls();
             };
 
-            // --- p5.js Draw Function ---
-            sketch.draw = () => {
-                sketch.background(240);
-
-                // Draw the trellis poles
-                poles.forEach((pole) => {
-                    sketch.fill(100);
-                    sketch.ellipse(pole.x, pole.y, poleRadius * 2);
-                });
-
-                // Draw the garden tools
-                tools.forEach((tool) => {
-                    sketch.fill(255, 0, 0);
-                    sketch.ellipse(tool.x, tool.y, toolRadius * 2);
-                });
-
-                if (!started) {
-                    startButton.show();
-                    return;
-                }
-
-                startButton.hide();
-
-                // Determine if the mouse is over the starting pole
-                if (!isMouseOverStart) {
-                    isMouseOverStart =
-                        sketch.dist(mousePos.x, mousePos.y, currentPole.x, currentPole.y) <
-                        poleRadius;
-                }
-
-                // Only update and draw the vine if the simulation has started
-                if (started) {
-                    updateVine();
-
-                    // Draw the vine path by connecting all visited poles
-                    sketch.stroke(0, 255, 0);
-                    sketch.strokeWeight(vineThickness);
-                    sketch.noFill();
-                    sketch.beginShape();
-                    visitedPoles.forEach((pole) => sketch.vertex(pole.x, pole.y));
-                    sketch.endShape();
-
-                    // Draw the current pole
-                    sketch.fill(0, 255, 0);
-                    sketch.ellipse(currentPole.x, currentPole.y, poleRadius * 2);
-                }
-
-                // Check win and lose conditions only when the vine is actively growing
-                if (started && !win && !lose) {
-                    checkWin();
-                    checkLose();
-                }
-
-                // Display win or lose message if the game is over
-                if (win) {
-                    sketch.fill(0);
-                    sketch.textSize(24);
-                    sketch.text(winMessage, sketch.width / 2, sketch.height / 2);
-                } else if (lose) {
-                    sketch.fill(0);
-                    sketch.textSize(24);
-                    sketch.text(loseMessage, sketch.width / 2, sketch.height / 2);
+            p.draw = () => {
+                if (isRunning) {
+                    ball.update();
+                    ball.display();
+                    if (ball.isOutOfBounds()) {
+                        isRunning = false;
+                    }
                 }
             };
 
-            // --- p5.js Mouse Event Handlers ---
-            sketch.mouseMoved = () => {
-                mousePos.x = sketch.mouseX;
-                mousePos.y = sketch.mouseY;
+            p.setupControls = () => {
+                const yPositionSlider = document.getElementById('y-position');
+                const speedSlider = document.getElementById('speed');
+                const angleSlider = document.getElementById('angle');
+                const runButton = document.getElementById('run-button');
+                const resetButton = document.getElementById('reset-button');
+                const ricochetDataDiv = document.getElementById('ricochet-data');
+
+                const updatePath = () => {
+                    ball.initialY = parseFloat(yPositionSlider.value);
+                    ball.initialSpeed = parseFloat(speedSlider.value);
+                    ball.initialAngle = parseFloat(angleSlider.value);
+                    ball.calculatePath();
+                    p.drawPath();
+                    ricochetDataDiv.innerHTML = ball.getRicochetData();
+                };
+
+                yPositionSlider.oninput = updatePath;
+                speedSlider.oninput = updatePath;
+                angleSlider.oninput = updatePath;
+
+                runButton.onclick = () => {
+                    ball.reset();
+                    isRunning = true;
+                };
+
+                resetButton.onclick = () => {
+                    ball.reset();
+                    isRunning = false;
+                    p.drawPath();
+                };
             };
 
-            // --- Simulation Initialization Functions ---
-            function initializePoles() {
-                for (let i = 0; i < cols; i++) {
-                    for (let j = 0; j < rows; j++) {
-                        poles.push({ x: i * spacing, y: j * spacing });
+            p.drawPath = () => {
+                p.clear();
+                p.background(240);
+                p.stroke(0);
+                p.fill(255);
+                p.rect(0, 0, p.width, p.height);
+                ball.drawPath();
+            };
+
+            class Ball {
+                constructor(p) {
+                    this.p = p;
+                    this.initialY = 200;
+                    this.initialSpeed = 10;
+                    this.initialAngle = 45;
+                    this.reset();
+                }
+
+                reset() {
+                    this.x = 50;
+                    this.y = this.initialY;
+                    this.speed = this.initialSpeed;
+                    this.angle = this.initialAngle * (Math.PI / 180);
+                    this.vx = this.speed * Math.cos(this.angle);
+                    this.vy = -this.speed * Math.sin(this.angle);
+                    this.ricochets = [];
+                    this.calculatePath();
+                }
+
+                calculatePath() {
+                    this.path = [];
+                    let time = 0;
+                    let dt = 0.1;
+                    while (this.x >= 0 && this.x <= this.p.width && this.y >= 0 && this.y <= this.p.height) {
+                        this.path.push({ x: this.x, y: this.y });
+                        time += dt;
+                        this.x = 50 + this.vx * time;
+                        this.y = this.initialY + this.vy * time + 0.5 * 9.8 * time * time;
+
+                        if (this.x <= 0 || this.x >= this.p.width) {
+                            this.vx *= -1;
+                            this.ricochets.push({ speed: this.speed, angle: this.angle * (180 / Math.PI) });
+                        }
+                        if (this.y <= 0 || this.y >= this.p.height) {
+                            this.vy *= -1;
+                            this.ricochets.push({ speed: this.speed, angle: this.angle * (180 / Math.PI) });
+                        }
                     }
                 }
-            }
 
-            function initializeTools() {
-                for (let i = 1; i < cols - 1; i++) {
-                    if (sketch.random() < 0.3) {
-                        const y = sketch.floor(sketch.random(rows)) * spacing;
-                        tools.push({ x: i * spacing, y });
+                drawPath() {
+                    this.p.stroke(150);
+                    this.p.noFill();
+                    this.p.beginShape();
+                    for (let point of this.path) {
+                        this.p.vertex(point.x, point.y);
                     }
+                    this.p.endShape();
+                }
+
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.vy += 9.8 * 0.1; // Gravity effect
+                }
+
+                display() {
+                    this.p.fill(255, 0, 0);
+                    this.p.ellipse(this.x, this.y, 20, 20);
+                }
+
+                isOutOfBounds() {
+                    return this.x < 0 || this.x > this.p.width || this.y < 0 || this.y > this.p.height;
+                }
+
+                getRicochetData() {
+                    return this.ricochets.map((r, index) => `Ricochet ${index + 1}: Speed = ${r.speed.toFixed(2)}, Angle = ${r.angle.toFixed(2)}°`).join('<br>');
                 }
             }
+        };
 
-            // --- Vine Update Logic ---
-            function updateVine() {
-                if (!started || win || lose) return;
-
-                // Start growing the vine once the mouse moves over the start
-                if (!isMouseOverStart) return;
-
-                // Determine the direction to grow based on the mouse's position
-                const dx = mousePos.x - currentPole.x;
-                const dy = mousePos.y - currentPole.y;
-                const distance = sketch.dist(mousePos.x, mousePos.y, currentPole.x, currentPole.y);
-
-                // Only consider movement if the mouse is within the influence radius
-                if (distance < mouseInfluenceRadius) {
-                    let targetPole = findNearestPole(
-                        currentPole.x + dx * (mouseInfluenceRadius / distance),
-                        currentPole.y + dy * (mouseInfluenceRadius / distance)
-                    );
-
-                    // Only move if a valid, unvisited pole is found
-                    if (targetPole && !visitedPoles.includes(targetPole)) {
-                        currentPole = targetPole;
-                        visitedPoles.push(currentPole);
-                    }
-                }
-            }
-
-            // --- Helper Functions ---
-            function findNearestPole(x, y) {
-                let nearestPole = null;
-                let minDistance = Infinity;
-
-                poles.forEach((pole) => {
-                    const distance = sketch.dist(x, y, pole.x, pole.y);
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        nearestPole = pole;
-                    }
-                });
-
-                return nearestPole;
-            }
-
-            // --- Win/Lose Condition Checks ---
-            function checkWin() {
-                if (currentPole.x === (cols - 1) * spacing) {
-                    win = true;
-                }
-            }
-
-            function checkLose() {
-                for (const tool of tools) {
-                    if (sketch.dist(currentPole.x, currentPole.y, tool.x, tool.y) < toolRadius) {
-                        lose = true;
-                        break;
-                    }
-                }
-            }
-        });
+        new p5(sketch);
     </script>
 </body>
-
 </html>

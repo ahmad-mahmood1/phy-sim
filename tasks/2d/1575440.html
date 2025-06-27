@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge Ricochet Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* General body styling for a clean, professional look */
+        body {
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #2c3e50; /* A sleek, dark blue background */
+            font-family: 'Roboto Mono', monospace;
+            color: #ecf0f1;
+        }
+        h1 {
+            font-weight: 700;
+            margin-bottom: 20px;
+            font-size: 2.5rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        /* Main container for the entire simulation interface */
+        #simulation-interface {
+            display: flex;
+            align-items: flex-start; /* Align items to the top */
+            gap: 30px; /* Space between canvas and controls */
+        }
+        /* Container for the p5.js canvas, providing border and shadow */
+        #canvas-container {
+            position: relative;
+            border: 3px solid #ecf0f1;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        /* Container for all control elements */
+        #controls-container {
+            background-color: rgba(60, 60, 60, 0.85);
+            padding: 20px 25px;
+            border-radius: 8px;
+            width: 320px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        #controls-container h3 {
+            margin-top: 0;
+            border-bottom: 1px solid #7f8c8d;
+            padding-bottom: 10px;
+        }
+        .control-group {
+            margin: 20px 0;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 10px;
+        }
+        .control-group input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        .control-group span {
+            font-weight: 700;
+            color: #3498db;
+            float: right; /* Align value to the right */
+        }
+
+        /* Container for action buttons */
+        .button-group {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 25px;
+        }
+        .sim-button {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 1rem;
+            padding: 12px 20px;
+            border: 2px solid white;
+            background-color: transparent;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s, color 0.3s;
+            width: 48%;
+        }
+        #run-button {
+            background-color: #27ae60;
+            border-color: #27ae60;
+        }
+        #run-button:hover {
+            background-color: #2ecc71;
+        }
+        #reset-button {
+            background-color: #c0392b;
+            border-color: #c0392b;
+        }
+        #reset-button:hover {
+            background-color: #e74c3c;
+        }
+        
+        /* Styles for the new ricochet data display */
+        #ricochet-info {
+            margin-top: 20px;
+            border-top: 1px solid #7f8c8d;
+            padding-top: 10px;
+        }
+        #ricochet-list {
+            max-height: 120px; /* Set a max height */
+            overflow-y: auto; /* Allow scrolling */
+            padding-right: 10px;
+            font-size: 0.85rem;
+        }
+        #ricochet-list p {
+            margin: 6px 0;
+            padding: 6px;
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <h1>Edge Ricochet Simulation</h1>
+    <div id="simulation-interface">
+        <div id="canvas-container"></div>
+        <div id="controls-container">
+            <h3>Simulation Controls</h3>
+            <div class="control-group">
+                <label for="y-pos-slider">Start Y-Position:<span id="y-pos-value">300 px</span></label>
+                <input type="range" id="y-pos-slider" min="20" max="580" value="300">
+            </div>
+            <div class="control-group">
+                <label for="speed-slider">Start Speed:<span id="speed-value">7.0</span></label>
+                <input type="range" id="speed-slider" min="1" max="15" step="0.1" value="7">
+            </div>
+            <div class="control-group">
+                <label for="angle-slider">Start Angle:<span id="angle-value">0°</span></label>
+                <input type="range" id="angle-slider" min="-45" max="45" value="0">
+            </div>
+            <div class="button-group">
+                <button id="run-button" class="sim-button">Run</button>
+                <button id="reset-button" class="sim-button">Reset</button>
+            </div>
+            <!-- New Section for Ricochet Data -->
+            <div id="ricochet-info">
+                <h3>Ricochet Data</h3>
+                <p>Total Ricochets: <span id="ricochet-count">0</span></p>
+                <div id="ricochet-list">
+                    <!-- Ricochet details will be populated here by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let ball;
+            let table;
+            let ballPath = []; // Stores the pre-calculated path
+            let ricochetData = []; // Stores data about each bounce
+            let animationFrame = 0; // Tracks progress of the animation
+            let simulationState = 'ready'; // ready, simulating, finished
+
+            // --- DOM Elements ---
+            let yPosSlider, speedSlider, angleSlider;
+            let yPosValue, speedValue, angleValue;
+            let runButton, resetButton;
+            let ricochetCountEl, ricochetListEl;
+
+            // --- Ball Class ---
+            class Ball {
+                constructor() {
+                    this.radius = 12;
+                    this.position = p.createVector(0, 0); 
+                }
+
+                display(pos) {
+                    this.position = pos;
+                    p.noStroke();
+                    p.fill(255, 230, 100); // Yellowish ball for better visibility
+                    p.ellipse(this.position.x, this.position.y, this.radius * 2);
+                }
+            }
+            
+            // --- Table Class ---
+            class Table {
+                constructor(padding) {
+                    this.padding = padding;
+                    this.x = this.padding;
+                    this.y = this.padding;
+                    this.width = p.width - this.padding * 2;
+                    this.height = p.height - this.padding * 2;
+                }
+
+                display() {
+                    p.noStroke();
+                    p.fill(0, 100, 80); // Classic green table color
+                    p.rect(this.x, this.y, this.width, this.height);
+                    p.stroke(255);
+                    p.strokeWeight(4);
+                    p.noFill();
+                    p.rect(this.x, this.y, this.width, this.height); // Table boundaries
+                }
+            }
+
+            // --- P5.js Setup Function ---
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(1000, 600);
+                canvas.parent(container);
+                
+                getDOMElements();
+                addEventListeners();
+
+                table = new Table(20);
+                ball = new Ball();
+                
+                resetSimulation();
+                p.noLoop(); // Keep the draw loop stopped initially
+            };
+            
+            // --- DOM Element Handling ---
+            function getDOMElements() {
+                yPosSlider = document.getElementById('y-pos-slider');
+                speedSlider = document.getElementById('speed-slider');
+                angleSlider = document.getElementById('angle-slider');
+                yPosValue = document.getElementById('y-pos-value');
+                speedValue = document.getElementById('speed-value');
+                angleValue = document.getElementById('angle-value');
+                runButton = document.getElementById('run-button');
+                resetButton = document.getElementById('reset-button');
+                ricochetCountEl = document.getElementById('ricochet-count');
+                ricochetListEl = document.getElementById('ricochet-list');
+            }
+
+            function addEventListeners() {
+                runButton.addEventListener('click', runSimulation);
+                resetButton.addEventListener('click', resetSimulation);
+                
+                // When any slider changes, update the predicted path
+                yPosSlider.addEventListener('input', () => {
+                    yPosValue.textContent = `${yPosSlider.value} px`;
+                    resetSimulation();
+                });
+                speedSlider.addEventListener('input', () => {
+                    speedValue.textContent = parseFloat(speedSlider.value).toFixed(1);
+                    resetSimulation();
+                });
+                angleSlider.addEventListener('input', () => {
+                    angleValue.textContent = `${angleSlider.value}°`;
+                    resetSimulation();
+                });
+            }
+
+            // --- Simulation Logic ---
+
+            // Calculates the entire path and ricochet data.
+            function calculatePath() {
+                const startY = parseFloat(yPosSlider.value);
+                const speed = parseFloat(speedSlider.value);
+                const angle = p.radians(parseFloat(angleSlider.value));
+
+                let pos = p.createVector(table.x + ball.radius + 5, startY);
+                let vel = p5.Vector.fromAngle(angle, speed);
+                
+                let path = [pos.copy()];
+                let ricochets = [];
+
+                // Simulate up to 5000 frames to prevent infinite loops
+                for (let i = 0; i < 5000; i++) {
+                    pos.add(vel);
+                    let bounced = false;
+
+                    // Collision detection for the path calculation
+                    if (pos.y < table.y + ball.radius || pos.y > table.y + table.height - ball.radius) {
+                        vel.y *= -1;
+                        bounced = true;
+                    }
+                    if (pos.x > table.x + table.width - ball.radius) {
+                        vel.x *= -1;
+                        bounced = true;
+                    }
+                    
+                    if (bounced) {
+                        ricochets.push({
+                            speed: vel.mag(),
+                            angle: p.degrees(vel.heading())
+                        });
+                    }
+
+                    path.push(pos.copy());
+
+                    // End calculation if the ball goes off the left side
+                    if (pos.x < table.x - ball.radius * 2) {
+                        break;
+                    }
+                }
+                return { path, ricochets };
+            }
+
+            function runSimulation() {
+                if (simulationState === 'ready') {
+                    simulationState = 'simulating';
+                    animationFrame = 0;
+                    p.loop(); // Start the animation
+                }
+            }
+
+            function resetSimulation() {
+                simulationState = 'ready';
+                p.noLoop(); // Ensure animation is stopped
+                
+                const simulationData = calculatePath();
+                ballPath = simulationData.path;
+                ricochetData = simulationData.ricochets;
+                
+                updateRicochetInfo();
+                p.redraw(); // Redraw the canvas once with the new path
+            }
+
+            function updateRicochetInfo() {
+                ricochetCountEl.textContent = ricochetData.length;
+                ricochetListEl.innerHTML = ''; // Clear previous list
+
+                ricochetData.forEach((ricochet, index) => {
+                    const listItem = document.createElement('p');
+                    const speed = ricochet.speed.toFixed(2);
+                    const angle = ricochet.angle.toFixed(2);
+                    listItem.textContent = `Ricochet ${index + 1}: ${angle}° at ${speed}px/f`;
+                    ricochetListEl.appendChild(listItem);
+                });
+            }
+            
+            // --- Drawing Functions ---
+            function drawBallPath() {
+                p.noFill();
+                p.stroke(255, 255, 255, 150); // Semi-transparent white line for the path
+                p.strokeWeight(3);
+                p.beginShape();
+                for (const point of ballPath) {
+                    p.vertex(point.x, point.y);
+                }
+                p.endShape();
+            }
+
+            // The main p5.js draw loop
+            p.draw = () => {
+                p.background(44, 62, 80);
+                table.display();
+                drawBallPath();
+
+                if (simulationState === 'ready' && ballPath.length > 0) {
+                    // In ready state, just show the first position of the ball
+                    ball.display(ballPath[0]);
+                } else if (simulationState === 'simulating') {
+                    // Animate the ball along the pre-calculated path
+                    if (animationFrame < ballPath.length) {
+                        ball.display(ballPath[animationFrame]);
+                        animationFrame++;
+                    } else {
+                        // Animation finished
+                        simulationState = 'finished';
+                        p.noLoop();
+                    }
+                } else if (simulationState === 'finished') {
+                    // Show the ball at its final position
+                    ball.display(ballPath[ballPath.length - 1]);
+                }
+            };
+        };
+
+        new p5(sketch, document.body);
+
+    </script>
+</body>
+
+</html>
