@@ -1,183 +1,504 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ping-Pong Ball Trajectory Simulation</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.dom.js"></script>
+    <title>Labyrinth Board Game</title>
     <style>
         body {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
             margin: 0;
-            height: 100vh;
-            background-color: #f0f0f0;
-        }
-        #control-panel {
             padding: 20px;
-            background-color: white;
-            border: 1px solid #ccc;
-            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
         }
+
         canvas {
-            border: 1px solid #000;
+            display: block;
+            margin: 0 auto;
+            border: 2px solid #333;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .message {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #333;
+            height: 20px;
+            text-align: center;
         }
     </style>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "p5": "https://esm.sh/p5@1.9.0"
+      }
+    }
+  </script>
 </head>
+
 <body>
-    <div id="control-panel">
-        <h3>Control Panel</h3>
-        <label for="y-position">Initial Y Position:</label>
-        <input type="range" id="y-position" min="0" max="400" value="200"><br>
-        <label for="speed">Initial Speed:</label>
-        <input type="range" id="speed" min="1" max="20" value="10"><br>
-        <label for="angle">Initial Angle (degrees):</label>
-        <input type="range" id="angle" min="0" max="90" value="45"><br>
-        <button id="run-button">Run</button>
-        <button id="reset-button">Reset</button>
-        <h4>Ricochets:</h4>
-        <div id="ricochet-data"></div>
+    <div class="controls">
+        <button id="reset">Reset</button>
+        <button id="newGame">New Game</button>
     </div>
-    <script>
-        let sketch = (p) => {
-            let ball;
-            let ricochets = [];
-            let isRunning = false;
+    <div id="canvas-container"></div>
+    <div class="message" id="message">Shift/rotate rows and columns to create a path</div>
 
-            p.setup = () => {
-                p.createCanvas(600, 400);
-                ball = new Ball(p);
-                p.drawPath();
-                p.setupControls();
-            };
+    <script type="module">
+        import p5 from 'p5';
 
-            p.draw = () => {
-                if (isRunning) {
-                    ball.update();
-                    ball.display();
-                    if (ball.isOutOfBounds()) {
-                        isRunning = false;
-                    }
-                }
-            };
+        // Game configuration constants
+        const gridSize = 6;
+        const tileSize = 80;
+        const obstacleProbability = 0.3;
+        const canvasWidth = gridSize * tileSize;
+        const canvasHeight = gridSize * tileSize;
 
-            p.setupControls = () => {
-                const yPositionSlider = document.getElementById('y-position');
-                const speedSlider = document.getElementById('speed');
-                const angleSlider = document.getElementById('angle');
-                const runButton = document.getElementById('run-button');
-                const resetButton = document.getElementById('reset-button');
-                const ricochetDataDiv = document.getElementById('ricochet-data');
+        // UI elements
+        let resetButton;
+        let newGameButton;
+        let messageDiv;
 
-                const updatePath = () => {
-                    ball.initialY = parseFloat(yPositionSlider.value);
-                    ball.initialSpeed = parseFloat(speedSlider.value);
-                    ball.initialAngle = parseFloat(angleSlider.value);
-                    ball.calculatePath();
-                    p.drawPath();
-                    ricochetDataDiv.innerHTML = ball.getRicochetData();
+        // Game state variables
+        let grid;
+        let obstacles;
+        let start;
+        let goal;
+        let selectedRow = -1;
+        let selectedCol = -1;
+        let isRotating = false;
+        let path = [];
+        let isAnimating = false;
+        let currentMarkerIndex = 0;
+        let foundPath = false;
+        let p5Instance; // Store the p5 instance to access it in event handlers
+
+        // Initialize the game when the page loads
+        window.addEventListener('load', () => {
+            // Setup UI elements
+            resetButton = document.getElementById('reset');
+            newGameButton = document.getElementById('newGame');
+            messageDiv = document.getElementById('message');
+
+            // Attach event listeners
+            resetButton.addEventListener('click', resetGame);
+            newGameButton.addEventListener('click', startNewGame);
+
+            // Create the p5 instance using a closure to capture this context
+            const sketch = (p) => {
+                p5Instance = p; // Store the p5 instance
+
+                p.setup = () => {
+                    const canvas = p.createCanvas(canvasWidth, canvasHeight);
+                    canvas.parent('canvas-container');
+                    startNewGame();
                 };
 
-                yPositionSlider.oninput = updatePath;
-                speedSlider.oninput = updatePath;
-                angleSlider.oninput = updatePath;
-
-                runButton.onclick = () => {
-                    ball.reset();
-                    isRunning = true;
+                p.draw = () => {
+                    p.background(240);
+                    drawGrid();
+                    drawObstacles();
+                    drawStartAndGoal();
+                    drawSelection();
+                    drawPath();
+                    drawMarker();
+                    checkForWin();
                 };
 
-                resetButton.onclick = () => {
-                    ball.reset();
-                    isRunning = false;
-                    p.drawPath();
-                };
-            };
-
-            p.drawPath = () => {
-                p.clear();
-                p.background(240);
-                p.stroke(0);
-                p.fill(255);
-                p.rect(0, 0, p.width, p.height);
-                ball.drawPath();
-            };
-
-            class Ball {
-                constructor(p) {
-                    this.p = p;
-                    this.initialY = 200;
-                    this.initialSpeed = 10;
-                    this.initialAngle = 45;
-                    this.reset();
-                }
-
-                reset() {
-                    this.x = 50;
-                    this.y = this.initialY;
-                    this.speed = this.initialSpeed;
-                    this.angle = this.initialAngle * (Math.PI / 180);
-                    this.vx = this.speed * Math.cos(this.angle);
-                    this.vy = -this.speed * Math.sin(this.angle);
-                    this.ricochets = [];
-                    this.calculatePath();
-                }
-
-                calculatePath() {
-                    this.path = [];
-                    let time = 0;
-                    let dt = 0.1;
-                    while (this.x >= 0 && this.x <= this.p.width && this.y >= 0 && this.y <= this.p.height) {
-                        this.path.push({ x: this.x, y: this.y });
-                        time += dt;
-                        this.x = 50 + this.vx * time;
-                        this.y = this.initialY + this.vy * time + 0.5 * 9.8 * time * time;
-
-                        if (this.x <= 0 || this.x >= this.p.width) {
-                            this.vx *= -1;
-                            this.ricochets.push({ speed: this.speed, angle: this.angle * (180 / Math.PI) });
-                        }
-                        if (this.y <= 0 || this.y >= this.p.height) {
-                            this.vy *= -1;
-                            this.ricochets.push({ speed: this.speed, angle: this.angle * (180 / Math.PI) });
+                // Draw the grid lines
+                function drawGrid() {
+                    p.stroke(200);
+                    p.strokeWeight(1);
+                    for (let i = 0; i < gridSize; i++) {
+                        for (let j = 0; j < gridSize; j++) {
+                            p.rect(j * tileSize, i * tileSize, tileSize, tileSize);
                         }
                     }
                 }
 
-                drawPath() {
-                    this.p.stroke(150);
-                    this.p.noFill();
-                    this.p.beginShape();
-                    for (let point of this.path) {
-                        this.p.vertex(point.x, point.y);
+                // Draw obstacles on the grid
+                function drawObstacles() {
+                    p.fill(50);
+                    p.noStroke();
+                    for (let i = 0; i < gridSize; i++) {
+                        for (let j = 0; j < gridSize; j++) {
+                            if (obstacles[i][j]) {
+                                p.rect(j * tileSize, i * tileSize, tileSize, tileSize);
+                            }
+                        }
                     }
-                    this.p.endShape();
                 }
 
-                update() {
-                    this.x += this.vx;
-                    this.y += this.vy;
-                    this.vy += 9.8 * 0.1; // Gravity effect
+                // Draw start and goal positions
+                function drawStartAndGoal() {
+                    p.fill(0, 255, 0); // Green for start
+                    p.rect(start.x * tileSize, start.y * tileSize, tileSize, tileSize);
+
+                    p.fill(255, 0, 0); // Red for goal
+                    p.rect(goal.x * tileSize, goal.y * tileSize, tileSize, tileSize);
                 }
 
-                display() {
-                    this.p.fill(255, 0, 0);
-                    this.p.ellipse(this.x, this.y, 20, 20);
+                // Draw selection highlight around selected row or column
+                function drawSelection() {
+                    p.noFill();
+                    p.strokeWeight(3);
+
+                    if (selectedRow > -1) {
+                        p.stroke(0, 0, 255); // Blue for selected row
+                        p.rect(0, selectedRow * tileSize, gridSize * tileSize, tileSize);
+                    }
+
+                    if (selectedCol > -1) {
+                        p.stroke(255, 165, 0); // Orange for selected column
+                        p.rect(selectedCol * tileSize, 0, tileSize, gridSize * tileSize);
+                    }
+
+                    // Draw rotation indicator if rotating
+                    if (isRotating && (selectedRow > -1 || selectedCol > -1)) {
+                        p.stroke(255, 255, 0); // Yellow for rotation indicator
+                        p.strokeWeight(2);
+                        const centerX = (selectedCol > -1) ? selectedCol * tileSize + tileSize / 2 : gridSize * tileSize / 2;
+                        const centerY = (selectedRow > -1) ? selectedRow * tileSize + tileSize / 2 : gridSize * tileSize / 2;
+                        const radius = tileSize * 0.4;
+                        p.noFill();
+                        p.ellipse(centerX, centerY, radius * 2, radius * 2);
+                    }
                 }
 
-                isOutOfBounds() {
-                    return this.x < 0 || this.x > this.p.width || this.y < 0 || this.y > this.p.height;
+                // Draw the path from start to goal
+                function drawPath() {
+                    if (path.length > 0) {
+                        p.stroke(0, 255, 255); // Cyan for path
+                        p.strokeWeight(4);
+                        p.noFill();
+
+                        p.beginShape();
+                        for (let pos of path) {
+                            p.vertex(pos.x * tileSize + tileSize / 2, pos.y * tileSize + tileSize / 2);
+                        }
+                        p.endShape();
+                    }
                 }
 
-                getRicochetData() {
-                    return this.ricochets.map((r, index) => `Ricochet ${index + 1}: Speed = ${r.speed.toFixed(2)}, Angle = ${r.angle.toFixed(2)}°`).join('<br>');
+                // Draw the marker moving along the path
+                function drawMarker() {
+                    if (isAnimating && path.length > 0) {
+                        const pos = path[currentMarkerIndex];
+                        p.fill(255, 0, 255); // Purple for marker
+                        p.noStroke();
+                        p.ellipse(
+                            pos.x * tileSize + tileSize / 2,
+                            pos.y * tileSize + tileSize / 2,
+                            tileSize * 0.6,
+                            tileSize * 0.6
+                        );
+                    }
+                }
+
+                // Check if the player has successfully created a path
+                function checkForWin() {
+                    if (path.length > 0 && !isAnimating && !foundPath) {
+                        foundPath = true;
+                        messageDiv.textContent = "Path found! Animating...";
+                        startAnimation();
+                    }
+                }
+
+                // Handle mouse press events
+                p.mousePressed = () => {
+                    if (isAnimating) return;
+
+                    const x = Math.floor(p.mouseX / tileSize);
+                    const y = Math.floor(p.mouseY / tileSize);
+
+                    // Check if clicking on controls
+                    if (y === 0 && x < 3) return; // First row contains controls
+
+                    // Update selection based on click position
+                    if (x < 3) { // Left side - select row
+                        selectedRow = y;
+                        selectedCol = -1;
+                    } else { // Right side - select column
+                        selectedCol = x;
+                        selectedRow = -1;
+                    }
+
+                    // Check if clicking on shift/rotate controls
+                    const controlHeight = tileSize;
+                    const controlWidth = tileSize * 3;
+
+                    if (y * tileSize < controlHeight) { // First row
+                        const controlX = x * tileSize;
+
+                        // Row controls (first 3 columns)
+                        if (x < 3) {
+                            if (controlX < controlWidth / 3) {
+                                shiftRowUp(selectedRow);
+                            } else if (controlX < 2 * controlWidth / 3) {
+                                shiftRowDown(selectedRow);
+                            } else {
+                                rotateRow(selectedRow);
+                            }
+                        }
+                        // Column controls (last 3 columns)
+                        else {
+                            const colControlX = (x - 3) * tileSize;
+                            if (colControlX < controlWidth / 3) {
+                                shiftColumnLeft(selectedCol);
+                            } else if (colControlX < 2 * controlWidth / 3) {
+                                shiftColumnRight(selectedCol);
+                            } else {
+                                rotateColumn(selectedCol);
+                            }
+                        }
+                    }
+                };
+
+                // Handle mouse drag events
+                p.mouseDragged = () => {
+                    if (isAnimating) return;
+
+                    const x = Math.floor(p.mouseX / tileSize);
+                    const y = Math.floor(p.mouseY / tileSize);
+
+                    // Check if dragging in the same row or column
+                    if (selectedRow > -1 && y === selectedRow) {
+                        if (x < 3) {
+                            selectedRow = y;
+                            selectedCol = -1;
+                        }
+                    } else if (selectedCol > -1 && x === selectedCol) {
+                        if (x >= 3) {
+                            selectedCol = x;
+                            selectedRow = -1;
+                        }
+                    }
+                };
+
+                // Shift a row up
+                function shiftRowUp(row) {
+                    if (row < 0 || row >= gridSize) return;
+
+                    const first = grid[row][0];
+                    for (let i = 0; i < gridSize - 1; i++) {
+                        grid[row][i] = grid[row][i + 1];
+                    }
+                    grid[row][gridSize - 1] = first;
+
+                    updatePath();
+                }
+
+                // Shift a row down
+                function shiftRowDown(row) {
+                    if (row < 0 || row >= gridSize) return;
+
+                    const last = grid[row][gridSize - 1];
+                    for (let i = gridSize - 1; i > 0; i--) {
+                        grid[row][i] = grid[row][i - 1];
+                    }
+                    grid[row][0] = last;
+
+                    updatePath();
+                }
+
+                // Rotate a row clockwise
+                function rotateRow(row) {
+                    if (row < 0 || row >= gridSize) return;
+
+                    grid[row] = rotateArray(grid[row]);
+                    isRotating = true;
+                    setTimeout(() => isRotating = false, 200);
+
+                    updatePath();
+                }
+
+                // Shift a column left
+                function shiftColumnLeft(col) {
+                    if (col < 0 || col >= gridSize) return;
+
+                    const first = grid[0][col];
+                    for (let i = 0; i < gridSize - 1; i++) {
+                        grid[i][col] = grid[i + 1][col];
+                    }
+                    grid[gridSize - 1][col] = first;
+
+                    updatePath();
+                }
+
+                // Shift a column right
+                function shiftColumnRight(col) {
+                    if (col < 0 || col >= gridSize) return;
+
+                    const last = grid[gridSize - 1][col];
+                    for (let i = gridSize - 1; i > 0; i--) {
+                        grid[i][col] = grid[i - 1][col];
+                    }
+                    grid[0][col] = last;
+
+                    updatePath();
+                }
+
+                // Rotate a column clockwise
+                function rotateColumn(col) {
+                    if (col < 0 || col >= gridSize) return;
+
+                    const column = [];
+                    for (let i = 0; i < gridSize; i++) {
+                        column.push(grid[i][col]);
+                    }
+
+                    const rotated = rotateArray(column);
+                    for (let i = 0; i < gridSize; i++) {
+                        grid[i][col] = rotated[i];
+                    }
+
+                    isRotating = true;
+                    setTimeout(() => isRotating = false, 200);
+
+                    updatePath();
+                }
+
+                // Rotate an array clockwise (used for row/column rotation)
+                function rotateArray(arr) {
+                    const rotated = [...arr];
+                    const last = rotated.pop();
+                    rotated.unshift(last);
+                    return rotated;
+                }
+
+                // Update the path after grid changes
+                function updatePath() {
+                    path = findPath();
+                    foundPath = false;
+
+                    if (path.length > 0) {
+                        messageDiv.textContent = "Path found! Click New Game to play";
+                    } else {
+                        messageDiv.textContent = "No path found. Keep trying!";
+                    }
+                }
+
+                // Find path using BFS algorithm
+                function findPath() {
+                    const visited = Array.from({ length: gridSize }, () => Array(gridSize).fill(false));
+                    const queue = [[start]];
+                    visited[start.y][start.x] = true;
+
+                    while (queue.length > 0) {
+                        const currentPath = queue.shift();
+                        const currentPos = currentPath[currentPath.length - 1];
+
+                        if (currentPos.x === goal.x && currentPos.y === goal.y) {
+                            return currentPath;
+                        }
+
+                        // Check all four directions
+                        const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+                        for (const [dx, dy] of directions) {
+                            const newX = currentPos.x + dx;
+                            const newY = currentPos.y + dy;
+
+                            if (newX >= 0 && newX < gridSize && newY >= 0 && newY < gridSize &&
+                                !visited[newY][newX] && !obstacles[newY][newX]) {
+
+                                visited[newY][newX] = true;
+                                queue.push([...currentPath, { x: newX, y: newY }]);
+                            }
+                        }
+                    }
+
+                    return [];
+                }
+
+                // Start animating the path
+                function startAnimation() {
+                    isAnimating = true;
+                    currentMarkerIndex = 0;
+                    let interval = setInterval(() => {
+                        currentMarkerIndex++;
+                        if (currentMarkerIndex >= path.length) {
+                            clearInterval(interval);
+                            isAnimating = false;
+                            messageDiv.textContent = "Path successfully traversed! Click New Game to play again";
+                        }
+                    }, 300);
+                }
+            };
+
+            // Create the p5 canvas
+            new p5(sketch);
+        });
+
+        // Create a new game with random obstacles
+        function startNewGame() {
+            // Create grid and obstacles
+            grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+            obstacles = Array.from({ length: gridSize }, () => Array(gridSize).fill(false));
+
+            // Randomly place obstacles
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    if (Math.random() < obstacleProbability) {
+                        obstacles[i][j] = true;
+                    }
                 }
             }
-        };
 
-        new p5(sketch);
+            // Set start and goal positions
+            start = { x: 0, y: Math.floor(gridSize / 2) };
+            goal = { x: gridSize - 1, y: Math.floor(gridSize / 2) };
+
+            // Ensure start and goal are not obstacles
+            obstacles[start.y][start.x] = false;
+            obstacles[goal.y][goal.x] = false;
+
+            // Reset game state
+            path = [];
+            isAnimating = false;
+            currentMarkerIndex = 0;
+            foundPath = false;
+            messageDiv.textContent = "New game started! Shift/rotate rows and columns to create a path";
+        }
+
+        // Reset the current game to its initial state
+        function resetGame() {
+            // Create a fresh grid with current obstacles
+            grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+
+            // Reset game state
+            path = [];
+            isAnimating = false;
+            currentMarkerIndex = 0;
+            foundPath = false;
+            messageDiv.textContent = "Game reset! Shift/rotate rows and columns to create a path";
+        }
     </script>
 </body>
+
 </html>
