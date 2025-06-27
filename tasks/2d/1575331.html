@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Labyrinth Rotator Game</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto Mono', monospace;
+            text-align: center;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 3px solid #333;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+        }
+
+        #title {
+            font-size: 2em;
+            color: #333;
+            margin-bottom: 0px;
+        }
+
+        #controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin: 15px 0;
+        }
+
+        .control-button {
+            padding: 10px 20px;
+            font-size: 1em;
+            font-family: 'Roboto Mono', monospace;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.2s, transform 0.2s;
+        }
+
+        #reset-button {
+            background-color: #5298db;
+            color: white;
+        }
+
+        #reset-button:hover {
+            background-color: #4178b0;
+            transform: translateY(-2px);
+        }
+
+        #launch-button {
+            background-color: #2ecc71;
+            color: white;
+            display: none;
+            /* Hidden by default */
+        }
+
+        #launch-button:hover {
+            background-color: #27ae60;
+            transform: translateY(-2px);
+        }
+
+        #win-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(46, 204, 113, 0.9);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            font-size: 2.5em;
+            font-weight: bold;
+            display: none;
+            /* Hidden by default */
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <h1 id="title">Labyrinth Rotator</h1>
+    <div id="controls">
+        <p id="instructions" style="margin:0;">Connect the pipes and avoid obstacles!</p>
+        <button id="launch-button" class="control-button">Launch!</button>
+        <button id="reset-button" class="control-button">New Game</button>
+    </div>
+    <div id="canvas-container">
+        <div id="win-message">You Win!</div>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        let p5Instance;
+
+        const sketch = (p) => {
+            // Game constants
+            const COLS = 7;
+            const ROWS = 7;
+            const TILE_SIZE = 60;
+            const CONTROL_AREA_SIZE = 50;
+            const SIDE_PLAYER_AREA = 40;
+
+            const TILE_TYPE = { STRAIGHT: 0, CORNER: 1 };
+            // FIX: Corner connection logic now matches the visual drawing (Up/Left)
+            const CONNECTIONS = [[0, 2], [0, 3]];
+            const PATH_COLOR = '#77d4fc'; // Color for connected path tiles
+            const PIPE_COLOR = '#dce0e1'; // Default pipe color
+
+
+            // Game state variables
+            let grid = [];
+            let isPath = []; // 2D array to track which tiles are on the current path
+            let startRow = Math.floor(ROWS / 2);
+            let goalRow = Math.floor(ROWS / 2);
+            let hasWon = false;
+            let pathFound = false;
+            let solutionPath = [];
+
+            // Animation state for tile movements
+            let moveAnimation = {
+                isAnimating: false,
+                type: null, // 'colRotate', 'colShift', 'rowRotate', 'rowShift'
+                index: -1,
+                direction: null,
+                progress: 0,
+                speed: 0.15,
+            };
+
+            // Animation state for path traversal
+            let traversalAnimation = {
+                isAnimating: false,
+                path: [],
+                segment: 0,
+                progress: 0,
+                speed: 0.1
+            };
+
+            // p5.js setup function, runs once at the start
+            p.setup = () => {
+                const canvasWidth = COLS * TILE_SIZE + 2 * (SIDE_PLAYER_AREA + CONTROL_AREA_SIZE);
+                const canvasHeight = ROWS * TILE_SIZE + 2 * CONTROL_AREA_SIZE;
+                p.createCanvas(canvasWidth, canvasHeight);
+                p.angleMode(p.DEGREES);
+                p.resetGame();
+            };
+
+            // Resets the game to a new state
+            p.resetGame = () => {
+                startRow = p.floor(p.random(ROWS));
+                goalRow = p.floor(p.random(ROWS));
+                isPath = Array(COLS).fill(null).map(() => Array(ROWS).fill(false));
+                initializeGrid();
+                hasWon = false;
+                pathFound = false;
+                solutionPath = [];
+                document.getElementById('win-message').style.display = 'none';
+                document.getElementById('launch-button').style.display = 'none';
+                moveAnimation.isAnimating = false;
+                traversalAnimation.isAnimating = false;
+                p.loop(); // Ensure the draw loop is running
+            };
+
+            // Initializes the grid with tiles and obstacles
+            function initializeGrid() {
+                grid = Array(COLS).fill(null).map(() => Array(ROWS).fill(null));
+                for (let i = 0; i < COLS; i++) {
+                    for (let j = 0; j < ROWS; j++) {
+                        grid[i][j] = {
+                            shape: p.random([TILE_TYPE.STRAIGHT, TILE_TYPE.CORNER]),
+                            orientation: p.floor(p.random(4)),
+                            isObstacle: false
+                        };
+                    }
+                }
+                // Add a random number of obstacles
+                const numObstacles = p.random([2, 3, 4]);
+                for (let i = 0; i < numObstacles; i++) {
+                    let ox, oy;
+                    do {
+                        ox = p.floor(p.random(COLS));
+                        oy = p.floor(p.random(ROWS));
+                    } while (grid[ox][oy].isObstacle || (ox === 0 && oy === startRow) || (ox === COLS - 1 && oy === goalRow));
+                    grid[ox][oy].isObstacle = true;
+                }
+            }
+
+            // p5.js draw function, runs continuously
+            p.draw = () => {
+                p.background(240);
+
+                // Update animations or check for solution
+                if (moveAnimation.isAnimating) {
+                    updateMoveAnimation();
+                } else if (traversalAnimation.isAnimating) {
+                    updateTraversalAnimation();
+                } else if (!hasWon) {
+                    const result = findSolutionPath();
+                    pathFound = result.found;
+                    solutionPath = result.path;
+
+                    // Update the isPath grid for visual feedback
+                    isPath = Array(COLS).fill(null).map(() => Array(ROWS).fill(false));
+                    for (const node of solutionPath) {
+                        isPath[node.x][node.y] = true;
+                    }
+
+                    // Show launch button only when a complete path is found
+                    document.getElementById('launch-button').style.display = pathFound ? 'block' : 'none';
+                }
+
+                drawGrid();
+                drawControls();
+                drawSideAreas();
+
+                if (traversalAnimation.isAnimating) {
+                    drawTraversalMarker();
+                }
+            };
+
+            // Updates the tile movement animation progress
+            function updateMoveAnimation() {
+                moveAnimation.progress += moveAnimation.speed;
+                if (moveAnimation.progress >= 1) {
+                    moveAnimation.progress = 1;
+                    // Finish the specific move based on its type
+                    if (moveAnimation.type === 'colRotate') finishColumnRotation();
+                    if (moveAnimation.type === 'colShift') finishColumnShift();
+                    if (moveAnimation.type === 'rowRotate') finishRowRotation();
+                    if (moveAnimation.type === 'rowShift') finishRowShift();
+                    moveAnimation.isAnimating = false;
+                }
+            }
+
+            // Updates the path traversal animation progress
+            function updateTraversalAnimation() {
+                traversalAnimation.progress += traversalAnimation.speed;
+                if (traversalAnimation.progress >= 1) {
+                    traversalAnimation.progress = 0;
+                    traversalAnimation.segment++;
+                    if (traversalAnimation.segment > traversalAnimation.path.length) {
+                        traversalAnimation.isAnimating = false;
+                        hasWon = true;
+                        document.getElementById('win-message').style.display = 'block';
+                        p.noLoop(); // Stop the draw loop on win
+                    }
+                }
+            }
+
+            // Draws the main grid of tiles
+            function drawGrid() {
+                p.push();
+                p.translate(SIDE_PLAYER_AREA + CONTROL_AREA_SIZE, CONTROL_AREA_SIZE);
+                for (let i = 0; i < COLS; i++) {
+                    for (let j = 0; j < ROWS; j++) {
+                        drawTile(i, j, grid[i][j]);
+                    }
+                }
+                p.pop();
+            }
+
+            // Draws a single tile, handling animation offsets
+            function drawTile(i, j, tile) {
+                p.push();
+
+                let xOffset = 0;
+                let yOffset = 0;
+                let angle = tile.orientation * 90;
+                const anim = moveAnimation;
+
+                if (anim.isAnimating) {
+                    if (anim.type === 'colRotate' && anim.index === i) {
+                        const startAngle = (tile.orientation - anim.direction) * 90;
+                        angle = p.lerp(startAngle, angle, anim.progress);
+                    } else if (anim.type === 'colShift' && anim.index === i) {
+                        yOffset = anim.direction * TILE_SIZE * anim.progress;
+                    } else if (anim.type === 'rowRotate' && anim.index === j) {
+                        const startAngle = (tile.orientation - anim.direction) * 90;
+                        angle = p.lerp(startAngle, angle, anim.progress);
+                    } else if (anim.type === 'rowShift' && anim.index === j) {
+                        xOffset = anim.direction * TILE_SIZE * anim.progress;
+                    }
+                }
+
+                p.translate(i * TILE_SIZE + TILE_SIZE / 2 + xOffset, j * TILE_SIZE + TILE_SIZE / 2 + yOffset);
+                p.rotate(angle);
+
+                if (anim.isAnimating) {
+                    if (anim.type === 'colShift' && anim.index === i) {
+                        const dir = anim.direction;
+                        const wrapIndex = dir > 0 ? ROWS - 1 : 0;
+                        const wrapY = -dir * ROWS * TILE_SIZE;
+                        p.push(); p.rotate(-angle); p.translate(0, wrapY);
+                        const wrapTile = grid[i][wrapIndex];
+                        p.rotate(wrapTile.orientation * 90);
+                        drawTileShape(wrapTile, false); // Wrapped tile is not on path
+                        p.pop();
+                    } else if (anim.type === 'rowShift' && anim.index === j) {
+                        const dir = anim.direction;
+                        const wrapIndex = dir > 0 ? COLS - 1 : 0;
+                        const wrapX = -dir * COLS * TILE_SIZE;
+                        p.push(); p.rotate(-angle); p.translate(wrapX, 0);
+                        const wrapTile = grid[wrapIndex][j];
+                        p.rotate(wrapTile.orientation * 90);
+                        drawTileShape(wrapTile, false); // Wrapped tile is not on path
+                        p.pop();
+                    }
+                }
+
+                // Draw the actual tile, checking if it's on the path
+                drawTileShape(tile, isPath[i][j]);
+                p.pop();
+            }
+
+            // Draws the visual representation of a tile, coloring it if it's on the path
+            function drawTileShape(tile, isOnPath) {
+                p.fill(60, 60, 80);
+                p.noStroke();
+                p.rect(-TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 5);
+
+                if (tile.isObstacle) {
+                    p.stroke(231, 76, 60); p.strokeWeight(5);
+                    p.line(-15, -15, 15, 15); p.line(15, -15, -15, 15);
+                } else {
+                    // Set the stroke color based on whether the tile is part of the connected path
+                    p.stroke(isOnPath ? PATH_COLOR : PIPE_COLOR);
+                    p.strokeWeight(15);
+                    p.strokeCap(p.ROUND);
+                    if (tile.shape === TILE_TYPE.STRAIGHT) {
+                        p.line(0, -TILE_SIZE / 2, 0, TILE_SIZE / 2);
+                    } else if (tile.shape === TILE_TYPE.CORNER) {
+                        p.noFill();
+                        p.arc(-TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 0, 90);
+                    }
+                }
+            }
+
+            function drawControls() {
+                const gridOffsetX = SIDE_PLAYER_AREA + CONTROL_AREA_SIZE;
+                const gridOffsetY = CONTROL_AREA_SIZE;
+                const btnSize = 32;
+                const shiftBtnWidth = TILE_SIZE - 25;
+                const shiftBtnHeight = btnSize - 10;
+
+                // --- Column Controls ---
+                for (let i = 0; i < COLS; i++) {
+                    const x = gridOffsetX + i * TILE_SIZE + TILE_SIZE / 2;
+                    const rotateY = gridOffsetY / 2;
+                    drawControlButton(x, rotateY, btnSize, btnSize, 'rotate', isMouseInRect(x - btnSize / 2, rotateY - btnSize / 2, btnSize, btnSize));
+                    const bottomY = gridOffsetY + ROWS * TILE_SIZE + CONTROL_AREA_SIZE / 2;
+                    const upBtnY = bottomY - shiftBtnHeight / 2 - 2;
+                    const downBtnY = bottomY + shiftBtnHeight / 2 + 2;
+                    drawControlButton(x, upBtnY, shiftBtnWidth, shiftBtnHeight, 'up', isMouseInRect(x - shiftBtnWidth / 2, upBtnY - shiftBtnHeight / 2, shiftBtnWidth, shiftBtnHeight));
+                    drawControlButton(x, downBtnY, shiftBtnWidth, shiftBtnHeight, 'down', isMouseInRect(x - shiftBtnWidth / 2, downBtnY - shiftBtnHeight / 2, shiftBtnWidth, shiftBtnHeight));
+                }
+
+                // --- Row Controls ---
+                for (let j = 0; j < ROWS; j++) {
+                    const y = gridOffsetY + j * TILE_SIZE + TILE_SIZE / 2;
+                    const rotateX = gridOffsetX - CONTROL_AREA_SIZE / 2;
+                    drawControlButton(rotateX, y, btnSize, btnSize, 'rotate', isMouseInRect(rotateX - btnSize / 2, y - btnSize / 2, btnSize, btnSize));
+                    const shiftX = p.width - SIDE_PLAYER_AREA - CONTROL_AREA_SIZE / 2;
+                    const leftBtnX = shiftX - shiftBtnHeight / 2 - 2;
+                    const rightBtnX = shiftX + shiftBtnHeight / 2 + 2;
+                    drawControlButton(leftBtnX, y, shiftBtnHeight, shiftBtnWidth, 'left', isMouseInRect(leftBtnX - shiftBtnHeight / 2, y - shiftBtnWidth / 2, shiftBtnHeight, shiftBtnWidth));
+                    drawControlButton(rightBtnX, y, shiftBtnHeight, shiftBtnWidth, 'right', isMouseInRect(rightBtnX - shiftBtnHeight / 2, y - shiftBtnWidth / 2, shiftBtnHeight, shiftBtnWidth));
+                }
+            }
+
+            function isMouseInRect(x, y, w, h) {
+                return !moveAnimation.isAnimating && p.mouseX > x && p.mouseX < x + w && p.mouseY > y && p.mouseY < y + h;
+            }
+
+            function drawControlButton(x, y, w, h, type, isHovered) {
+                p.push();
+                p.translate(x, y);
+                p.noStroke();
+                p.rectMode(p.CENTER);
+                p.fill(isHovered ? [130, 130, 150] : [180, 180, 190]);
+                if (type === 'rotate') {
+                    p.ellipse(0, 0, w);
+                    p.stroke(255); p.strokeWeight(3); p.noFill();
+                    p.arc(0, 0, w * 0.6, w * 0.6, 30, 330);
+                    p.push(); p.translate(w * 0.3, 0); p.fill(255); p.noStroke(); p.rotate(-45); p.triangle(0, 0, -6, -2, -6, 2); p.pop();
+                } else {
+                    p.rect(0, 0, w, h, 5);
+                    p.fill(255);
+                    if (type === 'up') p.triangle(0, -5, -6, 5, 6, 5);
+                    if (type === 'down') p.triangle(0, 5, -6, -5, 6, -5);
+                    if (type === 'left') p.triangle(-5, 0, 5, -6, 5, 6);
+                    if (type === 'right') p.triangle(5, 0, -5, -6, -5, 6);
+                }
+                p.pop();
+            }
+
+            function drawSideAreas() {
+                p.push();
+                p.translate(0, CONTROL_AREA_SIZE);
+                const currentY = startRow * TILE_SIZE + TILE_SIZE / 2;
+                p.fill(52, 152, 219); p.stroke(255); p.strokeWeight(3);
+                p.ellipse(SIDE_PLAYER_AREA / 2, currentY, TILE_SIZE - 20);
+                p.fill(46, 204, 113); p.stroke(255); p.strokeWeight(3);
+                p.rectMode(p.CORNER);
+                p.rect(p.width - SIDE_PLAYER_AREA, goalRow * TILE_SIZE + 10, TILE_SIZE - 20, TILE_SIZE - 20, 5);
+                p.pop();
+            }
+
+            function drawTraversalMarker() {
+                p.push();
+                p.translate(SIDE_PLAYER_AREA + CONTROL_AREA_SIZE, CONTROL_AREA_SIZE);
+                const seg = traversalAnimation.segment;
+                const prog = traversalAnimation.progress;
+                const path = traversalAnimation.path;
+                let startPos, endPos;
+                if (seg === 0) {
+                    startPos = p.createVector(-SIDE_PLAYER_AREA - CONTROL_AREA_SIZE / 2, path[0].y * TILE_SIZE + TILE_SIZE / 2);
+                    endPos = p.createVector(path[0].x * TILE_SIZE + TILE_SIZE / 2, path[0].y * TILE_SIZE + TILE_SIZE / 2);
+                } else {
+                    const prevNode = path[seg - 1];
+                    const nextNode = seg < path.length ? path[seg] : null;
+                    startPos = p.createVector(prevNode.x * TILE_SIZE + TILE_SIZE / 2, prevNode.y * TILE_SIZE + TILE_SIZE / 2);
+                    if (nextNode) {
+                        endPos = p.createVector(nextNode.x * TILE_SIZE + TILE_SIZE / 2, nextNode.y * TILE_SIZE + TILE_SIZE / 2);
+                    } else {
+                        endPos = p.createVector(COLS * TILE_SIZE + SIDE_PLAYER_AREA / 2, prevNode.y * TILE_SIZE + TILE_SIZE / 2);
+                    }
+                }
+                const currentPos = p5.Vector.lerp(startPos, endPos, prog);
+                p.fill(255, 230, 100); p.stroke(0); p.strokeWeight(2);
+                p.ellipse(currentPos.x, currentPos.y, 15, 15);
+                p.pop();
+            }
+
+            p.mousePressed = () => {
+                if (hasWon || moveAnimation.isAnimating || traversalAnimation.isAnimating) return;
+                const gridOffsetX = SIDE_PLAYER_AREA + CONTROL_AREA_SIZE;
+                const gridOffsetY = CONTROL_AREA_SIZE;
+                const btnSize = 32;
+                const shiftBtnWidth = TILE_SIZE - 25;
+                const shiftBtnHeight = btnSize - 10;
+
+                for (let i = 0; i < COLS; i++) {
+                    const colX = gridOffsetX + i * TILE_SIZE + TILE_SIZE / 2;
+                    const rotateY = gridOffsetY / 2;
+                    if (isMouseInRect(colX - btnSize / 2, rotateY - btnSize / 2, btnSize, btnSize)) {
+                        startMove('colRotate', i, 1); return;
+                    }
+                    const bottomY = gridOffsetY + ROWS * TILE_SIZE + CONTROL_AREA_SIZE / 2;
+                    const upBtnY = bottomY - shiftBtnHeight / 2 - 2;
+                    if (isMouseInRect(colX - shiftBtnWidth / 2, upBtnY - shiftBtnHeight / 2, shiftBtnWidth, shiftBtnHeight)) {
+                        startMove('colShift', i, -1); return;
+                    }
+                    const downBtnY = bottomY + shiftBtnHeight / 2 + 2;
+                    if (isMouseInRect(colX - shiftBtnWidth / 2, downBtnY - shiftBtnHeight / 2, shiftBtnWidth, shiftBtnHeight)) {
+                        startMove('colShift', i, 1); return;
+                    }
+                }
+                for (let j = 0; j < ROWS; j++) {
+                    const rowY = gridOffsetY + j * TILE_SIZE + TILE_SIZE / 2;
+                    const rotateX = gridOffsetX - CONTROL_AREA_SIZE / 2;
+                    if (isMouseInRect(rotateX - btnSize / 2, rowY - btnSize / 2, btnSize, btnSize)) {
+                        startMove('rowRotate', j, 1); return;
+                    }
+                    const shiftX = p.width - SIDE_PLAYER_AREA - CONTROL_AREA_SIZE / 2;
+                    const leftBtnX = shiftX - shiftBtnHeight / 2 - 2;
+                    if (isMouseInRect(leftBtnX - shiftBtnHeight / 2, rowY - shiftBtnWidth / 2, shiftBtnHeight, shiftBtnWidth)) {
+                        startMove('rowShift', j, -1); return;
+                    }
+                    const rightBtnX = shiftX + shiftBtnHeight / 2 + 2;
+                    if (isMouseInRect(rightBtnX - shiftBtnHeight / 2, rowY - shiftBtnWidth / 2, shiftBtnHeight, shiftBtnWidth)) {
+                        startMove('rowShift', j, 1); return;
+                    }
+                }
+            };
+
+            function startMove(type, index, dir) {
+                moveAnimation.isAnimating = true;
+                moveAnimation.type = type;
+                moveAnimation.index = index;
+                moveAnimation.direction = dir;
+                moveAnimation.progress = 0;
+            }
+
+            function finishColumnRotation() {
+                const col = moveAnimation.index;
+                for (let j = 0; j < ROWS; j++) {
+                    grid[col][j].orientation = (grid[col][j].orientation + moveAnimation.direction + 4) % 4;
+                }
+            }
+            function finishColumnShift() {
+                const col = moveAnimation.index;
+                const dir = moveAnimation.direction;
+                if (dir > 0) { grid[col].unshift(grid[col].pop()); }
+                else { grid[col].push(grid[col].shift()); }
+            }
+            function finishRowRotation() {
+                const row = moveAnimation.index;
+                for (let i = 0; i < COLS; i++) {
+                    grid[i][row].orientation = (grid[i][row].orientation + moveAnimation.direction + 4) % 4;
+                }
+            }
+            function finishRowShift() {
+                const row = moveAnimation.index;
+                const dir = moveAnimation.direction;
+                const tempRow = [];
+                for (let i = 0; i < COLS; i++) tempRow.push(grid[i][row]);
+                if (dir > 0) { tempRow.unshift(tempRow.pop()); }
+                else { tempRow.push(tempRow.shift()); }
+                for (let i = 0; i < COLS; i++) grid[i][row] = tempRow[i];
+            }
+
+            function getConnections(tile) {
+                if (tile.isObstacle) return [];
+                return CONNECTIONS[tile.shape].map(c => (c + tile.orientation) % 4);
+            }
+
+            /**
+             * Finds a solution path from start to goal.
+             * This version correctly validates the first tile before building the path.
+             */
+            function findSolutionPath() {
+                const startNode = { x: 0, y: startRow };
+                const startTile = grid[startNode.x][startNode.y];
+
+                // 1. Initial Validation: The start tile MUST connect to the entry point (from the left, direction 3).
+                if (startTile.isObstacle || !getConnections(startTile).includes(3)) {
+                    // If not, there is no path. Return an empty array.
+                    return { found: false, path: [] };
+                }
+
+                // 2. Start Building: Since the first tile is valid, start the path.
+                const path = [startNode];
+                let currentNode = startNode;
+                let entryDir = 3;
+
+                const dx = [0, 1, 0, -1];
+                const dy = [-1, 0, 1, 0];
+                const opposite = [2, 3, 0, 1];
+
+                // 3. Iterative Path Following
+                for (let i = 0; i < COLS * ROWS; i++) {
+                    const currentTile = grid[currentNode.x][currentNode.y];
+                    const connections = getConnections(currentTile);
+                    const exitDir = connections.find(c => c !== entryDir);
+
+                    // Dead end
+                    if (exitDir === undefined) {
+                        return { found: false, path: path };
+                    }
+
+                    // Win condition
+                    if (currentNode.x === COLS - 1 && currentNode.y === goalRow && exitDir === 1) {
+                        return { found: true, path: path };
+                    }
+
+                    const nextNode = { x: currentNode.x + dx[exitDir], y: currentNode.y + dy[exitDir] };
+
+                    // Path goes off board
+                    if (nextNode.x < 0 || nextNode.x >= COLS || nextNode.y < 0 || nextNode.y >= ROWS) {
+                        return { found: false, path: path };
+                    }
+
+                    const nextTile = grid[nextNode.x][nextNode.y];
+                    const nextEntryDir = opposite[exitDir];
+
+                    // Path is broken at the next tile
+                    if (nextTile.isObstacle || !getConnections(nextTile).includes(nextEntryDir)) {
+                        return { found: false, path: path };
+                    }
+
+                    path.push(nextNode);
+                    currentNode = nextNode;
+                    entryDir = nextEntryDir;
+                }
+
+                // A closed loop was detected without reaching the goal
+                return { found: false, path: path };
+            }
+
+            function launch() {
+                if (!pathFound || moveAnimation.isAnimating || traversalAnimation.isAnimating) return;
+                traversalAnimation.isAnimating = true;
+                traversalAnimation.path = solutionPath;
+                traversalAnimation.segment = 0;
+                traversalAnimation.progress = 0;
+            }
+
+            document.getElementById('reset-button').addEventListener('click', () => {
+                if (p5Instance) p5Instance.resetGame();
+            });
+            document.getElementById('launch-button').addEventListener('click', launch);
+        };
+
+        p5Instance = new p5(sketch, 'canvas-container');
+
+    </script>
+</body>
+
+</html>
