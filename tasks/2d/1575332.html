@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carrom Flick Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #2c2c2c; /* Dark background to make the board pop */
+            font-family: 'Poppins', sans-serif;
+            color: #fff;
+        }
+
+        #game-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px; /* Space between elements */
+        }
+
+        h1 {
+            font-size: 3em;
+            font-weight: 700;
+            color: #f0f0f0;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.5);
+            margin: 0;
+        }
+
+        .bottom-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 600px; /* Match canvas width */
+        }
+
+        #score-display {
+            font-size: 2.5em;
+            font-weight: 600;
+            color: #f0f0f0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        #reset-button {
+            padding: 10px 20px;
+            font-size: 1em;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 600;
+            color: #f0f0f0;
+            background-color: #5a3825;
+            border: 2px solid #4a2d1d;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            transition: background-color 0.3s, transform 0.1s;
+        }
+
+        #reset-button:hover {
+            background-color: #6c4630;
+        }
+
+        #reset-button:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 10px solid #5a3825; /* Outer dark wood border */
+            border-radius: 12px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4), 0 8px 12px rgba(0, 0, 0, 0.3);
+            overflow: hidden; 
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="game-wrapper">
+        <h1>Carrom Flick</h1>
+        <div id="canvas-container">
+        </div>
+        <div class="bottom-bar">
+            <div id="score-display">Score: 0</div>
+            <button id="reset-button">Reset Score</button>
+        </div>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+
+            // --- Game Configuration ---
+            const canvasSize = 600;
+            const friction = 0.98; 
+            const impulseMultiplier = 0.78; 
+            const pocketRadius = 30;
+
+            // --- Game Objects & State ---
+            let striker;
+            let pockets = [];
+            let dragStartPos = null;
+            let gameState = 'ready'; // 'ready', 'dragging', 'moving', 'result'
+            let message = "Flick the striker into a pocket!";
+            let score = 0;
+            let scoreElement;
+
+            // --- Striker Class ---
+            class Striker {
+                constructor(x, y, radius) {
+                    this.initialPos = p.createVector(x, y);
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(0, 0);
+                    this.radius = radius;
+                    this.mass = 10;
+                    this.isPocketed = false;
+                }
+
+                applyForce(force) {
+                    let f = p5.Vector.div(force, this.mass);
+                    this.vel.add(f);
+                }
+
+                update() {
+                    if (this.isPocketed) return;
+
+                    this.vel.mult(friction);
+                    this.pos.add(this.vel);
+                    
+                    if (this.vel.mag() < 0.05) {
+                        this.vel.set(0, 0);
+                        if (gameState === 'moving') {
+                           gameState = 'result';
+                           message = "Missed. Click to try again.";
+                        }
+                    }
+                }
+
+                checkCollisions() {
+                    if (this.isPocketed) return;
+
+                    const pocketOpening = pocketRadius * 1.8;
+
+                    // Top wall
+                    if (this.pos.y - this.radius < 0 && this.vel.y < 0) {
+                        if (this.pos.x > pocketOpening && this.pos.x < canvasSize - pocketOpening) {
+                            this.pos.y = this.radius;
+                            this.vel.y *= -0.6;
+                        }
+                    }
+                    // Bottom wall
+                    if (this.pos.y + this.radius > canvasSize && this.vel.y > 0) {
+                        if (this.pos.x > pocketOpening && this.pos.x < canvasSize - pocketOpening) {
+                            this.pos.y = canvasSize - this.radius;
+                            this.vel.y *= -0.6;
+                        }
+                    }
+                    // Left wall
+                    if (this.pos.x - this.radius < 0 && this.vel.x < 0) {
+                        if (this.pos.y > pocketOpening && this.pos.y < canvasSize - pocketOpening) {
+                           this.pos.x = this.radius;
+                           this.vel.x *= -0.6;
+                        }
+                    }
+                    // Right wall
+                    if (this.pos.x + this.radius > canvasSize && this.vel.x > 0) {
+                        if (this.pos.y > pocketOpening && this.pos.y < canvasSize - pocketOpening) {
+                            this.pos.x = canvasSize - this.radius;
+                            this.vel.x *= -0.6;
+                        }
+                    }
+                }
+                
+                display() {
+                    if (this.isPocketed) return;
+
+                    p.strokeWeight(3);
+                    p.stroke(40);
+                    p.fill(240, 230, 210); 
+                    p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
+
+                    p.noStroke();
+                    p.fill(220, 50, 50, 150);
+                    p.ellipse(this.pos.x, this.pos.y, this.radius * 1.2);
+                }
+
+                reset() {
+                    this.pos.set(this.initialPos.x, this.initialPos.y);
+                    this.vel.set(0, 0);
+                    this.isPocketed = false;
+                }
+            }
+            
+            // --- Pocket Class ---
+            class Pocket {
+                constructor(x, y, radius) {
+                    this.pos = p.createVector(x, y);
+                    this.radius = radius;
+                }
+
+                contains(point) {
+                    let d = p.dist(point.x, point.y, this.pos.x, this.pos.y);
+                    return d < this.radius;
+                }
+                
+                display() {
+                    p.fill(20, 20, 20); 
+                    p.noStroke();
+                    p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
+                }
+            }
+
+            // --- Drawing Functions ---
+            function drawCarromBoard() {
+                p.background(210, 180, 140); 
+                p.noFill();
+                p.strokeWeight(2);
+                p.stroke(0, 100);
+                const margin = 100;
+                p.rect(margin, margin, canvasSize - margin*2, canvasSize - margin*2);
+                p.stroke(220, 50, 50, 150);
+                p.strokeWeight(4);
+                p.ellipse(canvasSize / 2, canvasSize / 2, 150, 150);
+                p.strokeWeight(2);
+                p.ellipse(canvasSize / 2, canvasSize / 2, 50, 50);
+            }
+
+            function drawTrajectory() {
+                let impulse = p5.Vector.sub(dragStartPos, p.createVector(p.mouseX, p.mouseY));
+                impulse.mult(impulseMultiplier);
+                let tempPos = striker.pos.copy();
+                let tempVel = p5.Vector.div(impulse, striker.mass);
+
+                p.noStroke();
+                for (let i = 0; i < 60; i++) {
+                    tempVel.mult(friction);
+                    tempPos.add(tempVel);
+                    if (tempPos.x > canvasSize || tempPos.x < 0 || tempPos.y > canvasSize || tempPos.y < 0) break;
+                    
+                    if (i % 4 === 0) {
+                        p.fill(255, 255, 255, 150 - i * 2);
+                        p.ellipse(tempPos.x, tempPos.y, 6, 6);
+                    }
+                }
+            }
+            
+            // --- P5 Lifecycle Functions ---
+            p.setup = () => {
+                const canvas = p.createCanvas(canvasSize, canvasSize);
+                canvas.parent('canvas-container');
+
+                scoreElement = document.getElementById('score-display');
+                const resetButton = document.getElementById('reset-button');
+                
+                resetButton.addEventListener('click', () => {
+                    score = 0;
+                    scoreElement.innerText = `Score: ${score}`;
+                    resetGame(); // Reset the board state as well
+                });
+
+                striker = new Striker(canvasSize / 2, canvasSize - 120, 18);
+                const m = pocketRadius * 0.9;
+                pockets.push(new Pocket(m, m, pocketRadius));
+                pockets.push(new Pocket(canvasSize - m, m, pocketRadius));
+                pockets.push(new Pocket(m, canvasSize - m, pocketRadius));
+                pockets.push(new Pocket(canvasSize - m, canvasSize - m, pocketRadius));
+            };
+
+            p.draw = () => {
+                drawCarromBoard();
+                
+                pockets.forEach(pocket => pocket.display());
+                striker.display();
+                
+                if (gameState === 'moving') {
+                    striker.update();
+                    striker.checkCollisions();
+                    checkScore();
+                }
+                
+                if (gameState === 'dragging') {
+                    p.stroke(255, 255, 255, 150);
+                    p.strokeWeight(4);
+                    p.line(striker.pos.x, striker.pos.y, p.mouseX, p.mouseY);
+                    drawTrajectory();
+                }
+
+                if (gameState === 'result' || gameState === 'ready') {
+                    displayMessage();
+                }
+            };
+
+            p.mousePressed = () => {
+                // Only allow reset on click if the game is over from a MISS.
+                if (gameState === 'result' && !striker.isPocketed) {
+                    resetGame();
+                    return;
+                }
+                let d = p.dist(p.mouseX, p.mouseY, striker.pos.x, striker.pos.y);
+                if (d < striker.radius && gameState === 'ready') {
+                    gameState = 'dragging';
+                    dragStartPos = p.createVector(p.mouseX, p.mouseY);
+                }
+            };
+
+            p.mouseReleased = () => {
+                if (gameState === 'dragging') {
+                    gameState = 'moving';
+                    let impulse = p5.Vector.sub(dragStartPos, p.createVector(p.mouseX, p.mouseY));
+                    impulse.mult(impulseMultiplier);
+                    striker.applyForce(impulse);
+                    dragStartPos = null;
+                }
+            };
+            
+            // --- Helper Functions ---
+            function checkScore() {
+                if (striker.isPocketed) return;
+
+                for (const pocket of pockets) {
+                    if (pocket.contains(striker.pos)) {
+                        message = "GOAL!";
+                        gameState = 'result';
+                        score += 10; 
+                        scoreElement.innerText = `Score: ${score}`;
+                        striker.isPocketed = true;
+                        
+                        // Automatically reset the game after a short delay
+                        setTimeout(resetGame, 1000); 
+                        return;
+                    }
+                }
+            }
+
+            function resetGame() {
+                striker.reset();
+                gameState = 'ready';
+                message = "Flick the striker into a pocket!";
+            }
+            
+            function displayMessage() {
+                // Don't display "missed" message immediately after a goal
+                if (striker.isPocketed && gameState === 'result') {
+                   // keep the GOAL! message for the timeout duration
+                } else if (!striker.isPocketed && gameState !== 'result' && gameState !== 'moving' ){
+                   message = "Flick the striker into a pocket!";
+                }
+
+                p.fill(0, 0, 0, 150);
+                p.noStroke();
+                p.rect(0, canvasSize / 2 - 40, canvasSize, 80);
+                p.fill(255);
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(24);
+                p.text(message, canvasSize / 2, canvasSize / 2);
+            }
+        };
+
+        new p5(sketch);
+
+    </script>
+</body>
+
+</html>
