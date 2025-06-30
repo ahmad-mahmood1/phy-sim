@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baseball Trajectory Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: row; /* Main layout is now a row */
+            height: 100vh;
+            background-color: #f0f4f8;
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+            overflow: hidden;
+        }
+
+        #ui-container {
+            flex: 0 0 300px; /* Fixed width for the controls panel */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+            box-sizing: border-box;
+            height: 100%;
+            background: #e2e8f0;
+            border-right: 2px solid #cbd5e0;
+            overflow-y: auto;
+        }
+        
+        #canvas-container {
+            flex-grow: 1; /* Canvas container takes up the remaining space */
+            position: relative;
+            height: 100vh; /* Taller canvas height */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .slider-group {
+            margin: 0.75rem 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        label {
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 85%;
+            max-width: 250px;
+            height: 8px;
+            background: #cbd5e0;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #4299e1;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #fff;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #4299e1;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #fff;
+        }
+
+        button {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 1rem;
+            font-weight: 700;
+            padding: 0.75rem 1.5rem;
+            margin-top: 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            background-color: #4299e1;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        button:hover {
+            background-color: #3182ce;
+        }
+        
+        #stats {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.85rem;
+            pointer-events: none;
+        }
+
+        #instructions {
+            margin-top: 2rem;
+            font-size: 0.8rem;
+            color: #4a5568;
+            text-align: left;
+            max-width: 250px;
+            padding: 0 1rem;
+        }
+
+        #instructions ul {
+            list-style-position: inside;
+            padding-left: 0;
+            margin-top: 0.5rem;
+        }
+
+        #instructions li {
+            margin-bottom: 0.5rem;
+        }
+    </style>
+    <script type="importmap">
+        { "imports": { "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm" } }
+    </script>
+</head>
+
+<body>
+    <!-- Controls are now on the left -->
+    <div id="ui-container">
+        <div class="slider-group">
+            <label id="velocity-label" for="velocity">Initial Velocity: 40 m/s</label>
+            <input type="range" id="velocity" min="10" max="30" value="20" step="1">
+        </div>
+        <div class="slider-group">
+            <label id="angle-label" for="angle">Launch Angle: 45 degrees</label>
+            <input type="range" id="angle" min="5" max="50" value="30" step="1">
+        </div>
+        <div class="slider-group">
+            <label id="wind-label" for="wind">Wind Speed: 0 m/s</label>
+            <input type="range" id="wind" min="-15" max="15" value="0" step="1">
+        </div>
+        <div class="slider-group">
+            <label id="reach-label" for="reach">Catcher Reach: 2.50 m</label>
+            <input type="range" id="reach" min="1.5" max="3.0" value="2.5" step="0.1">
+        </div>
+        <button id="launch-button">Launch Baseball</button>
+        <!-- Instructions Section -->
+        <div id="instructions">
+            <p><strong>Wind Effects:</strong></p>
+            <ul>
+                <li>A <strong>Tailwind</strong> (positive speed) pushes the ball, making it travel farther.</li>
+                <li>A <strong>Headwind</strong> (negative speed) pushes against the ball, reducing its distance.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Canvas is on the right -->
+    <div id="canvas-container">
+        <div id="stats"></div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- DOM Elements ---
+            let velocitySlider, angleSlider, windSlider, reachSlider, launchButton;
+            let velocityLabel, angleLabel, windLabel, reachLabel, statsDiv;
+
+            // --- Simulation Constants ---
+            const g = 9.81;
+            const rho = 1.225;
+            const C_d = 0.35;
+            const mass = 0.145;
+            const radius = 0.0368;
+            const area = Math.PI * radius * radius;
+            const throwHeight = 1.8;
+            
+            // --- Outfielder properties ---
+            const outfielderDist = 55;
+            let outfielderReach = 2.5;
+
+            // --- Simulation State ---
+            let ball = null;
+            let trajectory = [];
+            let inFlight = false;
+            let maxArcHeight = 0;
+            let catchResult = "";
+            let isSwinging = false;
+            let swingFrame = 0;
+            const SWING_DURATION = 15; // Total frames for swing animation
+            const CONTACT_FRAME = 6;  // Frame when ball is launched
+
+            // --- Canvas & Scaling ---
+            let canvasWidth, canvasHeight;
+            let scaleFactor;
+
+            // The Ball class
+            class Ball {
+                constructor(initialV, initialAngle) {
+                    this.pos = p.createVector(1, throwHeight);
+                    this.vel = p5.Vector.fromAngle(p.radians(initialAngle)).mult(initialV);
+                    this.acc = p.createVector(0, 0);
+                }
+
+                applyForce(force) {
+                    let f = p5.Vector.div(force, mass);
+                    this.acc.add(f);
+                }
+
+                update(dt, windSpeed) {
+                    if (!this.pos) return;
+
+                    const gravityForce = p.createVector(0, -g * mass);
+                    this.applyForce(gravityForce);
+
+                    const windVector = p.createVector(windSpeed, 0);
+                    const relativeVelocity = p5.Vector.sub(this.vel, windVector);
+                    const speed = relativeVelocity.mag();
+                    const dragMagnitude = 0.5 * rho * speed * speed * C_d * area;
+                    const dragForce = relativeVelocity.copy();
+                    dragForce.normalize().mult(-dragMagnitude);
+                    this.applyForce(dragForce);
+                    
+                    this.vel.add(this.acc.copy().mult(dt));
+                    this.pos.add(this.vel.copy().mult(dt));
+                    this.acc.mult(0);
+                }
+            }
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                canvasWidth = container.offsetWidth;
+                canvasHeight = container.offsetHeight;
+                p.createCanvas(canvasWidth, canvasHeight).parent(container);
+                
+                velocitySlider = document.getElementById('velocity');
+                angleSlider = document.getElementById('angle');
+                windSlider = document.getElementById('wind');
+                reachSlider = document.getElementById('reach');
+                launchButton = document.getElementById('launch-button');
+                velocityLabel = document.getElementById('velocity-label');
+                angleLabel = document.getElementById('angle-label');
+                windLabel = document.getElementById('wind-label');
+                reachLabel = document.getElementById('reach-label');
+                statsDiv = document.getElementById('stats');
+
+                launchButton.onclick = startSwing;
+                velocitySlider.oninput = updateLabels;
+                angleSlider.oninput = updateLabels;
+                windSlider.oninput = updateLabels;
+                reachSlider.oninput = updateLabels;
+                
+                const fieldWidthMeters = outfielderDist * 1.1;
+                scaleFactor = canvasWidth / fieldWidthMeters;
+
+                updateLabels();
+                inFlight = false;
+                catchResult = "Ready to Launch!";
+            };
+
+            function updateLabels() {
+                velocityLabel.innerText = `Initial Velocity: ${velocitySlider.value} m/s`;
+                angleLabel.innerText = `Launch Angle: ${angleSlider.value} degrees`;
+                const windSpeed = windSlider.value;
+                const windDirection = windSpeed > 0 ? 'Tailwind' : windSpeed < 0 ? 'Headwind' : 'No Wind';
+                windLabel.innerText = `Wind: ${Math.abs(windSpeed)} m/s ${windDirection}`;
+                outfielderReach = parseFloat(reachSlider.value);
+                reachLabel.innerText = `Catcher Reach: ${outfielderReach.toFixed(2)} m`;
+            }
+
+            function startSwing() {
+                if (isSwinging || inFlight) return; // Prevent multiple swings
+                isSwinging = true;
+                swingFrame = 0;
+            }
+
+            function checkCatch(prevPos, currentPos) {
+                const reach_m = outfielderReach;
+                const verticalShift_px = p.map(reach_m, 1.5, 3.0, 5, -15);
+                const armThickness_px = 6;
+                const bodyWidth_px = 15;
+                const bodyHeight_px = 35;
+                const legLength_px = 20;
+                const headRadius_px = 8;
+                const elbowX_px = -10;
+                const handSize_px = 8;
+                const bodyBottomY_px = verticalShift_px; 
+                const bodyTopY_px = bodyBottomY_px - bodyHeight_px;
+                const headY_px = bodyTopY_px - headRadius_px;
+                const visualHandY_px = headY_px - 25; 
+                const feetY_px = bodyBottomY_px + legLength_px;
+
+                const catcherLeft_m = outfielderDist + (elbowX_px - armThickness_px / 2) / scaleFactor;
+                const catcherRight_m = outfielderDist + (bodyWidth_px / 2) / scaleFactor;
+                const catcherTop_m = - (visualHandY_px - handSize_px / 2) / scaleFactor;
+                const catcherBottom_m = -feetY_px / scaleFactor;
+
+                if (currentPos.x >= catcherLeft_m && currentPos.x <= catcherRight_m &&
+                    currentPos.y >= catcherBottom_m && currentPos.y <= catcherTop_m) {
+                    catchResult = `CAUGHT! (at ${currentPos.y.toFixed(2)}m high)`;
+                    inFlight = false;
+                    return; 
+                }
+                
+                if (prevPos.x < catcherLeft_m && currentPos.x >= catcherLeft_m) {
+                    const t = (catcherLeft_m - prevPos.x) / (currentPos.x - prevPos.x);
+                    const interceptY = p.lerp(prevPos.y, currentPos.y, t);
+                    if (interceptY >= catcherBottom_m && interceptY <= catcherTop_m) {
+                        catchResult = `CAUGHT! (at ${interceptY.toFixed(2)}m high)`;
+                        inFlight = false;
+                    }
+                }
+            }
+
+            function drawSky() {
+                let c1 = p.color(173, 216, 230);
+                let c2 = p.color(240, 248, 255);
+                for (let i = 0; i <= canvasHeight * 0.85; i++) {
+                    let inter = p.map(i, 0, canvasHeight * 0.85, 0, 1);
+                    let c = p.lerpColor(c1, c2, inter);
+                    p.stroke(c);
+                    p.line(0, i, canvasWidth, i);
+                }
+            }
+            
+            function drawField() {
+                drawSky();
+                p.noStroke();
+                p.fill('#68d391');
+                p.rect(0, canvasHeight * 0.85, canvasWidth, canvasHeight * 0.15);
+                p.noFill();
+                p.stroke(255, 255, 255, 100);
+                p.strokeWeight(3);
+                p.line(30, canvasHeight * 0.85, canvasWidth * 0.8, canvasHeight * 0.8);
+            }
+
+            function drawBatter(swingProgress) {
+                p.push();
+                p.translate(15, 0);
+
+                const bodyWidth = 15;
+                const bodyHeight = 35;
+                const legThickness = 6;
+                const armThickness = 6;
+                const headRadius = 8;
+                const bodyBottomY = -legThickness;
+                const bodyTopY = bodyBottomY - bodyHeight;
+                const legLength = 20;
+                const feetY = bodyBottomY + legLength;
+
+                // Legs
+                p.stroke('#e53e3e');
+                p.strokeWeight(legThickness);
+                p.line(-bodyWidth/4, bodyBottomY, -bodyWidth/4, feetY);
+                p.line(bodyWidth/4, bodyBottomY, bodyWidth/4, feetY);
+
+                // Body
+                p.fill('#e53e3e');
+                p.noStroke();
+                p.rectMode(p.CORNER);
+                p.rect(-bodyWidth/2, bodyTopY, bodyWidth, bodyHeight, 4);
+
+                // Head
+                p.fill('#fbd38d');
+                p.ellipse(0, bodyTopY - headRadius, headRadius * 2, headRadius * 2);
+
+                // Bat animation
+                p.push();
+                const handY = bodyTopY + 15;
+                const handX = -5;
+                p.translate(handX, handY); // Pivot around hands
+
+                const startAngle = p.PI / 4;
+                const endAngle = -p.PI / 2;
+                let currentAngle = startAngle;
+                if (swingProgress >= 0) {
+                    currentAngle = p.map(swingProgress, 0, 1, startAngle, endAngle);
+                }
+
+                p.rotate(currentAngle);
+                p.fill(150, 75, 0); // Brown bat
+                p.noStroke();
+                p.rect(-5, -60, 10, 65, 4); // Bat shape
+                p.pop();
+
+                p.pop();
+            }
+
+            function drawCatcher(x_pos_px, ground_y_px, reach_m) {
+                p.push();
+                p.translate(x_pos_px, ground_y_px);
+                
+                const handSize = 8;
+                const armThickness = 6;
+                const legThickness = 6;
+                const headRadius = 8;
+                const bodyWidth = 15;
+                const bodyHeight = 35;
+                const helmetOffset = 2;
+                const verticalShift = p.map(reach_m, 1.5, 3.0, 5, -15);
+                
+                const bodyBottomY = verticalShift; 
+                const bodyTopY = bodyBottomY - bodyHeight;
+                const headY = bodyTopY - headRadius;
+                const shoulderY = bodyTopY + 5;
+                const visualHandY = headY - 25; 
+                const elbowY = shoulderY + (visualHandY - shoulderY) / 2;
+                const elbowX = -10;
+                const legLength = 20;
+                const feetY = bodyBottomY + legLength;
+
+                p.stroke('#2d3748');
+                p.strokeWeight(legThickness);
+                p.line(-bodyWidth/4, bodyBottomY, -bodyWidth/4, feetY);
+                p.line(bodyWidth/4, bodyBottomY, bodyWidth/4, feetY);
+
+                p.fill('#4299e1');
+                p.noStroke();
+                p.rectMode(p.CORNER);
+                p.rect(-bodyWidth / 2, bodyTopY, bodyWidth, bodyHeight, 4);
+
+                p.stroke('#2d3748');
+                p.strokeWeight(armThickness);
+                p.line(0, shoulderY, elbowX, elbowY);
+                p.line(elbowX, elbowY, 0, visualHandY + handSize / 2);
+
+                p.fill('#fbd38d');
+                p.noStroke();
+                p.ellipse(0, headY, headRadius * 2, headRadius * 2);
+
+                p.fill('#e53e3e');
+                p.arc(0, headY, headRadius * 2 + helmetOffset, headRadius * 2 + helmetOffset, p.PI, p.TWO_PI);
+                
+                p.fill('#fbd38d');
+                p.noStroke();
+                p.ellipse(0, visualHandY + handSize / 2, handSize, handSize);
+
+                p.noStroke();
+                p.fill('#e53e3e');
+                p.textAlign(p.CENTER);
+                p.text('Catcher', 0, 20 + legLength);
+
+                p.pop();
+            }
+            
+            p.draw = () => {
+                // Animation handling
+                if (isSwinging) {
+                    swingFrame++;
+                    if (swingFrame === CONTACT_FRAME) {
+                        const v0 = parseFloat(velocitySlider.value);
+                        const angle = parseFloat(angleSlider.value);
+                        ball = new Ball(v0, angle);
+                        trajectory = [ball.pos.copy()];
+                        maxArcHeight = ball.pos.y;
+                        inFlight = true;
+                        catchResult = "";
+                    }
+                    if (swingFrame >= SWING_DURATION) {
+                        isSwinging = false;
+                    }
+                }
+
+                // Physics update
+                if (inFlight && ball) {
+                    const dt = Math.min(p.deltaTime / 1000, 0.02);
+                    const prevPos = ball.pos.copy();
+                    const windSpeed = parseFloat(windSlider.value);
+                    
+                    ball.update(dt, windSpeed);
+                    trajectory.push(ball.pos.copy());
+                    maxArcHeight = Math.max(maxArcHeight, ball.pos.y);
+                    checkCatch(prevPos, ball.pos);
+
+                    if (inFlight && ball.pos.y < 0) {
+                        inFlight = false;
+                        catchResult = "MISSED! (Hit the ground)";
+                    }
+                     if (inFlight && ball.pos.x > canvasWidth / scaleFactor) {
+                        inFlight = false;
+                        catchResult = "MISSED! (Overthrow)";
+                    }
+                }
+                
+                // Drawing
+                drawField();
+
+                p.push();
+                p.translate(30, canvasHeight * 0.85);
+
+                let swingProgress = -1;
+                if (isSwinging) {
+                    swingProgress = swingFrame / SWING_DURATION;
+                }
+                drawBatter(swingProgress);
+                drawCatcher(outfielderDist * scaleFactor, 0, outfielderReach);
+
+                if (trajectory.length > 0) {
+                    p.noFill();
+                    p.strokeWeight(2);
+                    p.stroke(0, 0, 0, 80);
+                    p.beginShape();
+                    for (const pos of trajectory) {
+                        p.vertex(pos.x * scaleFactor, -pos.y * scaleFactor);
+                    }
+                    p.endShape();
+                }
+
+                if (inFlight && ball) {
+                    p.noStroke();
+                    p.fill('#2d3748');
+                    p.ellipse(ball.pos.x * scaleFactor, -ball.pos.y * scaleFactor, 12, 12);
+                }
+                
+                p.pop();
+
+                // UI Text
+                let statusText = inFlight ? 'In Flight' : (isSwinging ? 'Swinging...' : 'Finished');
+                 if (catchResult === "Ready to Launch!") {
+                    statusText = "Ready";
+                }
+                
+                let statsText = `Status: ${catchResult || statusText}<br>`;
+                statsText += `Max Arc Height: ${maxArcHeight.toFixed(2)} m`;
+                if(catchResult && catchResult !== "Ready to Launch!") {
+                     statsText = `Result: <strong>${catchResult}</strong><br>` + `Max Arc Height: ${maxArcHeight.toFixed(2)} m`;
+                }
+
+                statsDiv.innerHTML = statsText;
+            };
+
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                canvasWidth = container.offsetWidth;
+                canvasHeight = container.offsetHeight;
+                p.resizeCanvas(canvasWidth, canvasHeight);
+                const fieldWidthMeters = outfielderDist * 1.1;
+                scaleFactor = canvasWidth / fieldWidthMeters;
+                
+                // Reset state on resize
+                inFlight = false;
+                isSwinging = false;
+                ball = null;
+                trajectory = [];
+                catchResult = "Ready to Launch!";
+            };
+        }
+
+        new p5(sketch, window.document.getElementById('canvas-container'));
+    </script>
+</body>
+
+</html>

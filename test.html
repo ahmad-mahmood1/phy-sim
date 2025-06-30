@@ -1,465 +1,273 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jungle Swing</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            background-color: #87CEEB;
-        }
-    </style>
-    <!-- Import Map shim for browsers without native support -->
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-
-    <!-- Define all external dependencies in the import map -->
-    <script type="importmap">
+  <meta charset="UTF-8" />
+  <title>2D Baseball Physics Simulation</title>
+  <style>
+    body { margin: 0; padding: 20px; font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
+    .controls { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: center; }
+    .control-group { display: flex; flex-direction: column; align-items: center; }
+    label { margin-bottom: 5px; font-size: 14px; }
+    button { padding: 8px 16px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; background-color: #4CAF50; color: white; }
+    button:disabled { background-color: #cccccc; cursor: not-allowed; }
+  </style>
+  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
     {
-        "imports": {
-            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-        }
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+      }
     }
-    </script>
+  </script>
 </head>
-
 <body>
-    <script type="module">
-        import p5 from 'p5';
-
-        let sketch = function (p) {
-            let monkey;
-            let vines = [];
-            let collectibles = [];
-            let score = 0;
-            let gameOver = false;
-            let cameraOffsetX = 0;
-            let currentVine = null;
-            let lastVine = null;
-            let cameraY = 0;
-            let backgroundElements = [];
-
-            p.setup = function () {
-                p.createCanvas(p.windowWidth, p.windowHeight);
-                p.angleMode(p.DEGREES);
-
-                // Initialize background elements
-                for (let i = 0; i < 50; i++) {
-                    backgroundElements.push({
-                        x: p.random(p.width),
-                        y: p.random(-p.height, p.height),
-                        size: p.random(5, 15),
-                        speed: p.random(0.5, 1.5)
-                    });
-                }
-
-                monkey = new Monkey(p.width / 2, p.height / 2);
-
-                // Create initial vines
-                vines.push(new Vine(p.width / 2, 100, "pendulum"));
-                vines.push(new Vine(p.width / 2 + 200, 150, "spring"));
-                vines.push(new Vine(p.width / 2 - 200, 120, "pendulum"));
-
-                currentVine = vines[0];
-                lastVine = vines[0];
-
-                // Add some collectibles
-                collectibles.push(new Collectible(p.width / 2 + 100, 80));
-                collectibles.push(new Collectible(p.width / 2 - 150, 120));
-
-                // Set initial camera position
-                cameraOffsetX = -monkey.pos.x + p.width / 2;
-            };
-
-            p.draw = function () {
-                p.background("#87CEEB");
-
-                // Draw background elements (clouds)
-                for (let cloud of backgroundElements) {
-                    cloud.x += cloud.speed;
-                    if (cloud.x > p.width) cloud.x = -cloud.size;
-                    p.fill(255, 255, 255, 200);
-                    p.noStroke();
-                    p.ellipse(cloud.x, cloud.y, cloud.size, cloud.size * 0.6);
-                }
-
-                p.push();
-                p.translate(cameraOffsetX, cameraY);
-
-                // Draw ground
-                p.fill(34, 139, 34);
-                p.noStroke();
-                p.rect(-p.width, p.height - 50, p.width * 3, 100);
-
-                // Update and display vines
-                for (let vine of vines) {
-                    vine.update();
-                    vine.display();
-                }
-
-                // Update and display collectibles
-                for (let i = collectibles.length - 1; i >= 0; i--) {
-                    collectibles[i].update();
-                    collectibles[i].display();
-
-                    // Check for collection
-                    if (monkey.grabCollectible(collectibles[i])) {
-                        score += 50;
-                        collectibles.splice(i, 1);
-                    }
-                }
-
-                // Check for game over
-                if (monkey.pos.y > p.height - 50 || monkey.checkCollision()) {
-                    gameOver = true;
-                }
-
-                if (!gameOver) {
-                    // Update and display monkey
-                    monkey.update();
-                    monkey.display();
-
-                    // Check if monkey grabbed a new vine
-                    for (let vine of vines) {
-                        if (monkey.grabVine(vine)) {
-                            if (vine !== lastVine) {
-                                score += 10;
-                                lastVine = vine;
-                            }
-                            currentVine = vine;
-                            break;
-                        }
-                    }
-
-                    // Add new vines and collectibles as player progresses
-                    if (monkey.pos.x > p.width * 0.6 && vines.length < 8) {
-                        vines.push(new Vine(p.random(p.width * 0.7, p.width * 0.9), p.random(80, 150), p.random(["pendulum", "spring"])));
-                        if (p.random() > 0.7) {
-                            collectibles.push(new Collectible(p.random(p.width * 0.7, p.width * 0.9), p.random(50, 120)));
-                        }
-                    }
-
-                    // Update camera position
-                    cameraOffsetX = p.lerp(cameraOffsetX, -monkey.pos.x + p.width / 2, 0.1);
-                    cameraY = p.lerp(cameraY, -monkey.pos.y + p.height / 2, 0.1);
-                } else {
-                    // Game Over screen
-                    p.fill(0, 0, 0, 150);
-                    p.rect(-p.width, -p.height, p.width * 3, p.height * 3);
-
-                    p.fill(255);
-                    p.textSize(48);
-                    p.textAlign(p.CENTER);
-                    p.text("Game Over", p.width / 2 - cameraOffsetX, p.height / 2 - cameraY);
-
-                    p.textSize(24);
-                    p.text("Final Score: " + score, p.width / 2 - cameraOffsetX, p.height / 2 + 30 - cameraY);
-                    p.text("Click to Restart", p.width / 2 - cameraOffsetX, p.height / 2 + 60 - cameraY);
-                }
-
-                p.pop();
-
-                // Display UI
-                p.fill(255);
-                p.textSize(24);
-                p.textAlign(p.LEFT);
-                p.text("Score: " + score, 20, 40);
-            };
-
-            p.mousePressed = function () {
-                if (gameOver) {
-                    // Restart game
-                    score = 0;
-                    gameOver = false;
-                    monkey = new Monkey(p.width / 2, p.height / 2);
-                    vines = [];
-                    collectibles = [];
-                    backgroundElements = [];
-
-                    // Reset background elements
-                    for (let i = 0; i < 50; i++) {
-                        backgroundElements.push({
-                            x: p.random(p.width),
-                            y: p.random(-p.height, p.height),
-                            size: p.random(5, 15),
-                            speed: p.random(0.5, 1.5)
-                        });
-                    }
-
-                    // Create initial vines
-                    vines.push(new Vine(p.width / 2, 100, "pendulum"));
-                    vines.push(new Vine(p.width / 2 + 200, 150, "spring"));
-                    vines.push(new Vine(p.width / 2 - 200, 120, "pendulum"));
-
-                    currentVine = vines[0];
-                    lastVine = vines[0];
-
-                    // Add some collectibles
-                    collectibles.push(new Collectible(p.width / 2 + 100, 80));
-                    collectibles.push(new Collectible(p.width / 2 - 150, 120));
-                } else if (currentVine) {
-                    // Release from current vine
-                    currentVine.release();
-                    currentVine = null;
-                }
-            };
-
-            p.keyPressed = function () {
-                if (p.key === ' ') {
-                    monkey.boost();
-                }
-            };
-
-            class Monkey {
-                constructor(x, y) {
-                    this.pos = p.createVector(x, y);
-                    this.vel = p.createVector(0, 0);
-                    this.acc = p.createVector(0, 0.5); // Gravity
-                    this.radius = 20;
-                    this.attachedVine = null;
-                    this.swingAngle = 0;
-                    this.swingAngularVelocity = 0;
-                    this.boosting = false;
-                    this.boostTimer = 0;
-                }
-
-                update() {
-                    if (this.attachedVine) {
-                        // Update swinging physics
-                        let gravityTorque = -0.2 * p.sin(this.swingAngle);
-                        this.swingAngularVelocity += gravityTorque;
-                        this.swingAngle += this.swingAngularVelocity;
-
-                        // Dampen swing
-                        this.swingAngularVelocity *= 0.99;
-
-                        // Calculate position based on swing
-                        this.pos.x = this.attachedVine.pos.x + p.cos(this.swingAngle) * this.attachedVine.length;
-                        this.pos.y = this.attachedVine.pos.y + p.sin(this.swingAngle) * this.attachedVine.length;
-
-                        this.vel.x = p.cos(this.swingAngle + 90) * this.swingAngularVelocity * this.attachedVine.length;
-                        this.vel.y = p.sin(this.swingAngle + 90) * this.swingAngularVelocity * this.attachedVine.length;
-                    } else {
-                        // Apply physics when not attached
-                        this.vel.add(this.acc);
-                        this.pos.add(this.vel);
-
-                        // Apply boost if active
-                        if (this.boosting) {
-                            this.vel.mult(0.8); // Reduce velocity while boosting
-                            this.boostTimer++;
-                            if (this.boostTimer > 10) {
-                                this.boosting = false;
-                                this.boostTimer = 0;
-                            }
-                        }
-                    }
-                }
-
-                display() {
-                    p.push();
-                    p.translate(this.pos.x, this.pos.y);
-
-                    if (this.attachedVine) {
-                        p.rotate(this.swingAngle + 90);
-                    }
-
-                    // Draw body
-                    p.fill(165, 42, 42);
-                    p.ellipse(0, 0, this.radius * 2);
-
-                    // Draw face
-                    p.fill(255);
-                    p.ellipse(0, -this.radius, this.radius, this.radius * 0.8);
-
-                    // Draw eyes
-                    p.fill(0);
-                    p.ellipse(-this.radius * 0.3, -this.radius, this.radius * 0.2);
-                    p.ellipse(this.radius * 0.3, -this.radius, this.radius * 0.2);
-
-                    // Draw arms
-                    p.stroke(165, 42, 42);
-                    p.strokeWeight(3);
-                    p.line(-this.radius, 0, -this.radius * 1.5, -this.radius);
-                    p.line(this.radius, 0, this.radius * 1.5, -this.radius);
-
-                    p.pop();
-                }
-
-                grabVine(vine) {
-                    if (p.dist(this.pos.x, this.pos.y, vine.pos.x, vine.pos.y) < vine.radius + this.radius) {
-                        this.attachedVine = vine;
-                        vine.attach(this);
-                        return true;
-                    }
-                    return false;
-                }
-
-                grabCollectible(collectible) {
-                    if (p.dist(this.pos.x, this.pos.y, collectible.pos.x, collectible.pos.y) < collectible.radius + this.radius) {
-                        return true;
-                    }
-                    return false;
-                }
-
-                boost() {
-                    if (!this.boosting && !this.attachedVine) {
-                        this.boosting = true;
-                        this.vel.y -= 10; // Apply upward force
-                    }
-                }
-
-                checkCollision() {
-                    // Check for collision with falling objects (coconuts)
-                    for (let vine of vines) {
-                        if (vine.hazard && p.dist(this.pos.x, this.pos.y, vine.pos.x, vine.pos.y + vine.length) < vine.radius + this.radius) {
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            }
-
-            class Vine {
-                constructor(x, y, type) {
-                    this.pos = p.createVector(x, y);
-                    this.length = p.random(150, 250);
-                    this.radius = 10;
-                    this.type = type;
-                    this.attachedMonkey = null;
-                    this.anchorPoint = p.createVector(x, y);
-                    this.restLength = this.length;
-                    this.stiffness = 0.1;
-                    this.damping = 0.95;
-                    this.angle = 0;
-                    this.angularVelocity = 0;
-                    this.hazard = p.random() > 0.8; // Some vines have falling hazards
-                }
-
-                update() {
-                    if (this.attachedMonkey) {
-                        if (this.type === "pendulum") {
-                            // Pendulum physics
-                            this.angle = p.atan2(this.attachedMonkey.pos.y - this.anchorPoint.y, this.attachedMonkey.pos.x - this.anchorPoint.x);
-                            let gravityTorque = -0.2 * p.sin(this.angle);
-                            this.angularVelocity += gravityTorque;
-                            this.angularVelocity *= this.damping;
-                            this.angle += this.angularVelocity;
-                        } else if (this.type === "spring") {
-                            // Spring physics
-                            let dx = this.attachedMonkey.pos.x - this.anchorPoint.x;
-                            let dy = this.attachedMonkey.pos.y - this.anchorPoint.y;
-                            let distance = p.sqrt(dx * dx + dy * dy);
-
-                            // Calculate spring force
-                            let force = (distance - this.restLength) * this.stiffness;
-                            let forceX = force * dx / distance;
-                            let forceY = force * dy / distance;
-
-                            // Apply force to monkey
-                            this.attachedMonkey.vel.x += forceX;
-                            this.attachedMonkey.vel.y += forceY;
-                        }
-                    } else if (this.type === "pendulum") {
-                        // Update pendulum motion when not attached
-                        let gravityTorque = -0.2 * p.sin(this.angle);
-                        this.angularVelocity += gravityTorque;
-                        this.angularVelocity *= this.damping;
-                        this.angle += this.angularVelocity;
-                    }
-
-                    // Update hazard position
-                    if (this.hazard) {
-                        this.pos.y += 2;
-                        if (this.pos.y > p.height) {
-                            this.pos.y = this.anchorPoint.y;
-                        }
-                    }
-                }
-
-                display() {
-                    p.push();
-                    p.translate(this.anchorPoint.x, this.anchorPoint.y);
-
-                    if (this.type === "pendulum") {
-                        p.rotate(this.angle);
-                    }
-
-                    // Draw vine
-                    p.stroke(139, 69, 19);
-                    p.strokeWeight(4);
-                    p.line(0, 0, 0, this.length);
-
-                    // Draw attachment point
-                    p.fill(160, 82, 45);
-                    p.noStroke();
-                    p.ellipse(0, this.length, this.radius * 2);
-
-                    p.pop();
-
-                    // Draw hazard
-                    if (this.hazard) {
-                        p.fill(255, 140, 0);
-                        p.noStroke();
-                        p.ellipse(this.pos.x, this.pos.y + this.length, 20);
-                    }
-                }
-
-                attach(monkey) {
-                    this.attachedMonkey = monkey;
-                }
-
-                release() {
-                    if (this.attachedMonkey) {
-                        this.attachedMonkey.attachedVine = null;
-                        this.attachedMonkey = null;
-                    }
-                }
-            }
-
-            class Collectible {
-                constructor(x, y) {
-                    this.pos = p.createVector(x, y);
-                    this.radius = 15;
-                    this.bobOffset = p.random(100);
-                    this.bobSpeed = p.random(0.02, 0.05);
-                }
-
-                update() {
-                    // Bob up and down
-                    this.pos.y = this.pos.y + p.sin(p.frameCount * this.bobSpeed) * 0.5;
-                }
-
-                display() {
-                    // Draw banana
-                    p.fill(255, 215, 0);
-                    p.noStroke();
-                    p.ellipse(this.pos.x, this.pos.y, this.radius * 2, this.radius * 1.5);
-
-                    // Draw banana curve
-                    p.stroke(255, 215, 0);
-                    p.strokeWeight(2);
-                    p.noFill();
-                    p.beginShape();
-                    p.curveVertex(this.pos.x - this.radius, this.pos.y);
-                    p.curveVertex(this.pos.x - this.radius, this.pos.y);
-                    p.curveVertex(this.pos.x, this.pos.y - this.radius * 0.8);
-                    p.curveVertex(this.pos.x + this.radius, this.pos.y);
-                    p.curveVertex(this.pos.x + this.radius, this.pos.y);
-                    p.endShape();
-                }
-            }
-
-            p.windowResized = function () {
-                p.resizeCanvas(p.windowWidth, p.windowHeight);
-            };
-        };
-
-        new p5(sketch);
-    </script>
+  <h1>2D Baseball Physics Simulation</h1>
+
+  <div class="controls">
+    <div class="control-group">
+      <label for="velocity">Launch Velocity (m/s)</label>
+      <input type="range" id="velocity" min="10" max="50" value="30">
+      <span id="velocity-value">30</span>
+    </div>
+
+    <div class="control-group">
+      <label for="angle">Launch Angle (°)</label>
+      <input type="range" id="angle" min="0" max="90" value="45">
+      <span id="angle-value">45</span>
+    </div>
+
+    <div class="control-group">
+      <label for="wind">Wind Speed (m/s)</label>
+      <input type="range" id="wind" min="-10" max="10" value="0">
+      <span id="wind-value">0</span>
+    </div>
+
+    <div class="control-group">
+      <label for="catcher-height">Catcher Height</label>
+      <input type="range" id="catcher-height" min="0" max="100" value="50">
+      <span id="catcher-height-value">50</span>
+    </div>
+
+    <button id="launch">Launch Ball</button>
+    <button id="reset">Reset</button>
+  </div>
+
+  <div id="simulation-container"></div>
+  <div id="result"></div>
+  <div id="max-height"></div>
+
+  <script type="module">
+    import p5 from "p5";
+
+    const sketch = (p) => {
+      // Physics constants
+      const gravity = 9.81; // m/s²
+      const airDensity = 1.225; // kg/m³
+      const ballMass = 0.145; // kg (baseball mass)
+      const ballDiameter = 0.074; // m (baseball diameter)
+      const dragCoefficient = 0.47; // sphere drag coefficient
+      const scale = 5; // pixels per meter
+
+      // Game state
+      let ball = null;
+      let launched = false;
+      let caught = false;
+      let hitGround = false;
+      let maxHeight = 0;
+      let catcherY = 50;
+
+      // Controls
+      let velocity = 30;
+      let angle = 45;
+      let windSpeed = 0;
+
+      // UI elements
+      let velocitySlider, angleSlider, windSlider, catcherHeightSlider;
+      let launchButton, resetButton;
+      let resultDiv, maxHeightDiv;
+
+      p.setup = () => {
+        const canvas = p.createCanvas(800, 400);
+        canvas.parent('simulation-container');
+
+        // Initialize UI elements
+        velocitySlider = document.getElementById('velocity');
+        angleSlider = document.getElementById('angle');
+        windSlider = document.getElementById('wind');
+        catcherHeightSlider = document.getElementById('catcher-height');
+        launchButton = document.getElementById('launch');
+        resetButton = document.getElementById('reset');
+        resultDiv = document.getElementById('result');
+        maxHeightDiv = document.getElementById('max-height');
+
+        // Add event listeners
+        velocitySlider.addEventListener('input', updateVelocity);
+        angleSlider.addEventListener('input', updateAngle);
+        windSlider.addEventListener('input', updateWind);
+        catcherHeightSlider.addEventListener('input', updateCatcherHeight);
+        launchButton.addEventListener('click', launchBall);
+        resetButton.addEventListener('click', resetSimulation);
+
+        // Initialize UI values
+        updateVelocity();
+        updateAngle();
+        updateWind();
+        updateCatcherHeight();
+      };
+
+      p.draw = () => {
+        p.background(240);
+
+        // Draw field
+        p.fill(100, 200, 100);
+        p.noStroke();
+        p.rect(0, p.height - 50, p.width, 50);
+
+        // Draw batter
+        p.fill(200, 100, 50);
+        p.rect(50, p.height - 100, 20, 50);
+
+        // Draw catcher
+        const catcherX = p.width - 100;
+        const catcherHeadY = p.height - 100 - catcherY;
+        const catcherBodyHeight = 100;
+        const catcherBodyY = catcherHeadY + 20;
+        const catcherLegHeight = 50;
+
+        // Catcher head
+        p.fill(50, 100, 200);
+        p.ellipse(catcherX, catcherHeadY, 20, 20);
+
+        // Catcher body
+        p.fill(200, 50, 50);
+        p.rect(catcherX - 10, catcherBodyY, 20, catcherBodyHeight);
+
+        // Catcher legs
+        p.fill(50, 50, 200);
+        p.rect(catcherX - 10, catcherBodyY + catcherBodyHeight, 20, catcherLegHeight);
+
+        // Update and draw ball
+        if (launched && ball) {
+          ball.update();
+          ball.show();
+
+          // Check for collisions
+          checkCollisions(catcherX, catcherHeadY, catcherBodyY, catcherBodyHeight, catcherLegHeight);
+
+          // Update max height
+          if (ball.pos.y < maxHeight) {
+            maxHeight = ball.pos.y;
+            maxHeightDiv.textContent = `Max Height: ${((p.height - maxHeight) / scale).toFixed(2)} m`;
+          }
+        }
+      };
+
+      class Ball {
+        constructor(x, y, vx, vy) {
+          this.pos = p.createVector(x, y);
+          this.vel = p.createVector(vx, vy);
+          this.radius = 10;
+        }
+
+        update() {
+          // Apply gravity
+          this.vel.y += gravity / 60;
+
+          // Apply air resistance (drag)
+          const speed = this.vel.mag();
+          const dragForce = p5.Vector.mult(this.vel, -0.5 * airDensity * dragCoefficient * Math.PI * (ballDiameter / 2) ** 2 * speed / ballMass);
+          this.vel.add(dragForce);
+
+          // Apply wind
+          this.vel.x += windSpeed / 60;
+
+          // Update position
+          this.pos.add(p5.Vector.mult(this.vel, 1 / 60));
+        }
+
+        show() {
+          p.fill(255);
+          p.stroke(0);
+          p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
+        }
+      }
+
+      function launchBall() {
+        if (launched) return;
+
+        launched = true;
+        launchButton.disabled = true;
+
+        // Calculate initial velocity components
+        const angleRad = p.radians(angle);
+        const vx = velocity * p.cos(angleRad) * scale;
+        const vy = -velocity * p.sin(angleRad) * scale;
+
+        // Create ball
+        ball = new Ball(70, p.height - 100, vx, vy);
+
+        // Initialize max height
+        maxHeight = ball.pos.y;
+        maxHeightDiv.textContent = `Max Height: ${((p.height - maxHeight) / scale).toFixed(2)} m`;
+        resultDiv.textContent = '';
+      }
+
+      function resetSimulation() {
+        launched = false;
+        caught = false;
+        hitGround = false;
+        ball = null;
+        launchButton.disabled = false;
+        resultDiv.textContent = '';
+        maxHeightDiv.textContent = '';
+      }
+
+      function checkCollisions(catcherX, catcherHeadY, catcherBodyY, catcherBodyHeight, catcherLegHeight) {
+        if (!ball) return;
+
+        // Check for catch
+        const distanceToHead = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherHeadY);
+        const distanceToBody = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherBodyY + catcherBodyHeight / 2);
+        const distanceToLegs = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherBodyY + catcherBodyHeight + catcherLegHeight / 2);
+
+        if (distanceToHead < ball.radius + 10 ||
+            distanceToBody < ball.radius + 20 ||
+            distanceToLegs < ball.radius + 15) {
+          caught = true;
+          resultDiv.textContent = 'CAUGHT!';
+          return;
+        }
+
+        // Check for ground hit
+        if (ball.pos.y > p.height - 50) {
+          hitGround = true;
+          resultDiv.textContent = 'Hit the ground';
+          return;
+        }
+      }
+
+      function updateVelocity() {
+        velocity = parseFloat(velocitySlider.value);
+        document.getElementById('velocity-value').textContent = velocity;
+      }
+
+      function updateAngle() {
+        angle = parseFloat(angleSlider.value);
+        document.getElementById('angle-value').textContent = angle;
+      }
+
+      function updateWind() {
+        windSpeed = parseFloat(windSlider.value);
+        document.getElementById('wind-value').textContent = windSpeed;
+      }
+
+      function updateCatcherHeight() {
+        catcherY = parseFloat(catcherHeightSlider.value);
+        document.getElementById('catcher-height-value').textContent = catcherY;
+      }
+    };
+
+    new p5(sketch);
+  </script>
 </body>
-
 </html>
