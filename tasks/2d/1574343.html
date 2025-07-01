@@ -77,21 +77,41 @@
                 constructor(x, y) {
                     this.pos = p.createVector(x, y);
                     this.vel = p.createVector(0, 0);
-                    this.size = p.random(2, 5);
+                    this.size = p.random(1.5, 4);
                     this.color = p.color(p.random(100, 150), p.random(80, 120), p.random(60, 90));
+                    this.maxSpeed = 2.5;
+                    this.damping = 0.9; // Friction
                 }
+
                 update() {
+                    this.vel.limit(this.maxSpeed);
                     this.pos.add(this.vel);
+                    this.vel.mult(this.damping);
+
+                    // Constrain particle to the sand area
+                    if (this.pos.x < 0 || this.pos.x > p.width) {
+                        this.vel.x *= -1; // Bounce off sides
+                    }
+                    
+                    const shorelineY = finalShorelineData[Math.floor(p.constrain(this.pos.x / shorelineResolution, 0, finalShorelineData.length -1))];
+                    if (this.pos.y < shorelineY) {
+                        this.pos.y = shorelineY;
+                        this.vel.y *= -0.2; // Dampen bounce at shoreline
+                    }
                 }
+
                 draw() {
                     p.noStroke();
                     p.fill(this.color);
                     p.ellipse(this.pos.x, this.pos.y, this.size);
                 }
+
                 isOffscreen() {
-                    return (this.pos.x < 0 || this.pos.x > p.width || this.pos.y < 0 || this.pos.y > p.height);
+                    // We handle boundaries in update, so we just check for extreme escape
+                    return (this.pos.y > p.height + 20);
                 }
             }
+
 
             // --- Wave Class ---
             // Manages the behavior, appearance, and interactions of a single wave.
@@ -110,39 +130,59 @@
                     this.swirls = [];
                 }
 
+                // --- Handle particle collisions directly from the wave ---
+                collideWithParticles(yMovement) {
+                    // Only interact with particles if the wave is near the sand
+                    if (this.y < sandY - this.amplitude) return;
+
+                    for (const particle of particles) {
+                        // Don't interact with particles deep in the water
+                        if (particle.pos.y < sandY) continue;
+
+                        const noiseVal = p.noise(this.noiseSeed + particle.pos.x * 0.01, this.y * 0.005);
+                        const waveEdgeY = this.y + p.map(noiseVal, 0, 1, -this.amplitude, this.amplitude);
+
+                        if (p.abs(particle.pos.y - waveEdgeY) < 1.5) {
+                             // Create a force based on wave movement
+                             let force = p.createVector(p.random(-0.15, 0.15), yMovement * 0.3);
+                             particle.vel.add(force);
+                        }
+                    }
+                }
+
+
                 // Main update logic for wave movement and state changes.
                 update() {
+                    let yMovement = 0;
                     if (this.state === 'incoming') {
-                        this.y += this.speed;
+                        yMovement = this.speed;
+                        this.y += yMovement;
+
                         this.checkWaveCollisions();
                         if (this.y > this.maxPenetration) {
                             this.state = 'receding';
                             this.imprintShorelinePattern();
                         }
                     } else { // 'receding' state
-                        this.y -= (this.hasCollided ? this.speed * 0.4 : this.speed * 0.6);
+                        yMovement = -(this.hasCollided ? this.speed * 0.4 : this.speed * 0.6);
+                        this.y += yMovement;
 
-                        // --- Apply different fade-out rates ---
                         if (this.isBeingAbsorbed) {
-                            // Fast fade for a merged wave (~300ms)
-                            this.lifespan -= 20;
+                            this.lifespan -= 15;
                         } else {
-                            // Normal, slow fade for a standard receding wave
-                            this.lifespan -= 1.8;
-
-                            // Check if an incoming wave is "eating" this receding wave
+                            this.lifespan -= 0.5;
                             for (const otherWave of waves) {
                                 if (otherWave === this || otherWave.state !== 'incoming') continue;
-                                if (otherWave.y < this.y) {
-                                    const distance = this.y - otherWave.y;
-                                    if (distance < otherWave.amplitude * 1.5) {
-                                        this.lifespan -= 15; // Accelerate fade if being overtaken
-                                        break;
-                                    }
+                                if (otherWave.y < this.y && (this.y - otherWave.y) < otherWave.amplitude * 1.5) {
+                                    this.lifespan -= 15;
+                                    break;
                                 }
                             }
                         }
                     }
+                    
+                    // Call the new collision logic
+                    this.collideWithParticles(yMovement);
 
                     if (this.hasCollided && p.frameCount % 6 === 0) {
                         this.generateSwirl();
@@ -208,7 +248,6 @@
 
                 // --- Detects and handles collisions with other waves. ---
                 checkWaveCollisions() {
-                    // If the wave has already collided or is not in the 'incoming' state, skip collision checks.
                     if (this.hasCollided || this.state !== 'incoming' || !this.canCollide) return;
 
                     for (const otherWave of waves) {
@@ -222,25 +261,18 @@
                                     this.createCollisionPattern(otherWave, overlapResult.x, overlapResult.y);
                                 }
 
-                                // --- Wave Merging & Fade Logic ---
                                 if (this.y > otherWave.y) {
-                                    // 'this' wave wins, absorbs the other, and is marked to prevent re-merging.
                                     this.amplitude += otherWave.amplitude * 0.5;
                                     this.hasCollided = true;
-
-                                    // 'otherWave' loses and is marked to be absorbed (fade out quickly).
                                     otherWave.isBeingAbsorbed = true;
                                     otherWave.state = 'receding';
                                 } else {
-                                    // 'otherWave' wins.
                                     otherWave.amplitude += this.amplitude * 0.5;
                                     otherWave.hasCollided = true;
-
-                                    // 'this' wave loses.
                                     this.isBeingAbsorbed = true;
                                     this.state = 'receding';
                                 }
-                                return; // Collision handled for this frame.
+                                return;
                             }
                         }
                     }
@@ -328,8 +360,11 @@
                     targetShorelinePattern.push(0);
                 }
 
-                for (let i = 0; i < 50; i++) {
-                    particles.push(new Particle(p.random(p.width), sandY + p.random(10, sandHeight * 0.8)));
+                for (let i = 0; i < 150; i++) {
+                    const x = p.random(p.width);
+                    const shorelineY = sandY + p.map(p.noise(x * 0.005, 100), 0, 1, -15, 15);
+                    const y = p.random(shorelineY, shorelineY + sandHeight * 0.8);
+                    particles.push(new Particle(x, y));
                 }
 
                 wetSandMask.clear();
@@ -381,7 +416,7 @@
 
                 // Update and manage particles
                 for (let i = particles.length - 1; i >= 0; i--) {
-                    particles[i].update();
+                    particles[i].update(); // Particle updates itself now
                     if (particles[i].isOffscreen()) {
                         particles.splice(i, 1);
                     }

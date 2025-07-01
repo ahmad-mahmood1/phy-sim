@@ -147,7 +147,7 @@
             </div>
             <div class="control-group">
                 <label for="speed-slider">Start Speed:<span id="speed-value">7.0</span></label>
-                <input type="range" id="speed-slider" min="1" max="15" step="0.1" value="7">
+                <input type="range" id="speed-slider" min="1" max="20" step="1" value="7">
             </div>
             <div class="control-group">
                 <label for="angle-slider">Start Angle:<span id="angle-value">0°</span></label>
@@ -157,13 +157,11 @@
                 <button id="run-button" class="sim-button">Run</button>
                 <button id="reset-button" class="sim-button">Reset</button>
             </div>
-            <!-- New Section for Ricochet Data -->
             <div id="ricochet-info">
                 <h3>Ricochet Data</h3>
                 <p>Total Ricochets: <span id="ricochet-count">0</span></p>
                 <div id="ricochet-list">
-                    <!-- Ricochet details will be populated here by JavaScript -->
-                </div>
+                    </div>
             </div>
         </div>
     </div>
@@ -178,6 +176,10 @@
             let ricochetData = []; // Stores data about each bounce
             let animationFrame = 0; // Tracks progress of the animation
             let simulationState = 'ready'; // ready, simulating, finished
+
+            // Define damping factors. Values less than 1 will cause energy loss.
+            const RICOCHET_DAMPING = 0.88; // Energy kept after a bounce (e.g., 0.88 = 88% of speed retained)
+            const MOVEMENT_DAMPING = 0.995; // Simulates air resistance/friction (e.g., 0.9995 = tiny speed loss per frame)
 
             // --- DOM Elements ---
             let yPosSlider, speedSlider, angleSlider;
@@ -283,23 +285,33 @@
                 
                 let path = [pos.copy()];
                 let ricochets = [];
+                
+                // Stop simulation if speed becomes negligible
+                const minSpeed = 0.05;
 
                 // Simulate up to 5000 frames to prevent infinite loops
-                for (let i = 0; i < 5000; i++) {
+                for (let i = 0; i < 5000 && vel.mag() > minSpeed; i++) {
+                    vel.mult(MOVEMENT_DAMPING);
+                    
                     pos.add(vel);
                     let bounced = false;
 
                     // Collision detection for the path calculation
                     if (pos.y < table.y + ball.radius || pos.y > table.y + table.height - ball.radius) {
                         vel.y *= -1;
+                        // Prevent ball from getting stuck in a wall
+                        pos.y = p.constrain(pos.y, table.y + ball.radius, table.y + table.height - ball.radius);
                         bounced = true;
                     }
                     if (pos.x > table.x + table.width - ball.radius) {
                         vel.x *= -1;
+                        pos.x = p.constrain(pos.x, 0, table.x + table.width - ball.radius);
                         bounced = true;
                     }
                     
                     if (bounced) {
+                        vel.mult(RICOCHET_DAMPING);
+                        
                         ricochets.push({
                             speed: vel.mag(),
                             angle: p.degrees(vel.heading())
