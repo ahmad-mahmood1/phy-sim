@@ -168,6 +168,8 @@
 
             let verticalSlatsX = [];
             let horizontalSlatsY = [];
+            let trellisWidth;
+            let pmouseX = 0, pmouseY = 0;
 
             const startBtn = document.getElementById('start-btn');
             const resetBtn = document.getElementById('reset-btn');
@@ -177,6 +179,7 @@
 
             let isInitialized = false;
 
+            // --- UTILITY FUNCTIONS ---
             function findClosest(value, arr) {
                 if (!arr || arr.length === 0) {
                     return 0;
@@ -186,6 +189,7 @@
                 });
             }
 
+            // --- GAME STATE MANAGEMENT ---
             function setGameState(newState) {
                 gameState = newState;
                 winScreen.style.display = (gameState === 'won') ? 'flex' : 'none';
@@ -209,6 +213,7 @@
                 }
             }
 
+            // --- LEVEL GENERATION ---
             function generateSolutionPath(startNode, endNode) {
                 const gridW = verticalSlatsX.length;
                 const gridH = horizontalSlatsY.length;
@@ -225,16 +230,8 @@
                     let current = stack[stack.length - 1];
                     if (current.c === endNode.c && current.r === endNode.r) break;
 
-                    let {
-                        c,
-                        r
-                    } = current;
-                    const directions = [
-                        [1, 0],
-                        [0, 1],
-                        [-1, 0],
-                        [0, -1]
-                    ];
+                    let { c, r } = current;
+                    const directions = [ [1, 0], [0, 1], [-1, 0], [0, -1] ];
                     p.shuffle(directions, true);
 
                     let foundNeighbor = false;
@@ -243,10 +240,7 @@
                         let nr = r + dr;
                         if (nc >= 0 && nc < gridW && nr >= 0 && nr < gridH && !visited[nc][nr]) {
                             visited[nc][nr] = true;
-                            stack.push({
-                                c: nc,
-                                r: nr
-                            });
+                            stack.push({ c: nc, r: nr });
                             foundNeighbor = true;
                             break;
                         }
@@ -256,8 +250,7 @@
 
                 const solutionSegments = new Set();
                 for (let i = 0; i < stack.length - 1; i++) {
-                    const p1 = stack[i],
-                        p2 = stack[i + 1];
+                    const p1 = stack[i], p2 = stack[i + 1];
                     const segStr1 = `${p1.c},${p1.r}-${p2.c},${p2.r}`;
                     const segStr2 = `${p2.c},${p2.r}-${p1.c},${p1.r}`;
                     solutionSegments.add(segStr1 < segStr2 ? segStr1 : segStr2);
@@ -268,91 +261,76 @@
             function setupLevel() {
                 gardenTools = [];
                 const toolTypes = ['trowel', 'rake', 'shovel', 'pruningShears', 'gardenFork', 'wateringCan'];
-
+                
                 const startC = verticalSlatsX.indexOf(findClosest(vineStartPos.x, verticalSlatsX));
                 const startR = horizontalSlatsY.indexOf(findClosest(vineStartPos.y, horizontalSlatsY));
                 const endC = verticalSlatsX.indexOf(findClosest(vineEndPos.x, verticalSlatsX));
                 const endR = horizontalSlatsY.indexOf(findClosest(vineEndPos.y, horizontalSlatsY));
 
-                const solutionPath = generateSolutionPath({
-                    c: startC,
-                    r: startR
-                }, {
-                    c: endC,
-                    r: endR
-                });
+                const solutionPath = generateSolutionPath({ c: startC, r: startR }, { c: endC, r: endR });
 
                 const allSegments = [];
-                for (let r = 0; r < horizontalSlatsY.length; r++)
-                    for (let c = 0; c < verticalSlatsX.length - 1; c++) allSegments.push(`${c},${r}-${c + 1},${r}`);
-                for (let c = 0; c < verticalSlatsX.length; c++)
-                    for (let r = 0; r < horizontalSlatsY.length - 1; r++) allSegments.push(`${c},${r}-${c},${r + 1}`);
-
-                const lastColIndex = verticalSlatsX.length - 1;
-                let availableSegmentsSet = new Set(allSegments.filter(seg => {
-                    const [p1Str, p2Str] = seg.split('-');
-                    const [c1,] = p1Str.split(',').map(Number);
-                    const [c2,] = p2Str.split(',').map(Number);
-                    if (c1 === 0 && c2 === 0) return false;
-                    if (c1 === 0 && c2 === 1) return false;
-                    if (c1 === lastColIndex && c2 === lastColIndex) return false;
-                    if (c1 === lastColIndex - 1 && c2 === lastColIndex) return false;
-                    const segStr1 = `${p1Str}-${p2Str}`;
-                    const segStr2 = `${p2Str}-${p1Str}`;
-                    return !solutionPath.has(segStr1) && !solutionPath.has(segStr2);
-                }));
-
-                const middleColsStart = 2;
-                const middleColsEnd = lastColIndex - 2;
-
-                for (let c = middleColsStart; c <= middleColsEnd; c++) {
-                    let colVerticalSegments = [];
-                    for (let r = 0; r < horizontalSlatsY.length - 1; r++) {
-                        const seg = `${c},${r}-${c},${r + 1}`;
-                        if (availableSegmentsSet.has(seg)) {
-                            colVerticalSegments.push(seg);
-                        }
+                 // Horizontal segments
+                for (let r = 0; r < horizontalSlatsY.length; r++) {
+                    for (let c = 0; c < verticalSlatsX.length - 1; c++) {
+                        allSegments.push({ type: 'h', c1: c, r1: r, c2: c + 1, r2: r });
                     }
-                    p.shuffle(colVerticalSegments, true);
-                    let toolsToPlaceInCol = p.random([1, 2]);
-                    let placedCount = 0;
-                    while (placedCount < toolsToPlaceInCol && colVerticalSegments.length > 0) {
-                        const seg = colVerticalSegments.shift();
-                        if (!seg) continue;
-                        const [p1Str, p2Str] = seg.split('-');
-                        const [c1, r1] = p1Str.split(',').map(Number);
-                        const [c2, r2] = p2Str.split(',').map(Number);
-                        const toolX = (verticalSlatsX[c1] + verticalSlatsX[c2]) / 2;
-                        const toolY = (horizontalSlatsY[r1] + horizontalSlatsY[r2]) / 2;
-                        gardenTools.push(new GardenTool(p.random(toolTypes), toolX, toolY, 15, p.random(-p.PI / 16, p.PI / 16)));
-                        placedCount++;
-                        availableSegmentsSet.delete(seg);
-                        const adjacentAbove = `${c1},${r1 - 1}-${c1},${r1}`;
-                        const adjacentBelow = `${c1},${r2}-${c1},${r2 + 1}`;
-                        availableSegmentsSet.delete(adjacentAbove);
-                        availableSegmentsSet.delete(adjacentBelow);
-                        colVerticalSegments = colVerticalSegments.filter(s => s !== adjacentAbove && s !== adjacentBelow);
+                }
+                // Vertical segments
+                for (let c = 0; c < verticalSlatsX.length; c++) {
+                    for (let r = 0; r < horizontalSlatsY.length - 1; r++) {
+                        allSegments.push({ type: 'v', c1: c, r1: r, c2: c, r2: r + 1 });
                     }
                 }
 
-                let remainingHorizontal = [...availableSegmentsSet].filter(seg => {
-                    const [p1Str,] = seg.split('-');
-                    const [, r1] = p1Str.split(',').map(Number);
-                    const [, p2Str] = seg.split('-');
-                    const [, r2] = p2Str.split(',').map(Number);
-                    return r1 === r2;
-                });
-                p.shuffle(remainingHorizontal, true);
+                const lastColIndex = verticalSlatsX.length - 1;
+                const lastRowIndex = horizontalSlatsY.length - 1;
 
-                const numExtraTools = 3;
-                for (let i = 0; i < numExtraTools && i < remainingHorizontal.length; i++) {
-                    const seg = remainingHorizontal[i];
-                    const [p1Str, p2Str] = seg.split('-');
-                    const [c1, r1] = p1Str.split(',').map(Number);
-                    const [c2, r2] = p2Str.split(',').map(Number);
-                    const toolX = (verticalSlatsX[c1] + verticalSlatsX[c2]) / 2;
-                    const toolY = (horizontalSlatsY[r1] + horizontalSlatsY[r2]) / 2;
-                    gardenTools.push(new GardenTool(p.random(toolTypes), toolX, toolY, 15, p.random(-p.PI / 16, p.PI / 16)));
+                let potentialToolSegments = allSegments.filter(seg => {
+                    // Exclude solution path
+                    const segStr1 = `${seg.c1},${seg.r1}-${seg.c2},${seg.r2}`;
+                    const segStr2 = `${seg.c2},${seg.r2}-${seg.c1},${seg.r1}`;
+                    if (solutionPath.has(segStr1) || solutionPath.has(segStr2)) {
+                        return false;
+                    }
+
+                    // Exclude the outermost border segments for tool placement
+                    if (seg.type === 'h' && (seg.r1 === 0 || seg.r1 === lastRowIndex)) return false;
+                    if (seg.type === 'v' && (seg.c1 === 0 || seg.c1 === lastColIndex)) return false;
+                    
+                    // Exclude the second-to-last border as well to give more space
+                    if (seg.type === 'h' && (seg.r1 === 1 || seg.r1 === lastRowIndex -1)) return false;
+                    if (seg.type === 'v' && (seg.c1 === 1 || seg.c1 === lastColIndex -1)) return false;
+
+                    return true;
+                });
+
+                p.shuffle(potentialToolSegments, true);
+
+                const numToolsToPlace = 8;
+                const minToolDistance = 90; 
+
+                for (let i = 0; i < numToolsToPlace && potentialToolSegments.length > 0; i++) {
+                    const seg = potentialToolSegments.pop();
+                    if (!seg) continue;
+
+                    const toolX = (verticalSlatsX[seg.c1] + verticalSlatsX[seg.c2]) / 2;
+                    const toolY = (horizontalSlatsY[seg.r1] + horizontalSlatsY[seg.r2]) / 2;
+                    const newToolPos = p.createVector(toolX, toolY);
+
+                    let collision = false;
+                    for (const existingTool of gardenTools) {
+                        if (newToolPos.dist(existingTool.pos) < minToolDistance) {
+                            collision = true;
+                            break;
+                        }
+                    }
+
+                    if (!collision) {
+                        gardenTools.push(new GardenTool(p.random(toolTypes), toolX, toolY, p.random(-p.PI / 16, p.PI / 16), seg.type));
+                    } else {
+                        i--; // Try again with another segment
+                    }
                 }
 
                 figVine = new FigVine(vineStartPos.copy(), startC, startR);
@@ -365,51 +343,51 @@
                 startBtn.disabled = false;
             }
 
+            // --- P5.JS SETUP & DRAW ---
             function initializeGame() {
                 if (isInitialized || p.width === 0 || p.height === 0) {
                     return;
                 }
-                brickWallTexture = p.createGraphics(p.width, p.height);
+                trellisWidth = p.width * 0.7;
+                brickWallTexture = p.createGraphics(trellisWidth, p.height);
                 generateBrickTexture(brickWallTexture);
-
+                
                 mudTexture = p.createGraphics(100, 100);
                 generateMudTexture(mudTexture);
 
-                const slatWidth = 20;
+                const slatWidth = 10; // Made trellis thinner
                 const numVerticalDivisions = 8;
                 verticalSlatsX = [];
                 for (let i = 0; i <= numVerticalDivisions; i++) {
-                    const x = p.map(i, 0, numVerticalDivisions, -p.width / 2 + slatWidth / 2, p.width / 2 - slatWidth / 2);
+                    const x = p.map(i, 0, numVerticalDivisions, -trellisWidth / 2, trellisWidth / 2);
                     verticalSlatsX.push(x);
                 }
                 const numHorizontalDivisions = 6;
                 horizontalSlatsY = [];
                 for (let i = 0; i <= numHorizontalDivisions; i++) {
-                    const y = p.map(i, 0, numHorizontalDivisions, -p.height / 2 + slatWidth / 2, p.height / 2 - slatWidth / 2);
+                    const y = p.map(i, 0, numHorizontalDivisions, -p.height / 2 + slatWidth, p.height / 2 - slatWidth);
                     horizontalSlatsY.push(y);
                 }
-                // Move vases down
-                const jardiniereCenterY = p.height / 2 - 30;
+                
+                const jardiniereCenterY = p.height / 2 - 25; // Moved planters to the edge
+                const planterHeight = 50;
                 startJardiniere = {
-                    pos: p.createVector(-p.width / 2 + 50, jardiniereCenterY, 20),
+                    pos: p.createVector(verticalSlatsX[0], jardiniereCenterY),
                     color: p.color(100, 180, 100)
                 };
                 endJardiniere = {
-                    pos: p.createVector(p.width / 2 - 50, jardiniereCenterY, 20),
-                    color: p.color(255, 120, 120)
+                    pos: p.createVector(verticalSlatsX[verticalSlatsX.length - 1], jardiniereCenterY),
+                    color: p.color(255, 0, 0) // Changed to red
                 };
 
-                vineStartPos = p.createVector(verticalSlatsX[0], findClosest(startJardiniere.pos.y, horizontalSlatsY), startJardiniere.pos.z);
-                vineEndPos = p.createVector(verticalSlatsX[verticalSlatsX.length - 1], findClosest(endJardiniere.pos.y, horizontalSlatsY), endJardiniere.pos.z);
-
-                const startC = verticalSlatsX.indexOf(vineStartPos.x);
-                const startR = horizontalSlatsY.indexOf(vineStartPos.y);
+                // The vine starts from the center of the mud in the starting pot
+                vineStartPos = p.createVector(startJardiniere.pos.x, startJardiniere.pos.y - planterHeight / 2 - 2);
+                // The vine's goal is the center of the mud in the ending pot
+                vineEndPos = p.createVector(endJardiniere.pos.x, endJardiniere.pos.y - planterHeight / 2 - 2);
 
                 setupLevel();
                 startBtn.addEventListener('click', () => {
-                    if (gameState === 'idle') {
-                        setGameState('ready');
-                    }
+                    if (gameState === 'idle') setGameState('ready');
                 });
                 resetBtn.addEventListener('click', resetGame);
                 isInitialized = true;
@@ -417,14 +395,15 @@
 
             p.setup = () => {
                 const canvasContainer = document.getElementById('canvas-container');
-                const canvas = p.createCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight, p.WEBGL);
+                const canvas = p.createCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight);
                 canvas.parent(canvasContainer);
+                p.rectMode(p.CENTER);
             };
 
             p.windowResized = () => {
                 const canvasContainer = document.getElementById('canvas-container');
                 p.resizeCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight);
-                isInitialized = false; // Force re-initialization
+                isInitialized = false; 
                 verticalSlatsX = [];
                 horizontalSlatsY = [];
                 initializeGame();
@@ -435,85 +414,104 @@
                     initializeGame();
                     return;
                 }
+
+                p.translate(p.width / 2, p.height / 2);
+
                 if (gameState === 'ready') {
                     const mousePos2D = p.createVector(p.mouseX - p.width / 2, p.mouseY - p.height / 2);
-                    if (mousePos2D.dist(p.createVector(startJardiniere.pos.x, startJardiniere.pos.y)) < 40) {
+                    if (mousePos2D.dist(startJardiniere.pos) < 40) {
                         setGameState('playing');
                     }
                 }
-                p.background(220);
-                p.orbitControl(1, 1, 0.1);
-                drawBackground();
-                drawTrellis();
-                drawJardinieres();
+                
+                // 1. Draw background elements
+                p.background(135, 206, 235); // Sky blue
+                drawGardenScenery();
+                drawTrellisBackground();
+                
+                // 2. Update vine & tools logic
+                const mouseTarget = p.createVector(p.mouseX - p.width / 2, p.mouseY - p.height / 2);
+                figVine.update(gardenTools, mouseTarget);
+                
+                // 3. Draw elements in correct order for layering
+                figVine.draw(false); // Draw the vine stem first (behind trellis)
+                drawTrellis(); 
+                drawHooks();
+                
                 for (const tool of gardenTools) {
                     tool.draw();
                 }
-                const mouseTarget = p.createVector(p.mouseX - p.width / 2, p.mouseY - p.height / 2, 15);
-                figVine.update(gardenTools, mouseTarget);
-                figVine.draw();
+                drawJardinieres(); // Draw planters on top of tools
+                figVine.draw(true); // Draw the leaves on top of everything
+
+                pmouseX = p.mouseX;
+                pmouseY = p.mouseY;
+
             };
 
-            function drawBackground() {
+            // --- DRAWING FUNCTIONS ---
+            function drawTrellisBackground() {
+                p.image(brickWallTexture, -trellisWidth / 2, -p.height / 2, trellisWidth, p.height);
+            }
+            
+            function drawGardenScenery() {
                 p.push();
-                p.translate(0, 0, -10);
                 p.noStroke();
-                p.texture(brickWallTexture);
-                p.plane(p.width, p.height);
+
+                // Grass at the bottom
+                p.fill(107, 142, 35); // Olive Drab
+                p.rect(0, p.height / 2 - 20, p.width, 40);
+
+                // Left and right side bushes
+                const sideWidth = (p.width - trellisWidth) / 2;
+                const leftSideX = -trellisWidth / 2 - sideWidth / 2;
+                const rightSideX = trellisWidth / 2 + sideWidth / 2;
+                
+                p.fill(34, 139, 34); // Forest green for bushes
+                // A few bushes on each side, moved down slightly
+                p.ellipse(leftSideX, p.height / 2 - 30, 80, 80);
+                p.ellipse(leftSideX + 30, p.height / 2 - 40, 60, 60);
+                p.ellipse(rightSideX, p.height / 2 - 30, 90, 70);
+                p.ellipse(rightSideX - 40, p.height / 2 - 35, 50, 50);
+
                 p.pop();
             }
 
             function drawJardinieres() {
                 [startJardiniere, endJardiniere].forEach(j => {
                     p.push();
-                    p.translate(j.pos);
-                    p.noStroke();
-                    // Decreased the height 'h' of the vase
-                    const tW = 70,
-                        tD = 70,
-                        bW = 50,
-                        bD = 50,
-                        h = 50;
+                    p.translate(j.pos.x, j.pos.y);
+                    p.stroke(87, 55, 26);
+                    p.strokeWeight(2);
+                    const tW = 70, bW = 50, h = 50;
+                    
+                    // Main body of the planter
                     p.fill(j.color);
-                    const v = [p.createVector(-tW / 2, -h / 2, -tD / 2), p.createVector(tW / 2, -h / 2, -tD / 2), p.createVector(tW / 2, -h / 2, tD / 2), p.createVector(-tW / 2, -h / 2, tD / 2), p.createVector(-bW / 2, h / 2, -bD / 2), p.createVector(bW / 2, h / 2, -bD / 2), p.createVector(bW / 2, h / 2, bD / 2), p.createVector(-bW / 2, h / 2, bD / 2)];
-                    p.beginShape(p.QUADS);
-                    p.vertex(v[3].x, v[3].y, v[3].z);
-                    p.vertex(v[2].x, v[2].y, v[2].z);
-                    p.vertex(v[6].x, v[6].y, v[6].z);
-                    p.vertex(v[7].x, v[7].y, v[7].z);
-                    p.vertex(v[0].x, v[0].y, v[0].z);
-                    p.vertex(v[1].x, v[1].y, v[1].z);
-                    p.vertex(v[5].x, v[5].y, v[5].z);
-                    p.vertex(v[4].x, v[4].y, v[4].z);
-                    p.vertex(v[0].x, v[0].y, v[0].z);
-                    p.vertex(v[3].x, v[3].y, v[3].z);
-                    p.vertex(v[7].x, v[7].y, v[7].z);
-                    p.vertex(v[4].x, v[4].y, v[4].z);
-                    p.vertex(v[1].x, v[1].y, v[1].z);
-                    p.vertex(v[2].x, v[2].y, v[2].z);
-                    p.vertex(v[6].x, v[6].y, v[6].z);
-                    p.vertex(v[5].x, v[5].y, v[5].z);
-                    p.endShape();
-                    p.push();
-                    p.fill(p.red(j.color) * 0.8, p.green(j.color) * 0.8, p.blue(j.color) * 0.8);
-                    p.translate(0, -h / 2, 0);
-                    p.box(tW + 5, 10, tD + 5);
-                    p.pop();
+                    p.quad(
+                        -tW / 2, -h / 2,
+                         tW / 2, -h / 2,
+                         bW / 2,  h / 2,
+                        -bW / 2,  h / 2
+                    );
+                    
+                    // Mud is drawn before the rim so it appears inside
+                    p.noStroke();
+                    p.imageMode(p.CENTER);
+                    p.image(mudTexture, 0, -h/2 + 2.5, tW - 10, 15);
+                    p.imageMode(p.CORNER);
 
-                    p.push();
-                    p.texture(mudTexture);
-                    p.translate(0, -h / 2 + 7, 0);
-                    p.box(tW - 5, 5, tD - 5);
-                    p.pop();
+                    // Rim
+                    p.stroke(87, 55, 26);
+                    p.strokeWeight(2);
+                    p.fill(p.red(j.color) * 0.8, p.green(j.color) * 0.8, p.blue(j.color) * 0.8);
+                    p.rect(0, -h/2 - 5, tW + 5, 10);
 
                     p.pop();
                 });
             }
 
             function generateBrickTexture(pg) {
-                const bW = 60,
-                    bH = 25,
-                    m = 6;
+                const bW = 60, bH = 25, m = 6;
                 pg.background(180, 160, 150);
                 pg.fill(210, 105, 30);
                 pg.noStroke();
@@ -524,75 +522,131 @@
                     }
                 }
             }
-
+            
             function generateMudTexture(pg) {
+                // More realistic mud texture using Perlin noise
+                const darkMud = p.color(60, 40, 30); // Dark, wet mud
+                const lightMud = p.color(110, 80, 60); // Lighter, dry mud
+                const detailColor = p.color(40, 25, 20, 180); // for small specks
+
                 pg.background(92, 64, 51);
                 pg.noStroke();
-                for (let i = 0; i < 200; i++) {
+                // Create a base noise pattern by layering semi-transparent ellipses
+                for (let i = 0; i < 5000; i++) {
                     const x = pg.random(pg.width);
                     const y = pg.random(pg.height);
-                    const size = pg.random(10, 25);
-                    const c = p.color(p.random(70, 90), p.random(40, 60), p.random(30, 50), 150);
-                    pg.fill(c);
+                    // Get a noise value for the current position
+                    const noiseVal = p.noise(x * 0.05, y * 0.05);
+                    // Lerp the color based on the noise value
+                    const mudColor = p.lerpColor(darkMud, lightMud, noiseVal);
+                    mudColor.setAlpha(150); // Use alpha for soft blending
+                    pg.fill(mudColor);
+                    pg.ellipse(x, y, pg.random(10, 30));
+                }
+
+                // Add some extra detail like small clumps or pebbles
+                for (let i = 0; i < 300; i++) {
+                    const x = pg.random(pg.width);
+                    const y = pg.random(pg.height);
+                    const size = pg.random(1, 4);
+                    pg.fill(detailColor);
                     pg.ellipse(x, y, size, size);
                 }
             }
-
+            
             function drawTrellis() {
                 p.push();
                 p.fill(139, 69, 19);
                 p.stroke(87, 55, 26);
-                p.strokeWeight(1);
-                const sW = 20,
-                    sD = 15;
-                verticalSlatsX.forEach(x => {
-                    p.push();
-                    p.translate(x, 0, 0);
-                    p.box(sW, p.height, sD);
-                    p.pop();
-                });
+                p.strokeWeight(2);
+                const sW = 10; // Made trellis thinner
+                
                 horizontalSlatsY.forEach(y => {
-                    p.push();
-                    p.translate(0, y, sD / 2);
-                    p.box(p.width, sW, sD);
-                    p.pop();
+                    p.rect(0, y, trellisWidth, sW);
+                });
+                verticalSlatsX.forEach(x => {
+                    p.rect(x, 0, sW, p.height);
                 });
                 p.pop();
             }
 
+            function drawHooks() {
+                for (const tool of gardenTools) {
+                    p.push();
+                    p.stroke(0); // Changed hook color to black
+                    p.strokeWeight(3);
+                    p.noFill();
+                    
+                    if (tool.hangingDirection === 'h') {
+                        const hookY = findClosest(tool.pos.y, horizontalSlatsY);
+                        p.arc(tool.pos.x, hookY + 4, 10, 10, p.PI, p.TWO_PI);
+                        p.line(tool.pos.x, hookY - 5, tool.pos.x, hookY + 4);
+                    } else { // 'v'
+                        const hookX = findClosest(tool.pos.x, verticalSlatsX);
+                        p.arc(hookX + 4, tool.pos.y, 10, 10, p.HALF_PI, p.PI + p.HALF_PI);
+                        p.line(hookX - 5, tool.pos.y, hookX + 4, tool.pos.y);
+                    }
+                    p.pop();
+                }
+            }
+
+            // --- CLASSES ---
             class FigVine {
                 constructor(startPos, startGridC, startGridR) {
-                    this.head = startPos;
-                    this.path = [startPos.copy()];
+                    this.soilPoint = startPos.copy();
+                    this.head = this.soilPoint.copy();
+                    this.path = [this.soilPoint.copy()];
+                    
+                    this.isSprouting = true;
+                    this.sproutTargetY = findClosest(this.soilPoint.y, horizontalSlatsY);
+                    
                     this.velocity = p.createVector();
                     this.acceleration = p.createVector();
                     this.maxSpeed = 2.5;
                     this.maxForce = 0.3;
                     this.lastDirection = 'vertical';
                     this.visitedSegments = new Set();
-                    this.currentGridNode = {
-                        c: startGridC,
-                        r: startGridR
-                    };
+                    this.currentGridNode = { c: startGridC, r: startGridR };
                 }
 
                 update(obstacles, target) {
                     if (gameState !== 'playing') return;
 
+                    if (this.isSprouting) {
+                        this.head.y -= 1.5; // Grow upwards at a constant speed
+                        this.path.push(this.head.copy());
+                        if (this.head.y <= this.sproutTargetY) {
+                            this.head.y = this.sproutTargetY; // Snap to final position
+                            this.isSprouting = false;
+                            // Update the grid node now that we've landed on a slat
+                            this.currentGridNode.r = horizontalSlatsY.indexOf(this.sproutTargetY);
+                        }
+                        return; // Don't do anything else while sprouting
+                    }
+
                     const planter = endJardiniere;
                     const planterWidth = 70;
-                    const planterHeight = 50; // Adjusted height
-                    const winZoneLeft = planter.pos.x - planterWidth / 2;
-                    const winZoneTop = planter.pos.y - planterHeight / 2;
-                    const winZoneBottom = planter.pos.y + planterHeight / 2;
+                    const planterHeight = 50;
+                    const mudWidth = planterWidth - 5;
+                    const mudHeight = 15;
+                    const mudCenterY = planter.pos.y - planterHeight / 2 - 2;
 
-                    if (this.head.x >= winZoneLeft && this.head.y > winZoneTop && this.head.y < winZoneBottom) {
+                    const winZoneLeft = planter.pos.x - mudWidth / 2;
+                    const winZoneRight = planter.pos.x + mudWidth / 2;
+                    const winZoneTop = mudCenterY - mudHeight / 2;
+                    const winZoneBottom = mudCenterY + mudHeight / 2;
+
+                    if (this.head.x >= winZoneLeft && this.head.x <= winZoneRight && this.head.y >= winZoneTop && this.head.y <= winZoneBottom) {
                         setGameState('won');
                         return;
                     }
 
-                    this.checkCollision(obstacles);
-                    if (gameState === 'lost') return;
+                    for (const obs of obstacles) {
+                        if (obs.checkCollision(this.head)) {
+                            setGameState('lost');
+                            return;
+                        }
+                    }
 
                     const cVX_head = findClosest(this.head.x, verticalSlatsX);
                     const cVY_head = findClosest(this.head.y, horizontalSlatsY);
@@ -602,10 +656,7 @@
 
                     if (atIntersection && (headC !== this.currentGridNode.c || headR !== this.currentGridNode.r)) {
                         const prevNode = this.currentGridNode;
-                        const currentNode = {
-                            c: headC,
-                            r: headR
-                        };
+                        const currentNode = { c: headC, r: headR };
                         const segStr1 = `${prevNode.c},${prevNode.r}-${currentNode.c},${currentNode.r}`;
                         const segStr2 = `${currentNode.c},${currentNode.r}-${prevNode.c},${prevNode.r}`;
                         this.visitedSegments.add(segStr1 < segStr2 ? segStr1 : segStr2);
@@ -619,7 +670,7 @@
                     const closestMouseSlatY = findClosest(target.y, horizontalSlatsY);
 
                     if (this.lastDirection === 'vertical') {
-                        snappedTarget = p.createVector(closestVineSlatX, target.y, this.head.z);
+                        snappedTarget = p.createVector(closestVineSlatX, target.y);
                         if (atIntersection && closestMouseSlatX !== closestVineSlatX) {
                             const nextC = verticalSlatsX.indexOf(closestMouseSlatX);
                             const nextR = this.currentGridNode.r;
@@ -627,11 +678,11 @@
                             const segStr2 = `${nextC},${nextR}-${this.currentGridNode.c},${this.currentGridNode.r}`;
                             if (!this.visitedSegments.has(segStr1 < segStr2 ? segStr1 : segStr2)) {
                                 this.lastDirection = 'horizontal';
-                                snappedTarget = p.createVector(target.x, closestVineSlatY, this.head.z);
+                                snappedTarget = p.createVector(target.x, closestVineSlatY);
                             }
                         }
                     } else {
-                        snappedTarget = p.createVector(target.x, closestVineSlatY, this.head.z);
+                        snappedTarget = p.createVector(target.x, closestVineSlatY);
                         if (atIntersection && closestMouseSlatY !== closestVineSlatY) {
                             const nextC = this.currentGridNode.c;
                             const nextR = horizontalSlatsY.indexOf(closestMouseSlatY);
@@ -639,31 +690,35 @@
                             const segStr2 = `${nextC},${nextR}-${this.currentGridNode.c},${this.currentGridNode.r}`;
                             if (!this.visitedSegments.has(segStr1 < segStr2 ? segStr1 : segStr2)) {
                                 this.lastDirection = 'vertical';
-                                snappedTarget = p.createVector(closestVineSlatX, target.y, this.head.z);
+                                snappedTarget = p.createVector(closestVineSlatX, target.y);
                             }
                         }
                     }
+                    
+                    // Constrain the target to the trellis boundaries
+                    snappedTarget.x = p.constrain(snappedTarget.x, verticalSlatsX[0], verticalSlatsX[verticalSlatsX.length - 1]);
+                    snappedTarget.y = p.constrain(snappedTarget.y, horizontalSlatsY[0], horizontalSlatsY[horizontalSlatsY.length - 1]);
+
 
                     let finalTarget = this.seek(snappedTarget);
                     this.applyForce(finalTarget);
                     this.velocity.add(this.acceleration);
                     this.velocity.limit(this.maxSpeed);
-                    this.head.add(this.velocity);
                     this.acceleration.mult(0);
+                    
+                    const distanceToTarget = this.head.dist(snappedTarget);
 
-                    if (this.velocity.mag() > 0.1) {
-                        this.path.push(this.head.copy());
-                    }
-                }
-
-                checkCollision(obstacles) {
-                    for (let obs of obstacles) {
-                        if (this.head.dist(obs.pos) < p.max(obs.width, obs.height) / 2.5) {
-                            setGameState('lost');
-                            return;
+                    // Only add to the path and move if the vine hasn't reached the target.
+                    // This allows the vine to "catch up" if the mouse stops moving.
+                    if (distanceToTarget > 1) { // A small threshold to prevent jiggling
+                        this.head.add(this.velocity);
+                        if (this.velocity.mag() > 0.1) {
+                            this.path.push(this.head.copy());
                         }
                     }
                 }
+
+                
                 applyForce(force) {
                     this.acceleration.add(force);
                 }
@@ -675,238 +730,302 @@
                     return steer;
                 }
 
-                draw() {
+                draw(leavesOnly = false) {
                     const wrapThreshold = 10;
-                    const wrapAmplitude = 8;
+                    const wrapAmplitude = 12; 
                     const wrapFrequency = 0.1;
 
-                    p.push();
-                    p.stroke(40, 26, 13);
-                    p.strokeWeight(8);
-                    p.noFill();
-                    p.beginShape();
-                    for (let v of this.path) {
-                        let finalX = v.x;
-                        let finalY = v.y;
-                        let finalZ = v.z;
-                        let wrapped = false;
-
-                        for (let x_pole of verticalSlatsX) {
-                            if (p.abs(v.x - x_pole) < wrapThreshold) {
-                                const angle = v.y * wrapFrequency;
-                                finalX = x_pole + p.cos(angle) * wrapAmplitude;
-                                finalZ = v.z + p.sin(angle) * wrapAmplitude;
-                                wrapped = true;
-                                break;
-                            }
-                        }
-
-                        if (!wrapped) {
-                            for (let y_pole of horizontalSlatsY) {
-                                if (p.abs(v.y - y_pole) < wrapThreshold) {
-                                    const angle = v.x * wrapFrequency;
-                                    finalY = y_pole + p.cos(angle) * wrapAmplitude;
-                                    finalZ = v.z + p.sin(angle) * wrapAmplitude;
-                                    break;
-                                }
-                            }
-                        }
-                        p.vertex(finalX, finalY, finalZ);
-                    }
-                    p.endShape();
-                    p.pop();
-
-                    p.push();
-                    p.fill(0, 100, 0);
-                    p.noStroke();
-                    for (let i = 10; i < this.path.length; i += 15) {
-                        const point = this.path[i];
-                        let finalX = point.x;
-                        let finalY = point.y;
-                        let finalZ = point.z + 2;
-                        let wrapped = false;
-
-                        for (let x_pole of verticalSlatsX) {
-                            if (p.abs(point.x - x_pole) < wrapThreshold) {
-                                const angle = point.y * wrapFrequency;
-                                finalX = x_pole + p.cos(angle) * wrapAmplitude;
-                                finalZ = point.z + 2 + p.sin(angle) * wrapAmplitude;
-                                wrapped = true;
-                                break;
-                            }
-                        }
-
-                        if (!wrapped) {
-                            for (let y_pole of horizontalSlatsY) {
-                                if (p.abs(point.y - y_pole) < wrapThreshold) {
-                                    const angle = point.x * wrapFrequency;
-                                    finalY = y_pole + p.cos(angle) * wrapAmplitude;
-                                    finalZ = point.z + 2 + p.sin(angle) * wrapAmplitude;
-                                    break;
-                                }
-                            }
-                        }
-
+                    if (!leavesOnly) {
                         p.push();
-                        p.translate(finalX, finalY, finalZ);
-                        p.rotateZ(p.noise(i * 0.1) * p.TWO_PI);
-                        p.ellipse(0, -7, 12, 18);
+                        p.stroke(40, 26, 13);
+                        p.strokeWeight(8);
+                        p.noFill();
+                        p.beginShape();
+                        for (let i = 0; i < this.path.length; i++) {
+                            const v = this.path[i];
+                            let finalX = v.x;
+                            let finalY = v.y;
+                            let wrapped = false;
+
+                            // Check vertical poles
+                            for (const x_pole of verticalSlatsX) {
+                                if (p.abs(v.x - x_pole) < wrapThreshold) {
+                                    const angle = v.y * wrapFrequency;
+                                    finalX = x_pole + p.cos(angle) * wrapAmplitude;
+                                    wrapped = true;
+                                    break;
+                                }
+                            }
+
+                            // Check horizontal poles
+                            if (!wrapped) {
+                                for (const y_pole of horizontalSlatsY) {
+                                    if (p.abs(v.y - y_pole) < wrapThreshold) {
+                                        const angle = v.x * wrapFrequency;
+                                        finalY = y_pole + p.cos(angle) * wrapAmplitude;
+                                        break;
+                                    }
+                                }
+                            }
+                            p.vertex(finalX, finalY);
+                        }
+                        p.endShape();
                         p.pop();
                     }
-                    p.pop();
+
+                    // Draw leaves with the same logic
+                    if (leavesOnly) {
+                        p.push();
+                        p.fill(0, 100, 0);
+                        p.noStroke();
+                        for (let i = 10; i < this.path.length; i += 15) {
+                            const point = this.path[i];
+                            let finalX = point.x;
+                            let finalY = point.y;
+                            let wrapped = false;
+
+                            // Check vertical poles for leaves
+                            for (const x_pole of verticalSlatsX) {
+                                if (p.abs(point.x - x_pole) < wrapThreshold) {
+                                    const angle = point.y * wrapFrequency;
+                                    finalX = x_pole + p.cos(angle) * wrapAmplitude;
+                                    wrapped = true;
+                                    break;
+                                }
+                            }
+
+                            // Check horizontal poles for leaves
+                            if (!wrapped) {
+                                for (const y_pole of horizontalSlatsY) {
+                                    if (p.abs(point.y - y_pole) < wrapThreshold) {
+                                        const angle = point.x * wrapFrequency;
+                                        finalY = y_pole + p.cos(angle) * wrapAmplitude;
+                                        break;
+                                    }
+                                }
+                            }
+                            p.push();
+                            p.translate(finalX, finalY);
+                            p.rotate(p.noise(i * 0.1) * p.TWO_PI);
+                            p.ellipse(0, -7, 15, 22);
+                            p.pop();
+                        }
+                        p.pop();
+                    }
                 }
             }
 
             class GardenTool {
-                constructor(type, x, y, z, rot) {
+                constructor(type, x, y, rot, hangingDirection) {
                     this.type = type;
-                    this.pos = p.createVector(x, y, z);
+                    this.pos = p.createVector(x, y);
                     this.rotation = rot;
+                    this.hangingDirection = hangingDirection;
                     this.handleColor = p.color(222, 184, 135);
-                    this.metalColor = p.color(211, 211, 211);
+                    this.metalColor = p.color(180, 180, 180);
                     this.redColor = p.color(255, 0, 0);
                     this.greenColor = p.color(0, 200, 0);
-                    const scale = 0.7;
+                    const scale = 0.6;
+                    this.scale = scale;
                     switch (type) {
-                        case 'trowel':
-                            this.width = 30 * scale;
-                            this.height = 110 * scale;
-                            break;
-                        case 'rake':
-                            this.width = 60 * scale;
-                            this.height = 120 * scale;
-                            break;
-                        case 'shovel':
-                            this.width = 50 * scale;
-                            this.height = 180 * scale;
-                            break;
-                        case 'pruningShears':
-                            this.width = 40 * scale;
-                            this.height = 80 * scale;
-                            break;
-                        case 'gardenFork':
-                            this.width = 50 * scale;
-                            this.height = 140 * scale;
-                            break;
-                        case 'wateringCan':
-                            this.width = 100 * scale;
-                            this.height = 100 * scale;
-                            break;
-                        default:
-                            this.width = 50 * scale;
-                            this.height = 100 * scale;
+                        case 'trowel': this.width = 30 * scale; this.height = 110 * scale; break;
+                        case 'rake': this.width = 60 * scale; this.height = 120 * scale; break;
+                        case 'shovel': this.width = 50 * scale; this.height = 180 * scale; break;
+                        case 'pruningShears': this.width = 50 * scale; this.height = 80 * scale; break;
+                        case 'gardenFork': this.width = 50 * scale; this.height = 140 * scale; break;
+                        case 'wateringCan': this.width = 100 * scale; this.height = 100 * scale; break;
+                        default: this.width = 50 * scale; this.height = 100 * scale;
                     }
                 }
+                
+                checkOBB(point, center, rotation, width, height) {
+                    const translatedPoint = p5.Vector.sub(point, center);
+                    const rotatedPoint = translatedPoint.copy().rotate(-rotation);
+                    
+                    const halfW = width / 2;
+                    const halfH = height / 2;
+
+                    return (rotatedPoint.x > -halfW && rotatedPoint.x < halfW &&
+                            rotatedPoint.y > -halfH && rotatedPoint.y < halfH);
+                }
+
+                checkCollision(point) {
+                    if (this.type === 'wateringCan') {
+                        const canWidth = 80 * this.scale;
+                        const canHeight = 70 * this.scale;
+                        
+                        // Body check
+                        const bodyHit = this.checkOBB(point, this.pos, this.rotation, canWidth, canHeight);
+
+                        // Spout check (approximated as a rotated rectangle)
+                        const spoutOffset = p.createVector(-50 * this.scale, -20 * this.scale);
+                        const spoutPos = this.pos.copy().add(spoutOffset.copy().rotate(this.rotation));
+                        const spoutHit = this.checkOBB(point, spoutPos, this.rotation - p.PI / 6, 60 * this.scale, 15 * this.scale);
+
+                        // Handle check (approximated as a rectangle)
+                        const handleOffset = p.createVector(0, -60 * this.scale);
+                        const handlePos = this.pos.copy().add(handleOffset.copy().rotate(this.rotation));
+                        const handleHit = this.checkOBB(point, handlePos, this.rotation, 50 * this.scale, 20 * this.scale);
+
+                        return bodyHit || spoutHit || handleHit;
+                    } else if (this.type === 'rake') {
+                        const scale = this.scale;
+                        const handleCenterOffset = p.createVector(0, -30 * scale);
+                        const handleCenter = this.pos.copy().add(handleCenterOffset.copy().rotate(this.rotation));
+                        const handleHit = this.checkOBB(point, handleCenter, this.rotation, 12 * scale, 100 * scale);
+
+                        const headCenterOffset = p.createVector(0, 35 * scale);
+                        const headCenter = this.pos.copy().add(headCenterOffset.copy().rotate(this.rotation));
+                        const headHit = this.checkOBB(point, headCenter, this.rotation, 60 * scale, 32 * scale);
+
+                        return handleHit || headHit;
+                    }
+                    else {
+                        // Standard OBB check for all other tools
+                        return this.checkOBB(point, this.pos, this.rotation, this.width, this.height);
+                    }
+                }
+
                 draw() {
                     p.push();
-                    p.translate(this.pos.x, this.pos.y, this.pos.z);
-                    p.rotateX(p.PI / 12);
-                    p.rotateZ(this.rotation);
-                    p.scale(0.7);
+                    p.translate(this.pos.x, this.pos.y);
+                    p.rotate(this.rotation);
+                    p.scale(this.scale);
+                    p.strokeWeight(2);
+                    p.stroke(50);
                     const t = {
-                        'trowel': this.drawTrowel,
-                        'rake': this.drawRake,
-                        'shovel': this.drawShovel,
-                        'pruningShears': this.drawPruningShears,
-                        'gardenFork': this.drawGardenFork,
+                        'trowel': this.drawTrowel, 'rake': this.drawRake, 'shovel': this.drawShovel,
+                        'pruningShears': this.drawPruningShears, 'gardenFork': this.drawGardenFork,
                         'wateringCan': this.drawWateringCan,
                     };
                     t[this.type].call(this);
                     p.pop();
                 }
                 drawTrowel() {
-                    p.push();
                     p.fill(this.handleColor);
-                    p.noStroke();
-                    p.box(10, 70, 10);
-                    p.translate(0, 35, 0);
+                    p.rect(0, -25, 12, 60);
                     p.fill(this.metalColor);
-                    p.box(30, 40, 4);
-                    p.pop();
+                    p.quad(-15, 5, 15, 5, 10, 45, -10, 45);
                 }
                 drawRake() {
-                    p.push();
                     p.fill(this.handleColor);
-                    p.noStroke();
-                    p.box(12, 100, 12);
-                    p.translate(0, 50, 0);
+                    p.rect(0, -30, 12, 100);
                     p.fill(this.metalColor);
-                    p.box(60, 12, 6);
-                    p.translate(0, 6, 0);
+                    p.rect(0, 25, 60, 12);
                     for (let i = -2; i <= 2; i++) {
-                        p.push();
-                        p.translate(i * 12, 5, 0);
-                        p.box(4, 20, 4);
-                        p.pop();
+                        p.rect(i * 12, 40, 4, 20);
                     }
-                    p.pop();
                 }
                 drawShovel() {
-                    p.push();
                     p.fill(this.handleColor);
                     p.noStroke();
-                    p.box(15, 120, 15);
-                    p.translate(0, 60, 0);
+                    p.rect(0, -40, 15, 120);
+
                     p.fill(this.metalColor);
-                    p.box(50, 60, 5);
-                    p.pop();
+                    p.stroke(140);
+                    p.strokeWeight(2);
+                    p.beginShape();
+                    p.vertex(-25, 20);
+                    p.vertex(25, 20);
+                    p.vertex(15, 80);
+                    p.quadraticVertex(0, 95, -15, 80);
+                    p.endShape(p.CLOSE);
+
+                    // Highlight to suggest curvature
+                    p.noFill();
+                    p.stroke(200);
+                    p.strokeWeight(1.5);
+                    p.line(0, 22, 0, 85);
+
+                    p.stroke(50);
                 }
                 drawPruningShears() {
                     p.push();
+                    if (this.hangingDirection === 'v') {
+                        p.translate(15, 0); 
+                    } else {
+                        p.translate(0, 15); 
+                    }
+                    
                     p.fill(this.redColor);
-                    p.noStroke();
-                    p.push();
-                    p.translate(-8, 0, 0);
-                    p.box(10, 40, 8);
-                    p.pop();
-                    p.push();
-                    p.translate(8, 0, 0);
-                    p.box(10, 40, 8);
-                    p.pop();
+                    p.rect(-10, 0, 10, 40);
+                    p.rect(10, 0, 10, 40);
                     p.fill(this.metalColor);
                     p.push();
-                    p.translate(-8, 25, 0);
-                    p.box(6, 30, 2);
+                    p.translate(-5, 25);
+                    p.rotate(p.PI/8);
+                    p.rect(0,0, 6, 30);
                     p.pop();
                     p.push();
-                    p.translate(8, 25, 0);
-                    p.box(6, 30, 2);
+                    p.translate(5, 25);
+                    p.rotate(-p.PI/8);
+                    p.rect(0,0, 6, 30);
                     p.pop();
                     p.pop();
                 }
                 drawGardenFork() {
-                    p.push();
                     p.fill(this.handleColor);
-                    p.noStroke();
-                    p.box(15, 100, 15);
-                    p.translate(0, 50, 0);
+                    p.rect(0, -30, 15, 100);
                     p.fill(this.metalColor);
-                    p.box(50, 15, 8);
-                    p.translate(0, 7.5, 0);
+                    p.rect(0, 27.5, 50, 15);
                     for (let i = -1; i <= 1; i++) {
-                        p.push();
-                        p.translate(i * 15, 10, 0);
-                        p.box(5, 40, 5);
-                        p.pop();
+                        p.rect(i * 15, 50, 5, 40);
                     }
-                    p.pop();
                 }
                 drawWateringCan() {
-                    p.push();
-                    p.fill(this.greenColor);
+                    // Use metal color for the new can
+                    const canWidth = 80;
+                    const canHeight = 70;
+                    const cornerRadius = 10;
+                    p.fill(this.metalColor);
+                    const darkerMetal = p.color(150);
+                    p.stroke(darkerMetal);
+                    p.strokeWeight(2);
+
+                    // Main Body - Square type
+                    p.rect(0, 0, canWidth, canHeight, cornerRadius);
+
+                    // Shading on body
                     p.noStroke();
-                    p.cylinder(40, 80);
-                    p.push();
-                    p.translate(0, -30, 40);
-                    p.rotateX(-p.PI / 4);
-                    p.cylinder(10, 60);
-                    p.pop();
-                    p.push();
-                    p.translate(0, 0, -45);
-                    p.rotateX(p.PI / 2);
-                    p.torus(30, 8);
-                    p.pop();
-                    p.pop();
+                    p.fill(darkerMetal);
+                    p.rect(-canWidth / 4, 0, canWidth / 2, canHeight, cornerRadius);
+                    p.stroke(darkerMetal);
+                    p.strokeWeight(2);
+
+                    // Top Rim
+                    p.fill(this.metalColor);
+                    p.rect(0, -canHeight / 2, canWidth, 10, 5);
+                    
+                    // Opening
+                    p.noStroke();
+                    p.fill(50); // Dark color for opening
+                    p.rect(0, -canHeight / 2, canWidth - 10, 6, 3);
+
+                    // Spout
+                    p.noFill();
+                    p.stroke(this.metalColor);
+                    p.strokeWeight(10);
+                    p.beginShape();
+                    p.vertex(-canWidth / 2, 15);
+                    p.bezierVertex(-70, -30, -80, -50, -60, -50);
+                    p.endShape();
+
+                    // Rose (sprinkler head)
+                    p.fill(this.metalColor);
+                    p.stroke(darkerMetal);
+                    p.ellipse(-60, -50, 20, 20);
+
+                    // Top Handle
+                    p.noFill();
+                    p.stroke(this.metalColor);
+                    p.strokeWeight(8);
+                    p.beginShape();
+                    p.vertex(-25, -canHeight / 2 - 5);
+                    p.bezierVertex(-30, -80, 30, -80, 25, -canHeight / 2 - 5);
+                    p.endShape();
+                    
+                    // Reset stroke for other tools
+                    p.stroke(50);
                 }
             }
         };

@@ -3,36 +3,105 @@
 
 <head>
     <meta charset="utf-8" />
+    <title>Frisbee Alley Simulation</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ultimate Frisbee Alley Simulation</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
-            margin: 0;         
+            margin: 0;
+            padding: 1rem;
             display: flex;
             flex-direction: column;
-            justify-content: center;
             align-items: center;
-            height: 100vh;
-            background-color: #1a1a1a; /* Dark background for better contrast */
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #1a1a1a;
+            color: #ffffff;
             font-family: 'Roboto Mono', monospace;
-            color: #e0e0e0;
+            text-align: center;
+        }
+
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        @media (min-width: 800px) {
+            #main-container {
+                flex-direction: row;
+                align-items: flex-start;
+                gap: 2rem;
+            }
         }
 
         #canvas-container {
             position: relative;
-            border: 2px solid #555; /* Slightly lighter border */
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-            background-color: #2c2c2c; /* Alley background */
+            border: 2px solid #444;
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.3);
+            background-color: #000;
+            cursor: pointer;
         }
 
-        #instructions {
-            margin-top: 20px;
-            font-size: 1em;
-            color: #aaa;
-            padding: 5px 10px;
-            border-radius: 5px;
-            background-color: #2c2c2c;
+        canvas {
+            display: block;
+        }
+
+        h1 {
+            color: #eee;
+            margin-bottom: 0.5rem;
+            font-weight: 400;
+        }
+
+        p {
+             color: #aaa;
+             margin-top: 0;
+             margin-bottom: 0.5rem;
+        }
+
+        #info-card {
+            flex-basis: 300px;
+            max-width: 300px;
+            padding: 0.5rem 1rem;
+            border: 1px solid #333;
+            background-color: #222;
+            border-radius: 8px;
+            text-align: left;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.4);
+        }
+
+        #info-card h2 {
+            color: #00ffff;
+            font-size: 1.1em;
+            font-weight: 700;
+            margin-top: 0.5rem;
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid #444;
+            padding-bottom: 0.5rem;
+        }
+
+        #info-card ul {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+
+        #info-card li {
+            margin-bottom: 0.75rem;
+            line-height: 1.4;
+        }
+
+        #info-card strong {
+            color: #eee;
+            font-weight: 700;
+            font-size: 0.9em;
+        }
+
+        #info-card p {
+            color: #bbb;
+            margin: 0;
+            font-size: 0.85em;
         }
     </style>
     <script type="importmap">
@@ -42,192 +111,283 @@
             }
         }
     </script>
-
 </head>
 
 <body>
-    <div id="canvas-container">
+    <h1>Frisbee Alley Simulation</h1>
+    <p>Click on the canvas to throw the frisbee again.</p>
+
+    <div id="main-container">
+        <div id="canvas-container"></div>
+
+        <div id="info-card">
+            <h2>How It Works</h2>
+            <ul>
+                <li>
+                    <strong>Curve (Magnus Effect):</strong>
+                    <p>Spin creates pressure differences, causing the frisbee to curve left or right.</p>
+                </li>
+                <li>
+                    <strong>Drag (Air Resistance):</strong>
+                    <p>Air resistance opposes motion, slowing the frisbee down, especially at high speeds.</p>
+                </li>
+                <li>
+                    <strong>Height & Shadow:</strong>
+                    <p>A simulated height with gravity affects the frisbee's size and its shadow's position.</p>
+                </li>
+                 <li>
+                    <strong>Wall Collision:</strong>
+                    <p>Hitting a wall reduces speed and spin, creating a bounce effect.</p>
+                </li>
+            </ul>
+        </div>
     </div>
-    <div id="instructions">Click inside the alley to throw the frisbee</div>
+
     <script type="module">
         import p5 from 'p5';
 
         const sketch = (p) => {
 
             let frisbee;
-            // Define alley dimensions relative to window size
-            const alleyWidth = p.windowWidth * 0.7;
-            const alleyHeight = p.windowHeight * 0.5;
-            const narrownessFactor = 0.4; // How narrow the alley is relative to its height
+            const alleyWidth = 250;
+            const canvasHeight = 650;
+            const canvasWidth = 400;
 
-            // Physics constants
-            const gravity = p.createVector(0, 0.08); // A gentle gravity
-            const liftCoefficient = 0.0012; // How much lift is generated by spin
-            const dragCoefficient = 0.0002;  // How much air resistance
-            const wallDamping = 0.1;      // Energy lost on wall impact
+            // --- Array to store brick colors so they don't change ---
+            let brickColors = [];
+            const brickHeight = 18;
+            const brickWidth = 45;
 
-            /**
-             * Represents the frisbee, handling its physics and drawing.
-             */
+            // --- Function to draw brick walls with consistent colors and no clipping ---
+            const drawBrickWalls = (leftWallX, rightWallX) => {
+                const mortarColor = p.color(45, 45, 45);
+                
+                // Draw the mortar background first
+                p.noStroke();
+                p.fill(mortarColor);
+                p.rect(0, 0, leftWallX, canvasHeight);
+                p.rect(rightWallX, 0, canvasWidth - rightWallX, canvasHeight);
+
+                const numRows = p.ceil(canvasHeight / brickHeight);
+                const numCols = p.ceil(canvasWidth / brickWidth);
+
+                // Draw the bricks on top of the mortar
+                for (let i = 0; i < numRows; i++) {
+                    const y = i * brickHeight;
+                    const isStaggeredRow = i % 2 === 1;
+                    const offsetX = isStaggeredRow ? -brickWidth / 2 : 0;
+                    
+                    for (let j = 0; j < numCols + 1; j++) {
+                        const x = j * brickWidth + offsetX;
+                        
+                        // Use the pre-generated color for this brick
+                        const colorIndex = i * (numCols + 1) + j;
+                        if (brickColors[colorIndex]) {
+                            p.fill(brickColors[colorIndex]);
+                        } else {
+                            // Fallback in case something goes wrong
+                            p.fill(130, 65, 50);
+                        }
+
+                        // --- Left Wall Bricks (with clipping logic) ---
+                        if (x < leftWallX) {
+                            const drawX = Math.max(0, x);
+                            const drawWidth = Math.min(x + brickWidth, leftWallX) - drawX;
+                            if (drawWidth > 0) {
+                                p.rect(drawX, y, drawWidth, brickHeight - 1);
+                            }
+                        }
+
+                        // --- Right Wall Bricks (with clipping logic) ---
+                        if (x + brickWidth > rightWallX) {
+                             const drawX = Math.max(x, rightWallX);
+                             const drawWidth = Math.min(x + brickWidth, canvasWidth) - drawX;
+                             if (drawWidth > 0) {
+                                p.rect(drawX, y, drawWidth, brickHeight - 1);
+                             }
+                        }
+                    }
+                }
+            };
+            
             class Frisbee {
-                constructor() {
-                   this.reset();
+                constructor(x, y) {
+                    this.reset(x, y);
                 }
 
-                /**
-                 * Resets the frisbee to its initial state for a new throw.
-                 */
-                reset() {
-                    this.position = p.createVector(50, p.height / 2);
-                    // Initial velocity from the throw
-                    const initialThrowSpeed = p.random(9, 13);
-                    const initialUpwardVelocity = p.random(-2.5, 2.5);
-                    this.velocity = p.createVector(initialThrowSpeed, initialUpwardVelocity);
+                reset(x, y) {
+                    this.position = p.createVector(x, y);
+                    this.velocity = p.createVector(p.random(-4, 4), -38);
                     this.acceleration = p.createVector(0, 0);
-                    
-                    this.mass = 0.175; // Mass in kg (influences acceleration)
-                    this.radius = 25;
-                    
-                    // Spin is crucial for the hover/lift effect
-                    this.spin = p.random(20, 30); // Represents angular velocity
-                    this.spinDecay = 0.996; // Spin gradually decreases over time
-                    this.angle = 0; // For visualizing the spin
+                    this.mass = 0.175;
+                    this.baseRadius = 25;
+                    this.angle = 0;
+                    this.spin = 5;
+                    this.spinDirection = p.random() < 0.5 ? 1 : -1;
+                    this.dragCoefficient = 0.0005;
+                    this.curveCoefficient = 0.02;
+                    this.height = 35;
+                    this.verticalVelocity = 0;
+                    this.zGravity = 0.0001;
                 }
 
-                /**
-                 * Applies a force vector to the frisbee's acceleration.
-                 * @param {p5.Vector} force - The force to apply.
-                 */
                 applyForce(force) {
-                    // Newton's second law: F = m * a  => a = F / m
                     let f = p5.Vector.div(force, this.mass);
                     this.acceleration.add(f);
                 }
 
-                /**
-                 * Updates the frisbee's state for the current frame.
-                 */
                 update() {
-                    // --- 1. Calculate Physics Forces ---
-                    const speed = this.velocity.mag();
-
-                    // Drag Force (Air Resistance): F_drag = -C * v^2 * û
-                    // Opposes the direction of velocity.
-                    if (speed > 0) {
-                        let dragMagnitude = dragCoefficient * speed * speed;
-                        let drag = this.velocity.copy();
-                        drag.mult(-1);
-                        drag.normalize();
-                        drag.mult(dragMagnitude);
+                    let speed = this.velocity.mag();
+                    if (speed > 0.1) {
+                        let dragMagnitude = this.dragCoefficient * speed * speed;
+                        let drag = this.velocity.copy().mult(-1).normalize().mult(dragMagnitude);
                         this.applyForce(drag);
                     }
 
-                    // Lift Force: F_lift is proportional to spin and forward velocity.
-                    // In this 2D side-view, lift directly opposes gravity.
-                    let liftMagnitude = this.spin * speed * liftCoefficient;
-                    let lift = p.createVector(0, -liftMagnitude);
-                    this.applyForce(lift);
-                    
-                    // Gravity Force
-                    this.applyForce(gravity);
+                    if (this.height > 1) {
+                        let curveForce = this.velocity.copy().rotate(p.HALF_PI * this.spinDirection);
+                        let curveMagnitude = this.spin * this.curveCoefficient * (speed / 10);
+                        curveForce.setMag(curveMagnitude);
+                        this.applyForce(curveForce);
+                    }
 
-                    // --- 2. Update Motion (Kinematics) ---
                     this.velocity.add(this.acceleration);
                     this.position.add(this.velocity);
-                    this.acceleration.mult(0); // Reset acceleration for the next frame's calculations
+                    this.acceleration.mult(0);
 
-                    // --- 3. Update Spin ---
-                    this.spin *= this.spinDecay; // Spin decreases over time
-                    this.angle += this.spin / 10; // Update visual rotation angle
-                }
+                    this.height += this.verticalVelocity;
+                    this.verticalVelocity -= this.zGravity;
 
-                /**
-                 * Checks for and handles collisions with the alley walls.
-                 */
-                checkEdges() {
-                    // Bounce off top and bottom walls
-                    if (this.position.y > p.height - this.radius) {
-                        this.position.y = p.height - this.radius;
-                        this.velocity.y *= -wallDamping; // Reverse and dampen y-velocity
-                    } else if (this.position.y < this.radius) {
-                        this.position.y = this.radius;
-                        this.velocity.y *= -wallDamping;
+                    if (this.height <= 0) {
+                        this.height = 0;
+                        this.verticalVelocity = 0;
+                        this.velocity.mult(0.95);
+                        this.spin *= 0.9;
                     }
 
-                    // Bounce off the right wall (end of the alley)
-                    if (this.position.x > p.width - this.radius) {
-                        this.position.x = p.width - this.radius;
-                        this.velocity.x *= -wallDamping; // Reverse and dampen x-velocity
-                    }
+                    this.angle += this.spin / 10 * this.spinDirection;
+                    this.spin *= 0.985;
                 }
-                
-                /**
-                 * Renders the frisbee on the canvas.
-                 */
+
                 display() {
+                    let displayRadius = this.baseRadius * (1 + this.height / 75);
+                    let shadowOffset = p.createVector(this.height * 1.5, this.height * 1.5);
+                    let shadowX = this.position.x - shadowOffset.x;
+                    let shadowY = this.position.y - shadowOffset.y;
+                    let shadowAlpha = p.map(this.height, 0, 40, 60, 0, true);
+                    let shadowWidth = displayRadius * p.map(this.height, 0, 40, 1, 0.8, true);
+
+                    p.noStroke();
+                    p.fill(0, shadowAlpha);
+                    p.ellipse(shadowX, shadowY, shadowWidth, shadowWidth * 0.8);
+
+                    let glowAlpha = p.map(this.height, 0, 40, 60, 100, true);
+                    p.fill(0, 255, 255, glowAlpha / 2);
+                    p.ellipse(this.position.x, this.position.y, displayRadius * 2 + 15, displayRadius * 2 + 15);
+                    p.fill(0, 255, 255, glowAlpha);
+                    p.ellipse(this.position.x, this.position.y, displayRadius * 2 + 5, displayRadius * 2 + 5);
+
                     p.push();
                     p.translate(this.position.x, this.position.y);
                     p.rotate(this.angle);
-                    p.stroke(255, 255, 0); // Bright yellow outline
+
+                    p.fill(0, 200, 200);
+                    p.ellipse(0, 0, displayRadius * 2, displayRadius * 2);
+                    p.fill(0, 150, 150);
+                    p.ellipse(0, 0, displayRadius * 1.6, displayRadius * 1.6);
+                    p.stroke(0, 255, 255, 150);
                     p.strokeWeight(2);
-                    p.fill(200, 200, 0, 180); // Semi-transparent yellow fill
-                    p.ellipse(0, 0, this.radius * 2, this.radius * 2);
-                    // Add a line to show rotation
-                    p.stroke(255, 100, 100);
-                    p.line(0, 0, this.radius, 0);
+                    p.line(-displayRadius * 0.8, 0, displayRadius * 0.8, 0);
+
                     p.pop();
+                }
+
+                checkEdges() {
+                    const leftWall = (canvasWidth - alleyWidth) / 2;
+                    const rightWall = (canvasWidth + alleyWidth) / 2;
+
+                    if (this.position.x + this.baseRadius > rightWall) {
+                        this.position.x = rightWall - this.baseRadius;
+                        this.velocity.x *= -0.9;
+                        this.spin *= 0.85;
+                        if (this.height > 0) this.verticalVelocity = -0.2;
+                    } else if (this.position.x - this.baseRadius < leftWall) {
+                        this.position.x = leftWall + this.baseRadius;
+                        this.velocity.x *= -0.9;
+                        this.spin *= 0.85;
+                        if (this.height > 0) this.verticalVelocity = -0.2;
+                    }
+
+                    if (this.position.y < -this.baseRadius * 2) {
+                        this.reset(canvasWidth / 2, canvasHeight - 40);
+                    }
                 }
             }
 
-            /**
-             * p5.js setup function. Runs once at the beginning.
-             */
             p.setup = () => {
-                const canvas = p.createCanvas(alleyWidth, alleyHeight * narrownessFactor);
-                canvas.parent('canvas-container');
-                frisbee = new Frisbee();
+                const container = window.document.getElementById('canvas-container');
+                let canvas = p.createCanvas(canvasWidth, canvasHeight);
+                canvas.parent(container);
+
+                p.ellipseMode(p.CENTER);
+                p.angleMode(p.RADIANS);
+                p.frameRate(60);
+
+                // --- Generate and store brick colors ONCE ---
+                const baseBrickColor = p.color(130, 65, 50);
+                const numRows = p.ceil(canvasHeight / brickHeight);
+                const numCols = p.ceil(canvasWidth / brickWidth);
+                for (let i = 0; i < numRows * (numCols + 1); i++) {
+                    const c = p.color(
+                        p.red(baseBrickColor) + p.random(-15, 15),
+                        p.green(baseBrickColor) + p.random(-10, 10),
+                        p.blue(baseBrickColor) + p.random(-10, 10)
+                    );
+                    brickColors.push(c);
+                }
+
+                frisbee = new Frisbee(canvasWidth / 2, canvasHeight - 40);
             };
 
-            /**
-             * p5.js draw function. Runs in a loop.
-             */
             p.draw = () => {
-                p.background(44, 44, 44); // Dark grey alley color
+                p.background(10, 10, 15); // Dark blue-ish alley floor
+
+                const leftWallX = (canvasWidth - alleyWidth) / 2;
+                const rightWallX = (canvasWidth + alleyWidth) / 2;
+
+                // Call the function to draw the brick walls
+                drawBrickWalls(leftWallX, rightWallX);
                 
-                // Draw alley walls for visual context
-                p.noStroke();
-                p.fill(30, 30, 30);
-                p.rect(0, 0, p.width, frisbee.radius); // Top wall area
-                p.rect(0, p.height - frisbee.radius, p.width, frisbee.radius); // Bottom wall area
+                // Draw gradients on top of the bricks for a lighting effect
+                let wallGradientLeft = p.drawingContext.createLinearGradient(leftWallX, 0, leftWallX + 25, 0);
+                wallGradientLeft.addColorStop(0, "rgba(0, 0, 0, 0.7)");
+                wallGradientLeft.addColorStop(1, "rgba(0, 0, 0, 0)");
+                p.drawingContext.fillStyle = wallGradientLeft;
+                p.rect(leftWallX, 0, 25, canvasHeight);
 
-                frisbee.update();
-                frisbee.checkEdges();
-                frisbee.display();
-            };
+                let wallGradientRight = p.drawingContext.createLinearGradient(rightWallX - 25, 0, rightWallX, 0);
+                wallGradientRight.addColorStop(0, "rgba(0, 0, 0, 0)");
+                wallGradientRight.addColorStop(1, "rgba(0, 0, 0, 0.7)");
+                p.drawingContext.fillStyle = wallGradientRight;
+                p.rect(rightWallX - 25, 0, 25, canvasHeight);
 
-            /**
-             * Handles mouse press events to throw the frisbee.
-             */
-            p.mousePressed = () => {
-                // Only reset if the click is within the canvas bounds
-                if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
-                    frisbee.reset();
+                if (frisbee) {
+                    frisbee.update();
+                    frisbee.checkEdges();
+                    frisbee.display();
                 }
             };
-            
-            /**
-             * Handles window resize events.
-             */
-            p.windowResized = () => {
-                const newWidth = p.windowWidth * 0.7;
-                const newHeight = p.windowHeight * 0.5 * narrownessFactor;
-                p.resizeCanvas(newWidth, newHeight);
-                frisbee.reset(); // Reset on resize to prevent weird physics
+
+            p.mousePressed = () => {
+                if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
+                    if (frisbee) {
+                        frisbee.reset(canvasWidth / 2, canvasHeight - 40);
+                    }
+                }
             }
         };
 
-        const container = window.document.getElementById('canvas-container');
-        new p5(sketch, container);
+        new p5(sketch, window.document.getElementById('canvas-container'));
 
     </script>
 </body>
