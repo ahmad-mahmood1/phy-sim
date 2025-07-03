@@ -191,14 +191,37 @@
             class Ball {
                 constructor() {
                     this.radius = 12;
-                    this.position = p.createVector(0, 0); 
+                    this.position = p.createVector(0, 0);
+                    this.rotation = 0;
+                    this.rotationSpeed = 0.08; // Controls how fast the ball spins
+                }
+
+                update() {
+                    // Update rotation for the spinning effect
+                    this.rotation += this.rotationSpeed;
                 }
 
                 display(pos) {
                     this.position = pos;
+                    p.push(); // Save the current drawing state
+
+                    // Move the origin to the ball's position and rotate
+                    p.translate(this.position.x, this.position.y);
+                    p.rotate(this.rotation);
+
                     p.noStroke();
-                    p.fill(255, 230, 100); // Yellowish ball for better visibility
-                    p.ellipse(this.position.x, this.position.y, this.radius * 2);
+                    
+                    // Main ball color
+                    p.fill(255, 230, 100); // Yellowish ball
+                    p.ellipse(0, 0, this.radius * 2);
+
+                    // Add a more prominent texture
+                    p.fill(220, 50, 50, 220); // A contrasting red for the dots
+                    let dotRadius = this.radius * 0.35; // Larger dots
+                    p.ellipse(this.radius * 0.4, 0, dotRadius, dotRadius);
+                    p.ellipse(-this.radius * 0.4, 0, dotRadius, dotRadius);
+                    
+                    p.pop(); // Restore the original drawing state
                 }
             }
             
@@ -340,6 +363,7 @@
                 simulationState = 'ready';
                 p.noLoop(); // Ensure animation is stopped
                 
+                ball.rotation = 0; // Reset ball's rotation
                 const simulationData = calculatePath();
                 ballPath = simulationData.path;
                 ricochetData = simulationData.ricochets;
@@ -385,6 +409,7 @@
                 } else if (simulationState === 'simulating') {
                     // Animate the ball along the pre-calculated path
                     if (animationFrame < ballPath.length) {
+                        ball.update(); // Update the ball's rotation
                         ball.display(ballPath[animationFrame]);
                         animationFrame++;
                     } else {

@@ -207,12 +207,14 @@
             let ball = null;
             let trajectory = [];
             let inFlight = false;
+            let simulationEnded = false; 
             let maxArcHeight = 0;
             let catchResult = "";
             let isSwinging = false;
             let swingFrame = 0;
             const SWING_DURATION = 15; // Total frames for swing animation
             const CONTACT_FRAME = 6;  // Frame when ball is launched
+            let catcherPose = 'ready'; // New state for catcher animation
 
             // --- Canvas & Scaling ---
             let canvasWidth, canvasHeight;
@@ -224,6 +226,7 @@
                     this.pos = p.createVector(1, throwHeight);
                     this.vel = p5.Vector.fromAngle(p.radians(initialAngle)).mult(initialV);
                     this.acc = p.createVector(0, 0);
+                    this.rotation = 0; // Add rotation property
                 }
 
                 applyForce(force) {
@@ -248,6 +251,9 @@
                     this.vel.add(this.acc.copy().mult(dt));
                     this.pos.add(this.vel.copy().mult(dt));
                     this.acc.mult(0);
+                    
+                    // Update rotation based on velocity
+                    this.rotation += this.vel.mag() * 0.01; 
                 }
             }
 
@@ -295,6 +301,8 @@
             function startSwing() {
                 if (isSwinging || inFlight) return; // Prevent multiple swings
                 isSwinging = true;
+                simulationEnded = false; // Reset ended state on new launch
+                catcherPose = 'ready'; // Reset catcher's pose
                 swingFrame = 0;
             }
 
@@ -323,6 +331,7 @@
                     currentPos.y >= catcherBottom_m && currentPos.y <= catcherTop_m) {
                     catchResult = `CAUGHT! (at ${currentPos.y.toFixed(2)}m high)`;
                     inFlight = false;
+                    simulationEnded = true; // Mark simulation as ended
                     return; 
                 }
                 
@@ -332,6 +341,7 @@
                     if (interceptY >= catcherBottom_m && interceptY <= catcherTop_m) {
                         catchResult = `CAUGHT! (at ${interceptY.toFixed(2)}m high)`;
                         inFlight = false;
+                        simulationEnded = true; // Mark simulation as ended
                     }
                 }
             }
@@ -402,20 +412,59 @@
                 }
 
                 p.rotate(currentAngle);
-                p.fill(150, 75, 0); // Brown bat
-                p.noStroke();
-                p.rect(-5, -60, 10, 65, 4); // Bat shape
-                p.pop();
 
-                p.pop();
+                p.noStroke();
+                p.fill(160, 82, 45); // 'Sienna' wood color
+
+                const batLength = 55;
+                const barrelTopWidth = 5;
+                const barrelBottomWidth = 4;
+                const handleWidth = 2;
+                const knobWidth = 4;
+                const knobHeight = 3;
+                const barrelLength = batLength * 0.65;
+                const handleLength = batLength * 0.35;
+
+                // Draw the main body of the bat
+                p.beginShape();
+                p.vertex(-barrelTopWidth, -batLength);
+                p.vertex(-barrelBottomWidth, -handleLength);
+                p.vertex(-handleWidth, 0);
+                p.vertex(-knobWidth, knobHeight / 2);
+                p.vertex(-knobWidth, knobHeight);
+                p.vertex(knobWidth, knobHeight);
+                p.vertex(knobWidth, knobHeight / 2);
+                p.vertex(handleWidth, 0);
+                p.vertex(barrelBottomWidth, -handleLength);
+                p.vertex(barrelTopWidth, -batLength);
+                p.endShape(p.CLOSE);
+
+                // Add the rounded cap
+                p.arc(0, -batLength, barrelTopWidth * 2, barrelTopWidth * 2, p.PI, p.TWO_PI);
+
+                // Add a simple highlight for a cylindrical feel
+                p.fill(255, 255, 255, 60);
+                p.beginShape();
+                p.vertex(-barrelTopWidth * 0.5, -batLength);
+                p.vertex(-barrelBottomWidth * 0.5, -handleLength);
+                p.vertex(-handleWidth * 0.5, 0);
+                p.vertex(handleWidth * 0.5, 0);
+                p.vertex(barrelBottomWidth * 0.5, -handleLength);
+                p.vertex(barrelTopWidth * 0.5, -batLength);
+                p.endShape(p.CLOSE);
+                
+                // Add a rounded highlight cap
+                p.arc(0, -batLength, barrelTopWidth, barrelTopWidth, p.PI, p.TWO_PI);
+                
+                p.pop(); // End bat rotation/translation
+                p.pop(); // End batter translation
             }
 
-            function drawCatcher(x_pos_px, ground_y_px, reach_m) {
+            // Function signature now accepts a 'pose'
+            function drawCatcher(x_pos_px, ground_y_px, reach_m, pose) {
                 p.push();
                 p.translate(x_pos_px, ground_y_px);
                 
-                const handSize = 8;
-                const armThickness = 6;
                 const legThickness = 6;
                 const headRadius = 8;
                 const bodyWidth = 15;
@@ -426,44 +475,108 @@
                 const bodyBottomY = verticalShift; 
                 const bodyTopY = bodyBottomY - bodyHeight;
                 const headY = bodyTopY - headRadius;
-                const shoulderY = bodyTopY + 5;
-                const visualHandY = headY - 25; 
-                const elbowY = shoulderY + (visualHandY - shoulderY) / 2;
-                const elbowX = -10;
                 const legLength = 20;
                 const feetY = bodyBottomY + legLength;
 
+                // Draw Legs
                 p.stroke('#2d3748');
                 p.strokeWeight(legThickness);
                 p.line(-bodyWidth/4, bodyBottomY, -bodyWidth/4, feetY);
                 p.line(bodyWidth/4, bodyBottomY, bodyWidth/4, feetY);
 
+                // Draw Body
                 p.fill('#4299e1');
                 p.noStroke();
                 p.rectMode(p.CORNER);
                 p.rect(-bodyWidth / 2, bodyTopY, bodyWidth, bodyHeight, 4);
 
-                p.stroke('#2d3748');
-                p.strokeWeight(armThickness);
-                p.line(0, shoulderY, elbowX, elbowY);
-                p.line(elbowX, elbowY, 0, visualHandY + handSize / 2);
-
+                // Draw Head
                 p.fill('#fbd38d');
                 p.noStroke();
                 p.ellipse(0, headY, headRadius * 2, headRadius * 2);
 
+                // Draw Helmet
                 p.fill('#e53e3e');
                 p.arc(0, headY, headRadius * 2 + helmetOffset, headRadius * 2 + helmetOffset, p.PI, p.TWO_PI);
                 
-                p.fill('#fbd38d');
-                p.noStroke();
-                p.ellipse(0, visualHandY + handSize / 2, handSize, handSize);
+                // Draw arms based on pose
+                const shoulderY = bodyTopY + 5;
+                const handSize = 8;
+                const armThickness = 6;
+                
+                if (pose === 'missed') {
+                    // Pose for a missed catch (arms down)
+                    const elbowY = shoulderY + 15;
+                    const elbowX = 10; 
+                    const handY = elbowY + 20;
+                    const handX = elbowX;
+
+                    p.stroke('#2d3748');
+                    p.strokeWeight(armThickness);
+                    p.line(0, shoulderY, elbowX, elbowY); // Upper arm
+                    p.line(elbowX, elbowY, handX, handY); // Forearm
+
+                    p.fill('#fbd38d');
+                    p.noStroke();
+                    p.ellipse(handX, handY, handSize, handSize); // Hand
+                } else { // 'ready' pose
+                    const visualHandY = headY - 25; 
+                    const elbowY = shoulderY + (visualHandY - shoulderY) / 2;
+                    const elbowX = -10;
+                    const handY = visualHandY + handSize / 2;
+                    const handX = 0;
+
+                    p.stroke('#2d3748');
+                    p.strokeWeight(armThickness);
+                    p.line(0, shoulderY, elbowX, elbowY); // Upper arm
+                    p.line(elbowX, elbowY, handX, handY); // Forearm
+
+                    p.fill('#fbd38d');
+                    p.noStroke();
+                    p.ellipse(handX, handY, handSize, handSize); // Hand
+                }
 
                 p.noStroke();
                 p.fill('#e53e3e');
                 p.textAlign(p.CENTER);
                 p.text('Catcher', 0, 20 + legLength);
 
+                p.pop();
+            }
+
+            function displayEndMessage() {
+                let message = "";
+                let messageColor;
+
+                if (catchResult.includes("CAUGHT")) {
+                    message = "CAUGHT!";
+                    messageColor = p.color(45, 155, 245); // Blue for caught
+                } else if (catchResult.includes("MISSED")) {
+                    message = "MISSED!";
+                    messageColor = p.color(229, 62, 62); // Red for missed
+                } else {
+                    return; // Don't display if no definitive result yet
+                }
+
+                p.push();
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(64);
+                p.textStyle(p.BOLD);
+                p.rectMode(p.CENTER);
+
+                // Get text dimensions for a snug background
+                let textW = p.textWidth(message);
+                
+                // Draw a semi-transparent background for the text
+                p.fill(255, 255, 255, 200);
+                p.noStroke();
+                p.rect(canvasWidth / 2, canvasHeight / 2, textW + 60, 120, 15);
+
+                // Draw the text with a stroke for better visibility
+                p.fill(messageColor);
+                p.stroke(255);
+                p.strokeWeight(4);
+                p.text(message, canvasWidth / 2, canvasHeight / 2);
                 p.pop();
             }
             
@@ -498,11 +611,15 @@
 
                     if (inFlight && ball.pos.y < 0) {
                         inFlight = false;
+                        simulationEnded = true;
                         catchResult = "MISSED! (Hit the ground)";
+                        catcherPose = 'missed'; // Trigger missed pose
                     }
                      if (inFlight && ball.pos.x > canvasWidth / scaleFactor) {
                         inFlight = false;
+                        simulationEnded = true;
                         catchResult = "MISSED! (Overthrow)";
+                        catcherPose = 'missed'; // Trigger missed pose
                     }
                 }
                 
@@ -517,7 +634,8 @@
                     swingProgress = swingFrame / SWING_DURATION;
                 }
                 drawBatter(swingProgress);
-                drawCatcher(outfielderDist * scaleFactor, 0, outfielderReach);
+                // Pass the current catcher pose to the draw function
+                drawCatcher(outfielderDist * scaleFactor, 0, outfielderReach, catcherPose);
 
                 if (trajectory.length > 0) {
                     p.noFill();
@@ -530,10 +648,29 @@
                     p.endShape();
                 }
 
-                if (inFlight && ball) {
+                // Draw the ball if it's in flight OR if the simulation just ended
+                if ((inFlight || simulationEnded) && ball) {
+                    const ballX = ball.pos.x * scaleFactor;
+                    const ballY = -ball.pos.y * scaleFactor;
+                    
+                    // Draw the white ball
                     p.noStroke();
-                    p.fill('#2d3748');
-                    p.ellipse(ball.pos.x * scaleFactor, -ball.pos.y * scaleFactor, 12, 12);
+                    p.fill(255);
+                    p.ellipse(ballX, ballY, 12, 12);
+
+                    // Draw the rotating red seams
+                    p.push();
+                    p.translate(ballX, ballY);
+                    p.rotate(ball.rotation);
+                    p.stroke(255, 0, 0);
+                    p.strokeWeight(1.5);
+                    p.noFill();
+                    // Draw two arcs to simulate seams
+                    const seamSize = 10;
+                    const seamGap = 0.4;
+                    p.arc(0, 0, seamSize, seamSize, -p.PI / 2 + seamGap, p.PI / 2 - seamGap);
+                    p.arc(0, 0, seamSize, seamSize, p.PI / 2 + seamGap, -p.PI / 2 - seamGap);
+                    p.pop();
                 }
                 
                 p.pop();
@@ -551,6 +688,10 @@
                 }
 
                 statsDiv.innerHTML = statsText;
+
+                if (simulationEnded) {
+                    displayEndMessage();
+                }
             };
 
             p.windowResized = () => {
@@ -564,9 +705,11 @@
                 // Reset state on resize
                 inFlight = false;
                 isSwinging = false;
+                simulationEnded = false; 
                 ball = null;
                 trajectory = [];
                 catchResult = "Ready to Launch!";
+                catcherPose = 'ready'; // Reset catcher pose on resize
             };
         }
 
