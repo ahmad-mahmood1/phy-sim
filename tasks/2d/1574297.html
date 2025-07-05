@@ -261,7 +261,7 @@
             function setupLevel() {
                 gardenTools = [];
                 const toolTypes = ['trowel', 'rake', 'shovel', 'pruningShears', 'gardenFork', 'wateringCan'];
-                
+
                 const startC = verticalSlatsX.indexOf(findClosest(vineStartPos.x, verticalSlatsX));
                 const startR = horizontalSlatsY.indexOf(findClosest(vineStartPos.y, horizontalSlatsY));
                 const endC = verticalSlatsX.indexOf(findClosest(vineEndPos.x, verticalSlatsX));
@@ -297,7 +297,7 @@
                     // Exclude the outermost border segments for tool placement
                     if (seg.type === 'h' && (seg.r1 === 0 || seg.r1 === lastRowIndex)) return false;
                     if (seg.type === 'v' && (seg.c1 === 0 || seg.c1 === lastColIndex)) return false;
-                    
+
                     // Exclude the second-to-last border as well to give more space
                     if (seg.type === 'h' && (seg.r1 === 1 || seg.r1 === lastRowIndex -1)) return false;
                     if (seg.type === 'v' && (seg.c1 === 1 || seg.c1 === lastColIndex -1)) return false;
@@ -308,7 +308,7 @@
                 p.shuffle(potentialToolSegments, true);
 
                 const numToolsToPlace = 8;
-                const minToolDistance = 90; 
+                const minToolDistance = 90;
 
                 for (let i = 0; i < numToolsToPlace && potentialToolSegments.length > 0; i++) {
                     const seg = potentialToolSegments.pop();
@@ -351,7 +351,7 @@
                 trellisWidth = p.width * 0.7;
                 brickWallTexture = p.createGraphics(trellisWidth, p.height);
                 generateBrickTexture(brickWallTexture);
-                
+
                 mudTexture = p.createGraphics(100, 100);
                 generateMudTexture(mudTexture);
 
@@ -368,7 +368,7 @@
                     const y = p.map(i, 0, numHorizontalDivisions, -p.height / 2 + slatWidth, p.height / 2 - slatWidth);
                     horizontalSlatsY.push(y);
                 }
-                
+
                 const jardiniereCenterY = p.height / 2 - 25; // Moved planters to the edge
                 const planterHeight = 50;
                 startJardiniere = {
@@ -403,7 +403,7 @@
             p.windowResized = () => {
                 const canvasContainer = document.getElementById('canvas-container');
                 p.resizeCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight);
-                isInitialized = false; 
+                isInitialized = false;
                 verticalSlatsX = [];
                 horizontalSlatsY = [];
                 initializeGame();
@@ -423,21 +423,21 @@
                         setGameState('playing');
                     }
                 }
-                
+
                 // 1. Draw background elements
                 p.background(135, 206, 235); // Sky blue
                 drawGardenScenery();
                 drawTrellisBackground();
-                
+
                 // 2. Update vine & tools logic
                 const mouseTarget = p.createVector(p.mouseX - p.width / 2, p.mouseY - p.height / 2);
                 figVine.update(gardenTools, mouseTarget);
-                
+
                 // 3. Draw elements in correct order for layering
                 figVine.draw(false); // Draw the vine stem first (behind trellis)
-                drawTrellis(); 
+                drawTrellis();
                 drawHooks();
-                
+
                 for (const tool of gardenTools) {
                     tool.draw();
                 }
@@ -453,7 +453,7 @@
             function drawTrellisBackground() {
                 p.image(brickWallTexture, -trellisWidth / 2, -p.height / 2, trellisWidth, p.height);
             }
-            
+
             function drawGardenScenery() {
                 p.push();
                 p.noStroke();
@@ -466,7 +466,7 @@
                 const sideWidth = (p.width - trellisWidth) / 2;
                 const leftSideX = -trellisWidth / 2 - sideWidth / 2;
                 const rightSideX = trellisWidth / 2 + sideWidth / 2;
-                
+
                 p.fill(34, 139, 34); // Forest green for bushes
                 // A few bushes on each side, moved down slightly
                 p.ellipse(leftSideX, p.height / 2 - 30, 80, 80);
@@ -484,7 +484,7 @@
                     p.stroke(87, 55, 26);
                     p.strokeWeight(2);
                     const tW = 70, bW = 50, h = 50;
-                    
+
                     // Main body of the planter
                     p.fill(j.color);
                     p.quad(
@@ -493,7 +493,7 @@
                          bW / 2,  h / 2,
                         -bW / 2,  h / 2
                     );
-                    
+
                     // Mud is drawn before the rim so it appears inside
                     p.noStroke();
                     p.imageMode(p.CENTER);
@@ -522,7 +522,7 @@
                     }
                 }
             }
-            
+
             function generateMudTexture(pg) {
                 // More realistic mud texture using Perlin noise
                 const darkMud = p.color(60, 40, 30); // Dark, wet mud
@@ -553,14 +553,14 @@
                     pg.ellipse(x, y, size, size);
                 }
             }
-            
+
             function drawTrellis() {
                 p.push();
                 p.fill(139, 69, 19);
                 p.stroke(87, 55, 26);
                 p.strokeWeight(2);
                 const sW = 10; // Made trellis thinner
-                
+
                 horizontalSlatsY.forEach(y => {
                     p.rect(0, y, trellisWidth, sW);
                 });
@@ -576,7 +576,7 @@
                     p.stroke(0); // Changed hook color to black
                     p.strokeWeight(3);
                     p.noFill();
-                    
+
                     if (tool.hangingDirection === 'h') {
                         const hookY = findClosest(tool.pos.y, horizontalSlatsY);
                         p.arc(tool.pos.x, hookY + 4, 10, 10, p.PI, p.TWO_PI);
@@ -596,10 +596,10 @@
                     this.soilPoint = startPos.copy();
                     this.head = this.soilPoint.copy();
                     this.path = [this.soilPoint.copy()];
-                    
+
                     this.isSprouting = true;
                     this.sproutTargetY = findClosest(this.soilPoint.y, horizontalSlatsY);
-                    
+
                     this.velocity = p.createVector();
                     this.acceleration = p.createVector();
                     this.maxSpeed = 2.5;
@@ -694,7 +694,7 @@
                             }
                         }
                     }
-                    
+
                     // Constrain the target to the trellis boundaries
                     snappedTarget.x = p.constrain(snappedTarget.x, verticalSlatsX[0], verticalSlatsX[verticalSlatsX.length - 1]);
                     snappedTarget.y = p.constrain(snappedTarget.y, horizontalSlatsY[0], horizontalSlatsY[horizontalSlatsY.length - 1]);
@@ -705,7 +705,7 @@
                     this.velocity.add(this.acceleration);
                     this.velocity.limit(this.maxSpeed);
                     this.acceleration.mult(0);
-                    
+
                     const distanceToTarget = this.head.dist(snappedTarget);
 
                     // Only add to the path and move if the vine hasn't reached the target.
@@ -718,7 +718,7 @@
                     }
                 }
 
-                
+
                 applyForce(force) {
                     this.acceleration.add(force);
                 }
@@ -732,7 +732,7 @@
 
                 draw(leavesOnly = false) {
                     const wrapThreshold = 10;
-                    const wrapAmplitude = 12; 
+                    const wrapAmplitude = 12;
                     const wrapFrequency = 0.1;
 
                     if (!leavesOnly) {
@@ -837,11 +837,11 @@
                         default: this.width = 50 * scale; this.height = 100 * scale;
                     }
                 }
-                
+
                 checkOBB(point, center, rotation, width, height) {
                     const translatedPoint = p5.Vector.sub(point, center);
                     const rotatedPoint = translatedPoint.copy().rotate(-rotation);
-                    
+
                     const halfW = width / 2;
                     const halfH = height / 2;
 
@@ -853,7 +853,7 @@
                     if (this.type === 'wateringCan') {
                         const canWidth = 80 * this.scale;
                         const canHeight = 70 * this.scale;
-                        
+
                         // Body check
                         const bodyHit = this.checkOBB(point, this.pos, this.rotation, canWidth, canHeight);
 
@@ -942,11 +942,11 @@
                 drawPruningShears() {
                     p.push();
                     if (this.hangingDirection === 'v') {
-                        p.translate(15, 0); 
+                        p.translate(15, 0);
                     } else {
-                        p.translate(0, 15); 
+                        p.translate(0, 15);
                     }
-                    
+
                     p.fill(this.redColor);
                     p.rect(-10, 0, 10, 40);
                     p.rect(10, 0, 10, 40);
@@ -995,7 +995,7 @@
                     // Top Rim
                     p.fill(this.metalColor);
                     p.rect(0, -canHeight / 2, canWidth, 10, 5);
-                    
+
                     // Opening
                     p.noStroke();
                     p.fill(50); // Dark color for opening
@@ -1023,7 +1023,7 @@
                     p.vertex(-25, -canHeight / 2 - 5);
                     p.bezierVertex(-30, -80, 30, -80, 25, -canHeight / 2 - 5);
                     p.endShape();
-                    
+
                     // Reset stroke for other tools
                     p.stroke(50);
                 }

@@ -136,14 +136,14 @@
 
         // --- Vine Class ---
         class Vine {
-            constructor(p, x, y, isStretchy = false) {
+            constructor(p, x, y, isStretchy = false, isFirstVine = false) {
                 this.p = p;
                 this.anchor = p.createVector(x, y);
                 this.length = config.vineLength;
                 this.banana = null;
 
                 this.isStretchy = isStretchy;
-                this.springConstant = 0.02; 
+                this.springConstant = 0.02;
                 this.naturalLength = config.vineLength;
 
                 // --- Physics properties for rope simulation ---
@@ -157,14 +157,14 @@
                     });
                 }
                 this.isSimulating = true; // Vine starts in simulation mode
-                
-                if (this.p.random() < 0.5) {
+
+                if (this.p.random() < 0.5 && !isFirstVine) {
                     const bananaX = this.anchor.x;
                     const bananaY = this.anchor.y + this.length * 0.95;
                     this.banana = new Collectible(p, bananaX, bananaY, 'banana', this);
                 }
             }
-            
+
             // --- Update method for rope physics ---
             update() {
                 if (!this.isSimulating) return;
@@ -190,7 +190,7 @@
                         const delta = p5.Vector.sub(s2.pos, s1.pos);
                         const dist = delta.mag();
                         const diff = (this.segmentLength - dist) / dist;
-                        
+
                         const offset = delta.mult(diff * 0.5);
 
                         if(i > 0) { // Don't move the anchor
@@ -205,7 +205,7 @@
                 const p = this.p;
                 const vineMainColor = this.isStretchy ? p.color(200, 40, 60) : p.color(101, 67, 33);
                 const vineEdgeColor = this.isStretchy ? p.color(150, 20, 40) : p.color(80, 47, 13);
-                
+
                 let endPos;
                 if(isAttached) {
                     endPos = monkeyPos;
@@ -236,7 +236,7 @@
                     }
                 }
                 p.endShape();
-                
+
                 p.strokeWeight(2);
                 p.stroke(vineEdgeColor);
                  p.beginShape();
@@ -251,10 +251,10 @@
                  } else {
                      for (const s of this.segments) {
                         p.curveVertex(s.pos.x, s.pos.y);
-                    }
+                     }
                  }
                 p.endShape();
-        
+
                 // Draw the grab handle for unattached vines
                 if (!isAttached) {
                     p.push();
@@ -264,7 +264,7 @@
                     p.ellipse(endPos.x, endPos.y, config.grabHandleSize, config.grabHandleSize);
                     p.pop();
                 }
-        
+
                 if (this.banana) {
                     if(isAttached) {
                          this.banana.pos.x = this.anchor.x + (endPos.x - this.anchor.x) * 0.95;
@@ -370,18 +370,18 @@
 
             release() {
                 if (!this.isAttached) return;
-                
+
                 const releasedVine = this.attachedVine;
 
-                // --- CORRECTED: Position the vine correctly and impart momentum ---
-                
+                // --- Position the vine correctly and impart momentum ---
+
                 // First, reset the vine's segments to a straight line pointing at the monkey.
                 // This ensures the vine starts its swing from the correct release point.
                 const vineVector = p5.Vector.sub(this.pos, releasedVine.anchor);
                 for (let i = 0; i <= config.vineSegments; i++) {
                     const s = releasedVine.segments[i];
                     const fraction = i / config.vineSegments;
-                    
+
                     // Position segments along the vector from anchor to monkey
                     const pos = p5.Vector.add(releasedVine.anchor, p5.Vector.mult(vineVector, fraction));
                     s.pos.set(pos);
@@ -422,18 +422,18 @@
             draw() {
                 this.p.push();
                 this.p.translate(this.pos.x, this.pos.y);
-            
+
                 if (this.vel.mag() > 0.1) {
                     this.p.rotate(this.vel.heading() + this.p.PI / 2);
                 }
-            
+
                 const bodyColor = this.p.color(139, 69, 19);
                 const limbColor = this.p.color(160, 120, 80);
                 const faceColor = this.p.color(245, 222, 179);
-            
+
                 this.p.noStroke();
                 this.p.strokeCap(this.p.ROUND);
-            
+
                 this.p.stroke(limbColor);
                 this.p.strokeWeight(this.size * 0.2);
                 this.p.noFill();
@@ -444,15 +444,15 @@
                 this.p.curveVertex(this.size * 0.4, this.size * 1.9);
                 this.p.curveVertex(this.size * 0.4, this.size * 1.9);
                 this.p.endShape();
-                
+
                 this.p.noStroke();
                 this.p.fill(limbColor);
                 this.p.ellipse(this.size * 0.25, this.size * 1.2, this.size * 0.35, this.size * 0.9);
                 this.p.ellipse(-this.size * 0.25, this.size * 1.2, this.size * 0.35, this.size * 0.9);
-            
+
                 this.p.fill(bodyColor);
                 this.p.ellipse(0, this.size * 0.6, this.size, this.size * 1.2);
-            
+
                 this.p.stroke(limbColor);
                 this.p.strokeWeight(this.size * 0.35);
 
@@ -477,7 +477,7 @@
                 this.p.ellipse(this.size * 0.15, -this.size * 0.1, this.size * 0.1);
                 this.p.fill(80, 50, 20);
                 this.p.ellipse(0, this.size * 0.15, this.size * 0.15, this.size * 0.1);
-            
+
                 this.p.pop();
             }
 
@@ -569,7 +569,7 @@
                 for (let i = 0; i < config.numVines; i++) {
                     const x = startX + i * config.vineSpacing;
                     const y = config.vineAnchorY;
-                    vines.push(new Vine(p, x, y, p.random() < 0.6 && i > 1));
+                    vines.push(new Vine(p, x, y, p.random() < 0.6 && i > 1, i === 0));
                 }
 
                 monkey.grab(vines[0]);
@@ -594,7 +594,7 @@
                 bgLayers.forEach((layer) => {
                     p.push();
                     p.translate(-camX * layer.scrollFactor, 0);
-                    
+
                     layer.trees.forEach(tree => {
                         // Trunk
                         p.fill(layer.trunkColor);
@@ -615,7 +615,7 @@
             const drawVineCanopy = () => {
                 p.push();
                 p.noStroke();
-                
+
                 p.fill(24, 80, 24, 255);
                 p.rect(0, 0, config.worldWidth, config.vineAnchorY + 10);
 
@@ -663,23 +663,23 @@
                 p.rectMode(p.CORNER);
 
                 bgLayers = [];
-                bgLayers.push({ 
-                    leafColor: p.color(0, 100, 0, 150), 
+                bgLayers.push({
+                    leafColor: p.color(0, 100, 0, 150),
                     trunkColor: p.color(87, 58, 27, 150),
-                    trees: [], 
-                    scrollFactor: 0.2 
+                    trees: [],
+                    scrollFactor: 0.2
                 });
-                bgLayers.push({ 
+                bgLayers.push({
                     leafColor: p.color(34, 139, 34, 180),
                     trunkColor: p.color(101, 67, 33, 180),
-                    trees: [], 
+                    trees: [],
                     scrollFactor: 0.4
                 });
-                bgLayers.push({ 
-                    leafColor: p.color(0, 80, 0, 220), 
+                bgLayers.push({
+                    leafColor: p.color(0, 80, 0, 220),
                     trunkColor: p.color(139, 69, 19, 220),
-                    trees: [], 
-                    scrollFactor: 0.6 
+                    trees: [],
+                    scrollFactor: 0.6
                 });
 
                 for (let layer of bgLayers) {
@@ -728,7 +728,7 @@
                 p.translate(-cameraX, 0);
 
                 if (gameOver) {
-                    p.pop(); 
+                    p.pop();
                     drawGameOverUI();
                     return;
                 }
@@ -748,7 +748,7 @@
                         }
                     }
                 }
-                
+
                 vines.forEach(vine => {
                     vine.update(); // Always update vine physics
                     const isAttached = (monkey.isAttached && vine === monkey.attachedVine);
@@ -760,9 +760,9 @@
                 });
 
                 monkey.draw();
-                
+
                 drawVineCanopy();
-                
+
 
                 if (p.random(1) < config.coconutSpawnRate) {
                     coconuts.push(new Collectible(p, cameraX + p.random(0, config.width), -20, 'coconut'));
@@ -800,7 +800,10 @@
 
             p.mousePressed = () => {
                 if (gameOver) return;
-                monkey.release();
+                // Check if the mouse click is within the canvas bounds
+                if (p.mouseX > 0 && p.mouseX < config.width && p.mouseY > 0 && p.mouseY < config.height) {
+                    monkey.release();
+                }
             }
 
             p.keyReleased = () => {

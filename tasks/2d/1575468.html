@@ -4,16 +4,23 @@
 <head>
     <meta charset="utf-8" />
     <title>Frisbee Alley Simulation</title>
+    <title>Frisbee Alley Simulation</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
             margin: 0;
             padding: 1rem;
+            margin: 0;
+            padding: 1rem;
             display: flex;
             flex-direction: column;
             align-items: center;
+            align-items: center;
             justify-content: center;
+            min-height: 100vh;
+            background-color: #1a1a1a;
+            color: #ffffff;
             min-height: 100vh;
             background-color: #1a1a1a;
             color: #ffffff;
@@ -27,7 +34,7 @@
             align-items: center;
             gap: 1rem;
         }
-        
+
         @media (min-width: 800px) {
             #main-container {
                 flex-direction: row;
@@ -38,6 +45,70 @@
 
         #canvas-container {
             position: relative;
+            border: 2px solid #444;
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.3);
+            background-color: #000;
+            cursor: pointer;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        h1 {
+            color: #eee;
+            margin-bottom: 0.5rem;
+            font-weight: 400;
+        }
+
+        p {
+             color: #aaa;
+             margin-top: 0;
+             margin-bottom: 0.5rem;
+        }
+
+        #info-card {
+            flex-basis: 300px;
+            max-width: 300px;
+            padding: 0.5rem 1rem;
+            border: 1px solid #333;
+            background-color: #222;
+            border-radius: 8px;
+            text-align: left;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.4);
+        }
+
+        #info-card h2 {
+            color: #00ffff;
+            font-size: 1.1em;
+            font-weight: 700;
+            margin-top: 0.5rem;
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid #444;
+            padding-bottom: 0.5rem;
+        }
+
+        #info-card ul {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+
+        #info-card li {
+            margin-bottom: 0.75rem;
+            line-height: 1.4;
+        }
+
+        #info-card strong {
+            color: #eee;
+            font-weight: 700;
+            font-size: 0.9em;
+        }
+
+        #info-card p {
+            color: #bbb;
+            margin: 0;
+            font-size: 0.85em;
             border: 2px solid #444;
             box-shadow: 0 0 25px rgba(0, 255, 255, 0.3);
             background-color: #000;
@@ -141,7 +212,35 @@
                 </li>
             </ul>
         </div>
+    <h1>Frisbee Alley Simulation</h1>
+    <p>Click on the canvas to throw the frisbee again.</p>
+
+    <div id="main-container">
+        <div id="canvas-container"></div>
+
+        <div id="info-card">
+            <h2>How It Works</h2>
+            <ul>
+                <li>
+                    <strong>Curve (Magnus Effect):</strong>
+                    <p>Spin creates pressure differences, causing the frisbee to curve left or right.</p>
+                </li>
+                <li>
+                    <strong>Drag (Air Resistance):</strong>
+                    <p>Air resistance opposes motion, slowing the frisbee down, especially at high speeds.</p>
+                </li>
+                <li>
+                    <strong>Height & Shadow:</strong>
+                    <p>A simulated height with gravity affects the frisbee's size and its shadow's position.</p>
+                </li>
+                 <li>
+                    <strong>Wall Collision:</strong>
+                    <p>Hitting a wall reduces speed and spin, creating a bounce effect.</p>
+                </li>
+            </ul>
+        </div>
     </div>
+
 
     <script type="module">
         import p5 from 'p5';
@@ -161,7 +260,7 @@
             // --- Function to draw brick walls with consistent colors and no clipping ---
             const drawBrickWalls = (leftWallX, rightWallX) => {
                 const mortarColor = p.color(45, 45, 45);
-                
+
                 // Draw the mortar background first
                 p.noStroke();
                 p.fill(mortarColor);
@@ -176,10 +275,10 @@
                     const y = i * brickHeight;
                     const isStaggeredRow = i % 2 === 1;
                     const offsetX = isStaggeredRow ? -brickWidth / 2 : 0;
-                    
+
                     for (let j = 0; j < numCols + 1; j++) {
                         const x = j * brickWidth + offsetX;
-                        
+
                         // Use the pre-generated color for this brick
                         const colorIndex = i * (numCols + 1) + j;
                         if (brickColors[colorIndex]) {
@@ -209,8 +308,10 @@
                     }
                 }
             };
-            
+
             class Frisbee {
+                constructor(x, y) {
+                    this.reset(x, y);
                 constructor(x, y) {
                     this.reset(x, y);
                 }
@@ -296,7 +397,15 @@
                     p.fill(0, 150, 150);
                     p.ellipse(0, 0, displayRadius * 1.6, displayRadius * 1.6);
                     p.stroke(0, 255, 255, 150);
+
+                    p.fill(0, 200, 200);
+                    p.ellipse(0, 0, displayRadius * 2, displayRadius * 2);
+                    p.fill(0, 150, 150);
+                    p.ellipse(0, 0, displayRadius * 1.6, displayRadius * 1.6);
+                    p.stroke(0, 255, 255, 150);
                     p.strokeWeight(2);
+                    p.line(-displayRadius * 0.8, 0, displayRadius * 0.8, 0);
+
                     p.line(-displayRadius * 0.8, 0, displayRadius * 0.8, 0);
 
                     p.pop();
@@ -357,7 +466,7 @@
 
                 // Call the function to draw the brick walls
                 drawBrickWalls(leftWallX, rightWallX);
-                
+
                 // Draw gradients on top of the bricks for a lighting effect
                 let wallGradientLeft = p.drawingContext.createLinearGradient(leftWallX, 0, leftWallX + 25, 0);
                 wallGradientLeft.addColorStop(0, "rgba(0, 0, 0, 0.7)");
@@ -380,6 +489,10 @@
 
             p.mousePressed = () => {
                 if (p.mouseX > 0 && p.mouseX < p.width && p.mouseY > 0 && p.mouseY < p.height) {
+                    if (frisbee) {
+                        frisbee.reset(canvasWidth / 2, canvasHeight - 40);
+                    }
+                }
                     if (frisbee) {
                         frisbee.reset(canvasWidth / 2, canvasHeight - 40);
                     }
