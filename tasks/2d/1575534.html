@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elevator Inertia Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f2f5;
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #simulation-wrapper {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #555;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        button {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 14px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        button:hover {
+            background-color: #e9e9e9;
+            border-color: #999;
+        }
+        
+        #stop-button {
+            background-color: #e74c3c;
+            color: white;
+            border-color: #c0392b;
+        }
+        
+        #start-button {
+            background-color: #2ecc71;
+            color: white;
+            border-color: #27ae60;
+        }
+
+        #stop-button:hover {
+            background-color: #c0392b;
+        }
+        
+        #start-button:hover {
+            background-color: #27ae60;
+        }
+        
+        #stop-button.reset-state {
+            background-color: #3498db;
+            border-color: #2980b9;
+        }
+        #stop-button.reset-state:hover {
+            background-color: #2980b9;
+        }
+
+        #info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            text-align: center;
+            min-width: 250px;
+        }
+
+        #info-card {
+            width: 220px;
+            padding: 15px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+        #info-card h3 {
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            font-weight: 700;
+        }
+        #info-card p {
+            margin: 10px 0;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+        }
+        #info-card span {
+            font-weight: 700;
+            color: #e74c3c;
+        }
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="simulation-wrapper">
+        <div id="canvas-container"></div>
+        <div id="info-card">
+            <h3>Analysis</h3>
+            <p>Cable Stress: <span id="stress-value">0%</span></p>
+            <p>Inertial Jolt: <span id="jolt-value">0.0 px</span></p>
+            <hr>
+            <p>Peak Stress (Stop): <span id="peak-stress-value">0%</span></p>
+            <p>Peak Jolt (Stop): <span id="peak-jolt-value">0.0 px</span></p>
+        </div>
+    </div>
+    <div id="controls">
+        <button id="start-button">Start</button>
+        <button id="stop-button">EMERGENCY STOP</button>
+    </div>
+    <div id="info">
+        Status: Idle
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation Constants ---
+            const GRAVITY = 0.15;
+            const DAMPING = 0.95; 
+            const MOTOR_FORCE = 1.5; 
+            const DRUM_RADIUS = 15;
+
+            // --- Objects ---
+            let elevator, counterweight;
+            let pulley1, pulley2;
+
+            // --- State ---
+            let motorDirection = 0; // -1 for up, 1 for down, 0 for off
+            let tension = 0;
+            let totalPathHeight;
+            
+            let emergencyBounceOffset = 0;
+            let emergencyBounceVelocity = 0;
+            const emergencySpringStiffness = 0.1;
+            const emergencyDamping = 0.92;
+            
+            let isEmergencyStopActive = false;
+            let peakInertiaEffect = 0;
+            let peakStress = 0;
+            let stressValueSpan, joltValueSpan, peakStressValueSpan, peakJoltValueSpan;
+
+
+            // --- Helper class for any physical object ---
+            class PhysicsObject {
+                constructor(x, y, mass, w, h) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(0, 0);
+                    this.acc = p.createVector(0, 0);
+                    this.mass = mass;
+                    this.width = w;
+                    this.height = h;
+                }
+
+                applyForce(force) {
+                    let f = p5.Vector.div(force, this.mass);
+                    this.acc.add(f);
+                }
+
+                update() {
+                    this.vel.add(this.acc);
+                    this.vel.mult(DAMPING);
+                    this.pos.add(this.vel);
+                    this.acc.mult(0);
+                }
+            }
+
+            // --- Setup: Runs once at the beginning ---
+            p.setup = () => {
+                const canvas = p.createCanvas(600, 600);
+                canvas.parent('canvas-container');
+                
+                const shaft1X = p.width / 4;
+                const shaft2X = p.width * 3 / 4;
+                
+                const elevatorStartY = 105; 
+                const counterweightStartY = p.height - (40 / 2) - 5; 
+
+                elevator = new PhysicsObject(shaft1X, elevatorStartY, 50, 60, 80);
+                counterweight = new PhysicsObject(shaft2X, counterweightStartY, 50, 40, 40); 
+
+                totalPathHeight = elevatorStartY + counterweightStartY;
+
+                const pulleyY = 50;
+                pulley1 = p.createVector(shaft1X, pulleyY);
+                pulley2 = p.createVector(shaft2X, pulleyY);
+                
+                const startButton = document.getElementById('start-button');
+                const stopButton = document.getElementById('stop-button');
+                const infoDiv = document.getElementById('info');
+                
+                stressValueSpan = document.getElementById('stress-value');
+                joltValueSpan = document.getElementById('jolt-value');
+                peakStressValueSpan = document.getElementById('peak-stress-value');
+                peakJoltValueSpan = document.getElementById('peak-jolt-value');
+
+                const resetSimulation = () => {
+                    elevator.pos.y = 105;
+                    counterweight.pos.y = p.height - (40 / 2) - 5;
+                    elevator.vel.mult(0);
+                    counterweight.vel.mult(0);
+                    emergencyBounceOffset = 0;
+                    emergencyBounceVelocity = 0;
+                    isEmergencyStopActive = false;
+                    peakInertiaEffect = 0;
+                    peakStress = 0;
+                    motorDirection = 0;
+                    infoDiv.innerText = "Status: Idle";
+                    
+                    stopButton.textContent = "EMERGENCY STOP";
+                    stopButton.classList.remove('reset-state');
+                    startButton.style.display = 'inline-block';
+                };
+
+                startButton.onclick = () => {
+                    resetSimulation();
+                    motorDirection = 1; 
+                    infoDiv.innerText = "Status: Moving Down";
+                };
+
+                stopButton.onclick = () => {
+                    if (stopButton.textContent === "EMERGENCY STOP") {
+                        infoDiv.innerText = "Status: EMERGENCY STOP!";
+                        if (motorDirection !== 0) {
+                            emergencyBounceVelocity = -elevator.vel.y * 0.8; 
+                            isEmergencyStopActive = true; 
+                            peakInertiaEffect = 0;
+                            peakStress = 0;
+                        }
+                        motorDirection = 0;
+                        elevator.vel.mult(0); 
+                        counterweight.vel.mult(0);
+                        
+                        stopButton.textContent = "Reset";
+                        stopButton.classList.add('reset-state');
+                        startButton.style.display = 'none';
+                    } else {
+                        resetSimulation();
+                    }
+                };
+            };
+
+            // --- Draw: Runs continuously for each frame ---
+            p.draw = () => {
+                p.background(240, 242, 245);
+                
+                drawScenery();
+                
+                applyForces();
+                updateAndConstrainObjects();
+                
+                updateEmergencyBounce();
+
+                drawObjects();
+                drawCable();
+                
+                updateInfo();
+                updateInfoCard();
+            };
+
+            function drawScenery() {
+                p.stroke(200);
+                p.strokeWeight(2);
+                p.line(p.width / 4 - 40, 0, p.width / 4 - 40, p.height);
+                p.line(p.width / 4 + 40, 0, p.width / 4 + 40, p.height);
+                p.line(p.width * 3 / 4 - 30, 0, p.width * 3 / 4 - 30, p.height);
+                p.line(p.width * 3 / 4 + 30, 0, p.width * 3 / 4 + 30, p.height);
+                
+                drawDrum(pulley1);
+                drawDrum(pulley2);
+            }
+
+            function drawDrum(position) {
+                p.fill(100);
+                p.noStroke();
+                p.ellipse(position.x, position.y, DRUM_RADIUS * 2, DRUM_RADIUS * 2);
+                p.fill(120);
+                p.ellipse(position.x, position.y, 10, 10);
+            }
+
+            function applyForces() {
+                elevator.applyForce(p.createVector(0, GRAVITY * elevator.mass));
+                counterweight.applyForce(p.createVector(0, GRAVITY * counterweight.mass));
+
+                const motor = motorDirection * MOTOR_FORCE;
+                
+                elevator.applyForce(p.createVector(0, motor));
+                counterweight.applyForce(p.createVector(0, -motor));
+
+                const acceleration = motor / (elevator.mass + counterweight.mass);
+                tension = elevator.mass * (GRAVITY + acceleration);
+            }
+
+            function updateAndConstrainObjects() {
+                elevator.update();
+                counterweight.update();
+                
+                const currentTotalY = elevator.pos.y + counterweight.pos.y;
+                const error = currentTotalY - totalPathHeight;
+                elevator.pos.y -= error / 2;
+                counterweight.pos.y -= error / 2;
+
+                const bottomLimit = p.height - (elevator.height / 2) - 5; 
+                const topLimit = 105; 
+
+                if (elevator.pos.y >= bottomLimit) {
+                    elevator.pos.y = bottomLimit;
+                    motorDirection = 0;
+                    elevator.vel.mult(0);
+                    counterweight.vel.mult(0);
+                    document.getElementById('info').innerText = "Status: Reached Bottom";
+                }
+
+                elevator.pos.y = p.constrain(elevator.pos.y, topLimit, bottomLimit);
+                counterweight.pos.y = p.constrain(counterweight.pos.y, topLimit, bottomLimit);
+            }
+            
+            function updateEmergencyBounce() {
+                if (p.abs(emergencyBounceVelocity) > 0.01 || p.abs(emergencyBounceOffset) > 0.01) {
+                    const springForce = -emergencyBounceOffset * emergencySpringStiffness;
+                    emergencyBounceVelocity += springForce;
+                    emergencyBounceVelocity *= emergencyDamping;
+                    emergencyBounceOffset += emergencyBounceVelocity;
+
+                    if(isEmergencyStopActive) {
+                        peakInertiaEffect = Math.max(peakInertiaEffect, Math.abs(emergencyBounceOffset));
+                    }
+                } else {
+                    emergencyBounceOffset = 0;
+                    emergencyBounceVelocity = 0;
+                    isEmergencyStopActive = false;
+                }
+            }
+
+            function drawCable() {
+                p.noFill();
+                
+                let visualStretch = p.abs(emergencyBounceOffset);
+                let stressValue = p.map(visualStretch, 0, 15, 0, 1);
+                stressValue = p.constrain(stressValue, 0, 1);
+
+                if (isEmergencyStopActive) {
+                    peakStress = Math.max(peakStress, stressValue);
+                }
+                
+                p.stroke(p.color(80, 80, 80)); 
+                p.strokeWeight(2 + stressValue * 5);
+
+                const elevatorTop = p.createVector(elevator.pos.x, elevator.pos.y - elevator.height / 2);
+                const counterweightWrapTop = p.createVector(counterweight.pos.x, counterweight.pos.y - counterweight.height / 2 + 5 + emergencyBounceOffset);
+                const p1Top = p.createVector(pulley1.x, pulley1.y - DRUM_RADIUS);
+                const p2Top = p.createVector(pulley2.x, pulley2.y - DRUM_RADIUS);
+
+                p.line(elevatorTop.x, elevatorTop.y, p1Top.x, p1Top.y);
+                p.line(p1Top.x, p1Top.y, p2Top.x, p2Top.y);
+                p.line(p2Top.x, p2Top.y, counterweightWrapTop.x, counterweightWrapTop.y);
+            }
+
+            function drawObjects() {
+                p.rectMode(p.CENTER);
+                
+                const elevatorX = elevator.pos.x;
+                const elevatorY = elevator.pos.y;
+                const elevatorW = elevator.width;
+                const elevatorH = elevator.height;
+                p.noStroke();
+                p.fill(100, 100, 110);
+                p.rect(elevatorX, elevatorY, elevatorW, elevatorH, 5);
+                p.fill(120, 120, 130);
+                p.rect(elevatorX, elevatorY - 2, elevatorW - 4, elevatorH - 4, 4);
+                const doorWidth = (elevatorW - 8) / 2;
+                p.fill(80, 80, 90);
+                p.rect(elevatorX - doorWidth / 2 - 1, elevatorY, doorWidth, elevatorH - 8, 3);
+                p.rect(elevatorX + doorWidth / 2 + 1, elevatorY, doorWidth, elevatorH - 8, 3);
+                p.stroke(180);
+                p.strokeWeight(1.5);
+                p.line(elevatorX, elevatorY - (elevatorH/2) + 4, elevatorX, elevatorY + (elevatorH/2) - 4);
+
+                p.noStroke();
+                p.fill(150, 100, 80);
+                const counterweightDrawY = counterweight.pos.y + emergencyBounceOffset;
+                p.rect(counterweight.pos.x, counterweightDrawY, counterweight.width, counterweight.height, 5);
+                
+                let stressValue = p.map(p.abs(tension), elevator.mass * GRAVITY * 0.8, elevator.mass * GRAVITY * 1.5, 0, 1);
+                stressValue = p.constrain(stressValue, 0, 1);
+                p.stroke(p.color(80, 80, 80)); 
+                p.strokeWeight(2 + stressValue * 2);
+
+                const numHWraps = 3;
+                const hWrapSpacing = 15;
+                const startY = counterweightDrawY - counterweight.height / 2 + 5;
+                for (let i = 0; i < numHWraps; i++) {
+                    const y = startY + i * hWrapSpacing;
+                    p.line(counterweight.pos.x - counterweight.width / 2, y, counterweight.pos.x + counterweight.width / 2, y);
+                }
+
+                const numVWraps = 3;
+                const vWrapSpacing = 10;
+                const startX = counterweight.pos.x - (numVWraps - 1) * vWrapSpacing / 2;
+                for (let i = 0; i < numVWraps; i++) {
+                    const x = startX + i * vWrapSpacing;
+                    p.line(x, counterweightDrawY - counterweight.height / 2, x, counterweightDrawY + counterweight.height / 2);
+                }
+            }
+            
+            function updateInfo() {
+                const infoDiv = document.getElementById('info');
+                if (infoDiv.innerText.includes("EMERGENCY STOP") || infoDiv.innerText.includes("Reached Bottom")) {
+                    if (p.frameCount % 180 === 0) {
+                       infoDiv.innerText = "Status: Idle";
+                    }
+                }
+            }
+
+            function updateInfoCard() {
+                let currentStress = p.map(p.abs(emergencyBounceOffset), 0, 15, 0, 100);
+                stressValueSpan.textContent = `${currentStress.toFixed(1)}%`;
+                joltValueSpan.textContent = `${p.abs(emergencyBounceOffset).toFixed(1)} px`;
+                peakStressValueSpan.textContent = `${(peakStress * 100).toFixed(1)}%`;
+                peakJoltValueSpan.textContent = `${peakInertiaEffect.toFixed(1)} px`;
+            }
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>

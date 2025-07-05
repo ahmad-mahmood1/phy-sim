@@ -3,183 +3,256 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ping-Pong Ball Trajectory Simulation</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.dom.js"></script>
+    <title>Elevator Physics Simulation</title>
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+        }
+    }
+    </script>
     <style>
         body {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
             margin: 0;
-            height: 100vh;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
             background-color: #f0f0f0;
         }
-        #control-panel {
-            padding: 20px;
-            background-color: white;
+        #simulation-container {
             border: 1px solid #ccc;
-            border-radius: 5px;
+            margin-bottom: 15px;
+            background-color: white;
         }
-        canvas {
-            border: 1px solid #000;
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+        }
+        #start-btn {
+            background-color: #4CAF50;
+        }
+        #stop-btn {
+            background-color: #f44336;
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .info {
+            font-size: 14px;
+            color: #333;
         }
     </style>
 </head>
 <body>
-    <div id="control-panel">
-        <h3>Control Panel</h3>
-        <label for="y-position">Initial Y Position:</label>
-        <input type="range" id="y-position" min="0" max="400" value="200"><br>
-        <label for="speed">Initial Speed:</label>
-        <input type="range" id="speed" min="1" max="20" value="10"><br>
-        <label for="angle">Initial Angle (degrees):</label>
-        <input type="range" id="angle" min="0" max="90" value="45"><br>
-        <button id="run-button">Run</button>
-        <button id="reset-button">Reset</button>
-        <h4>Ricochets:</h4>
-        <div id="ricochet-data"></div>
+    <h1>Elevator Physics Simulation</h1>
+    <div class="info">Click Start to begin the elevator descent</div>
+    <div class="controls">
+        <button id="start-btn">Start</button>
+        <button id="stop-btn" disabled>EMERGENCY STOP</button>
     </div>
-    <script>
-        let sketch = (p) => {
-            let ball;
-            let ricochets = [];
-            let isRunning = false;
+    <div id="simulation-container"></div>
+    <script type="module">
+        import p5 from "p5";
 
-            p.setup = () => {
-                p.createCanvas(600, 400);
-                ball = new Ball(p);
-                p.drawPath();
-                p.setupControls();
-            };
+        /**
+         * Initializes the elevator physics simulation.
+         * 
+         * This simulation models an elevator descending with a counterweight system.
+         * It demonstrates the effects of inertia and momentum when the elevator is
+         * stopped suddenly, causing the counterweight to stretch the cable.
+         * 
+         * @param {number} width - The width of the simulation canvas
+         * @param {number} height - The height of the simulation canvas
+         */
+        function elevatorPhysics(width, height) {
+            let elevatorY = 0;
+            let counterweightY = height;
+            let isDescending = false;
+            let isStopped = false;
+            let cableStretch = 0;
+            let cableStress = 0;
+            let stretchVelocity = 0;
+            let massRatio = 1.5; // Ratio of counterweight mass to elevator mass
 
-            p.draw = () => {
-                if (isRunning) {
-                    ball.update();
-                    ball.display();
-                    if (ball.isOutOfBounds()) {
-                      console.log("Ball out of bounds, stopping simulation.");
-                        isRunning = false;
-                    }
-                }
-            };
+            const sketch = (p) => {
+                p.setup = () => {
+                    const canvas = p.createCanvas(width, height);
+                    canvas.parent('simulation-container');
 
-            p.setupControls = () => {
-                const yPositionSlider = document.getElementById('y-position');
-                const speedSlider = document.getElementById('speed');
-                const angleSlider = document.getElementById('angle');
-                const runButton = document.getElementById('run-button');
-                const resetButton = document.getElementById('reset-button');
-                const ricochetDataDiv = document.getElementById('ricochet-data');
+                    document.getElementById('start-btn').addEventListener('click', () => {
+                        isDescending = true;
+                        isStopped = false;
+                        cableStretch = 0;
+                        cableStress = 0;
+                        document.getElementById('start-btn').disabled = true;
+                        document.getElementById('stop-btn').disabled = false;
+                    });
 
-                const updatePath = () => {
-                    ball.initialY = parseFloat(yPositionSlider.value);
-                    ball.initialSpeed = parseFloat(speedSlider.value);
-                    ball.initialAngle = parseFloat(angleSlider.value);
-                    ball.calculatePath();
-                    p.drawPath();
-                    ricochetDataDiv.innerHTML = ball.getRicochetData();
+                    document.getElementById('stop-btn').addEventListener('click', () => {
+                        isStopped = true;
+                        document.getElementById('stop-btn').disabled = true;
+                    });
                 };
 
-                yPositionSlider.oninput = updatePath;
-                speedSlider.oninput = updatePath;
-                angleSlider.oninput = updatePath;
-
-                runButton.onclick = () => {
-                    ball.reset();
-                    isRunning = true;
+                p.draw = () => {
+                    p.background(240);
+                    drawShafts(p);
+                    drawPulley(p, 200, 20, 30);
+                    drawPulley(p, 400, 20, 30);
+                    drawCable(p);
+                    drawElevator(p);
+                    drawCounterweight(p);
+                    updatePhysics(p);
                 };
 
-                resetButton.onclick = () => {
-                    ball.reset();
-                    isRunning = false;
-                    p.drawPath();
-                };
-            };
-
-            p.drawPath = () => {
-                p.clear();
-                p.background(240);
-                p.stroke(0);
-                p.fill(255);
-                p.rect(0, 0, p.width, p.height);
-                ball.drawPath();
-            };
-
-            class Ball {
-                constructor(p) {
-                    this.p = p;
-                    this.initialY = 100;
-                    this.initialSpeed = 10;
-                    this.initialAngle = 45;
-                    this.reset();
+                /**
+                 * Draws the vertical shafts for the elevator and counterweight
+                 * 
+                 * @param {object} p - The p5.js instance
+                 */
+                function drawShafts(p) {
+                    p.fill(200);
+                    p.rect(150, 0, 100, height);
+                    p.rect(350, 0, 100, height);
                 }
 
-                reset() {
-                    this.x = 50;
-                    this.y = this.initialY;
-                    this.speed = this.initialSpeed;
-                    this.angle = this.initialAngle * (Math.PI / 180);
-                    this.vx = this.speed * Math.cos(this.angle);
-                    this.vy = -this.speed * Math.sin(this.angle);
-                    this.ricochets = [];
-                    this.calculatePath();
+                /**
+                 * Draws a pulley at the specified position
+                 * 
+                 * @param {object} p - The p5.js instance
+                 * @param {number} x - The x-coordinate of the pulley center
+                 * @param {number} y - The y-coordinate of the pulley center
+                 * @param {number} size - The diameter of the pulley
+                 */
+                function drawPulley(p, x, y, size) {
+                    p.fill(150);
+                    p.stroke(100);
+                    p.strokeWeight(2);
+                    p.ellipse(x, y, size, size);
                 }
 
-                calculatePath() {
-                    this.path = [];
-                    let time = 0;
-                    let dt = 0.1;
-                    while (this.x >= 0 && this.x <= this.p.width && this.y >= 0 && this.y <= this.p.height) {
-                        this.path.push({ x: this.x, y: this.y });
-                        time += dt;
-                        this.x = 50 + this.vx * time;
-                        this.y = this.initialY + this.vy * time + 0.5 * 9.8 * time * time;
+                /**
+                 * Draws the cable connecting the elevator and counterweight
+                 * 
+                 * @param {object} p - The p5.js instance
+                 */
+                function drawCable(p) {
+                    const startX = 200;
+                    const endX = 400;
+                    const baseY = 50;
 
-                        if (this.x <= 0 || this.x >= this.p.width) {
-                            this.vx *= -1;
-                            this.ricochets.push({ speed: this.speed, angle: this.angle * (180 / Math.PI) });
+                    // Left side of cable
+                    p.stroke(50);
+                    p.strokeWeight(3);
+                    p.line(startX, baseY, startX, elevatorY);
+
+                    // Right side of cable
+                    p.line(endX, baseY, endX, counterweightY + cableStretch);
+
+                    // Calculate cable stress visualization
+                    const stressMultiplier = cableStress * 0.3;
+                    const startStretchX = p.lerp(startX, endX, 0.4);
+                    const endStretchX = p.lerp(startX, endX, 0.6);
+
+                    // Top cable with stress-induced bend
+                    p.beginShape();
+                    p.vertex(startX, baseY);
+                    p.bezierVertex(
+                        startStretchX, baseY + stressMultiplier * 10,
+                        endStretchX, baseY + stressMultiplier * 15,
+                        endX, baseY
+                    );
+                    p.endShape();
+                }
+
+                /**
+                 * Draws the elevator car in its shaft
+                 * 
+                 * @param {object} p - The p5.js instance
+                 */
+                function drawElevator(p) {
+                    p.fill(100, 150, 200);
+                    p.stroke(50);
+                    p.strokeWeight(1);
+                    p.rect(170, elevatorY, 60, 40);
+                }
+
+                /**
+                 * Draws the counterweight in its shaft
+                 * 
+                 * @param {object} p - The p5.js instance
+                 */
+                function drawCounterweight(p) {
+                    p.fill(200, 100, 100);
+                    p.stroke(50);
+                    p.strokeWeight(1);
+                    p.rect(370, counterweightY, 60, 40 + cableStretch);
+                }
+
+                /**
+                 * Updates the physics of the elevator system
+                 * 
+                 * Handles the motion of the elevator and counterweight, applies
+                 * inertia when the system is stopped, and calculates cable stress
+                 * 
+                 * @param {object} p - The p5.js instance
+                 */
+                function updatePhysics(p) {
+                    if (isDescending) {
+                        if (!isStopped) {
+                            // Normal descent physics
+                            const acceleration = 0.5;
+                            elevatorY += acceleration;
+                            counterweightY -= acceleration;
+
+                            if (elevatorY >= height - 40) {
+                                isDescending = false;
+                                document.getElementById('start-btn').disabled = false;
+                            }
+                        } else {
+                            // Emergency stop physics with inertia
+                            const springConstant = 0.1;
+                            const damping = 0.92;
+
+                            // Apply spring force based on cable stretch
+                            const springForce = -springConstant * cableStretch;
+                            stretchVelocity += springForce;
+
+                            // Update stretch with damping
+                            stretchVelocity *= damping;
+                            cableStretch += stretchVelocity;
+
+                            // Calculate cable stress based on stretch
+                            cableStress = p.abs(cableStretch) * massRatio;
+
+                            if (cableStretch < 0.1) {
+                                cableStretch = 0;
+                                cableStress = 0;
+                                stretchVelocity = 0;
+                            }
                         }
-                        if (this.y <= 0 || this.y >= this.p.height) {
-                            this.vy *= -1;
-                            this.ricochets.push({ speed: this.speed, angle: this.angle * (180 / Math.PI) });
-                        }
                     }
                 }
+            };
 
-                drawPath() {
-                    this.p.stroke(150);
-                    this.p.noFill();
-                    this.p.beginShape();
-                    for (let point of this.path) {
-                        this.p.vertex(point.x, point.y);
-                    }
-                    this.p.endShape();
-                }
+            new p5(sketch);
+        }
 
-                update() {
-                    this.x += this.vx;
-                    this.y += this.vy;
-                    this.vy += 9.8 * 0.1; // Gravity effect
-                }
-
-                display() {
-                    this.p.fill(255, 0, 0);
-                    this.p.ellipse(this.x, this.y, 20, 20);
-                }
-
-                isOutOfBounds() {
-                    return this.x < 0 || this.x > this.p.width || this.y < 0 || this.y > this.p.height;
-                }
-
-                getRicochetData() {
-                    return this.ricochets.map((r, index) => `Ricochet ${index + 1}: Speed = ${r.speed.toFixed(2)}, Angle = ${r.angle.toFixed(2)}°`).join('<br>');
-                }
-            }
-        };
-
-        // Create the p5 instance
-        new p5(sketch);
+        elevatorPhysics(600, 400);
     </script>
 </body>
 </html>
