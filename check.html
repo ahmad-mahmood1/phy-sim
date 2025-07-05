@@ -1,200 +1,273 @@
-<script type="module">
-    import 'p5';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>2D Baseball Physics Simulation</title>
+  <style>
+    body { margin: 0; padding: 20px; font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
+    .controls { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: center; }
+    .control-group { display: flex; flex-direction: column; align-items: center; }
+    label { margin-bottom: 5px; font-size: 14px; }
+    button { padding: 8px 16px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; background-color: #4CAF50; color: white; }
+    button:disabled { background-color: #cccccc; cursor: not-allowed; }
+  </style>
+  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+      }
+    }
+  </script>
+</head>
+<body>
+  <h1>2D Baseball Physics Simulation</h1>
 
-    /**
-     * @param {p5} p - The p5.js instance.
-     */
-    let sketch = function (p) {
-        /** @type {number} */
-        let numX = 100;
-        /** @type {number} */
-        let numY = 75;
-        /** @type {Array<Array<number>>} */
-        let scalarField = new Array(numX);
-        /** @type {number} */
-        let isoValue = 0.5;
-        /** @type {p5.Graphics} */
-        let channelGraphics;
-        /** @type {number} */
-        let time = 0;
-        /** @type {number} */
-        let timeStep = 0.01;
-        /** @type {number} */
-        let flowSpeed = 1.0;
-        /** @type {number} */
-        let noiseScale = 0.1;
-        /** @type {Array<Array<number>>} */
-        let channelMasks = [];
-        /** @type {number} */
-        let cellSizeX;
-        /** @type {number} */
-        let cellSizeY;
+  <div class="controls">
+    <div class="control-group">
+      <label for="velocity">Launch Velocity (m/s)</label>
+      <input type="range" id="velocity" min="10" max="50" value="30">
+      <span id="velocity-value">30</span>
+    </div>
 
-        /**
-         * Setup function for p5.js. Initializes the canvas, scalar field, and channel graphics.
-         */
-        p.setup = function () {
-            let canvas = p.createCanvas(800, 600);
-            canvas.parent('canvas-container');
+    <div class="control-group">
+      <label for="angle">Launch Angle (°)</label>
+      <input type="range" id="angle" min="0" max="90" value="45">
+      <span id="angle-value">45</span>
+    </div>
 
-            cellSizeX = p.width / numX;
-            cellSizeY = p.height / numY;
+    <div class="control-group">
+      <label for="wind">Wind Speed (m/s)</label>
+      <input type="range" id="wind" min="-10" max="10" value="0">
+      <span id="wind-value">0</span>
+    </div>
 
-            // Initialize scalar field
-            for (let i = 0; i < numX; i++) {
-                scalarField[i] = new Array(numY).fill(0);
-            }
+    <div class="control-group">
+      <label for="catcher-height">Catcher Height</label>
+      <input type="range" id="catcher-height" min="0" max="100" value="50">
+      <span id="catcher-height-value">50</span>
+    </div>
 
-            // Create an off-screen graphics buffer for the channel network
-            channelGraphics = p.createGraphics(p.width, p.height);
-            drawChannelNetwork(channelGraphics);
+    <button id="launch">Launch Ball</button>
+    <button id="reset">Reset</button>
+  </div>
 
-            // --- FIX START ---
-            // Sample the graphics buffer to create a binary mask
-            // This tells the simulation where the channels are
-            channelGraphics.loadPixels(); // Load pixel data for fast access
-            for (let j = 0; j < numY; j++) {
-                channelMasks[j] = [];
-                for (let i = 0; i < numX; i++) {
-                    // Check the color at the center of each grid cell
-                    const x = Math.floor(i * cellSizeX + cellSizeX / 2);
-                    const y = Math.floor(j * cellSizeY + cellSizeY / 2);
-                    const index = (y * p.width + x) * 4;
+  <div id="simulation-container"></div>
+  <div id="result"></div>
+  <div id="max-height"></div>
 
-                    // The drawn channel is white, so check the red component.
-                    const redValue = channelGraphics.pixels[index];
-                    channelMasks[j][i] = (redValue > 0) ? 1 : 0;
-                }
-            }
-            // --- FIX END ---
-        };
+  <script type="module">
+    import p5 from "p5";
 
-        /**
-         * Draw function for p5.js. Updates and renders the fluid simulation.
-         */
-        p.draw = function () {
-            p.background(32, 32, 48);
+    const sketch = (p) => {
+      // Physics constants
+      const gravity = 9.81; // m/s²
+      const airDensity = 1.225; // kg/m³
+      const ballMass = 0.145; // kg (baseball mass)
+      const ballDiameter = 0.074; // m (baseball diameter)
+      const dragCoefficient = 0.47; // sphere drag coefficient
+      const scale = 5; // pixels per meter
 
-            updateScalarField();
+      // Game state
+      let ball = null;
+      let launched = false;
+      let caught = false;
+      let hitGround = false;
+      let maxHeight = 0;
+      let catcherY = 50;
 
-            // Optional: Draw the underlying fluid values for debugging or effect
-            p.noStroke();
-            for (let j = 0; j < numY; j++) {
-                for (let i = 0; i < numX; i++) {
-                    if (channelMasks[j][i] === 1) {
-                        const alpha = p.map(scalarField[i][j], isoValue, 1.2, 0, 50);
-                        p.fill(100, 150, 255, alpha);
-                        p.rect(i * cellSizeX, j * cellSizeY, cellSizeX, cellSizeY);
-                    }
-                }
-            }
+      // Controls
+      let velocity = 30;
+      let angle = 45;
+      let windSpeed = 0;
 
-            // Draw the Marching Squares contour lines
-            p.stroke(220, 230, 255);
-            p.strokeWeight(2.5);
-            p.noFill();
-            for (let j = 0; j < numY - 1; j++) {
-                for (let i = 0; i < numX - 1; i++) {
-                    // Only draw contours inside the channel network
-                    if (channelMasks[j][i] === 1) {
-                        let topLeft = scalarField[i][j];
-                        let topRight = scalarField[i + 1][j];
-                        let bottomLeft = scalarField[i][j + 1];
-                        let bottomRight = scalarField[i + 1][j + 1];
+      // UI elements
+      let velocitySlider, angleSlider, windSlider, catcherHeightSlider;
+      let launchButton, resetButton;
+      let resultDiv, maxHeightDiv;
 
-                        drawContour(i, j, topLeft, topRight, bottomLeft, bottomRight);
-                    }
-                }
-            }
+      p.setup = () => {
+        const canvas = p.createCanvas(800, 400);
+        canvas.parent('simulation-container');
 
-            time += timeStep;
-        };
+        // Initialize UI elements
+        velocitySlider = document.getElementById('velocity');
+        angleSlider = document.getElementById('angle');
+        windSlider = document.getElementById('wind');
+        catcherHeightSlider = document.getElementById('catcher-height');
+        launchButton = document.getElementById('launch');
+        resetButton = document.getElementById('reset');
+        resultDiv = document.getElementById('result');
+        maxHeightDiv = document.getElementById('max-height');
 
-        /**
-         * Calculates and draws a line segment for a single cell based on the Marching Squares algorithm.
-         */
-        function drawContour(i, j, v1, v2, v3, v4) {
-            let caseIndex = 0;
-            if (v1 > isoValue) caseIndex |= 8; // Top-left
-            if (v2 > isoValue) caseIndex |= 4; // Top-right
-            if (v4 > isoValue) caseIndex |= 2; // Bottom-right
-            if (v3 > isoValue) caseIndex |= 1; // Bottom-left
+        // Add event listeners
+        velocitySlider.addEventListener('input', updateVelocity);
+        angleSlider.addEventListener('input', updateAngle);
+        windSlider.addEventListener('input', updateWind);
+        catcherHeightSlider.addEventListener('input', updateCatcherHeight);
+        launchButton.addEventListener('click', launchBall);
+        resetButton.addEventListener('click', resetSimulation);
 
-            const x = i * cellSizeX;
-            const y = j * cellSizeY;
+        // Initialize UI values
+        updateVelocity();
+        updateAngle();
+        updateWind();
+        updateCatcherHeight();
+      };
 
-            // Interpolation helper function
-            const interp = (val1, val2) => p.abs(isoValue - val1) / p.abs(val2 - val1);
+      p.draw = () => {
+        p.background(240);
 
-            // Points on the edges of the cell
-            const top = { x: x + cellSizeX * interp(v1, v2), y: y };
-            const right = { x: x + cellSizeX, y: y + cellSizeY * interp(v2, v4) };
-            const bottom = { x: x + cellSizeX * interp(v3, v4), y: y + cellSizeY };
-            const left = { x: x, y: y + cellSizeY * interp(v1, v3) };
+        // Draw field
+        p.fill(100, 200, 100);
+        p.noStroke();
+        p.rect(0, p.height - 50, p.width, 50);
 
-            switch (caseIndex) {
-                case 1: p.line(left.x, left.y, bottom.x, bottom.y); break;
-                case 2: p.line(bottom.x, bottom.y, right.x, right.y); break;
-                case 3: p.line(left.x, left.y, right.x, right.y); break;
-                case 4: p.line(top.x, top.y, right.x, right.y); break;
-                case 5: p.line(left.x, left.y, top.x, top.y); p.line(bottom.x, bottom.y, right.x, right.y); break;
-                case 6: p.line(top.x, top.y, bottom.x, bottom.y); break;
-                case 7: p.line(left.x, left.y, top.x, top.y); break;
-                case 8: p.line(left.x, left.y, top.x, top.y); break;
-                case 9: p.line(top.x, top.y, bottom.x, bottom.y); break;
-                case 10: p.line(top.x, top.y, right.x, right.y); p.line(left.x, left.y, bottom.x, bottom.y); break;
-                case 11: p.line(top.x, top.y, right.x, right.y); break;
-                case 12: p.line(left.x, left.y, right.x, right.y); break;
-                case 13: p.line(bottom.x, bottom.y, right.x, right.y); break;
-                case 14: p.line(left.x, left.y, bottom.x, bottom.y); break;
-            }
+        // Draw batter
+        p.fill(200, 100, 50);
+        p.rect(50, p.height - 100, 20, 50);
+
+        // Draw catcher
+        const catcherX = p.width - 100;
+        const catcherHeadY = p.height - 100 - catcherY;
+        const catcherBodyHeight = 100;
+        const catcherBodyY = catcherHeadY + 20;
+        const catcherLegHeight = 50;
+
+        // Catcher head
+        p.fill(50, 100, 200);
+        p.ellipse(catcherX, catcherHeadY, 20, 20);
+
+        // Catcher body
+        p.fill(200, 50, 50);
+        p.rect(catcherX - 10, catcherBodyY, 20, catcherBodyHeight);
+
+        // Catcher legs
+        p.fill(50, 50, 200);
+        p.rect(catcherX - 10, catcherBodyY + catcherBodyHeight, 20, catcherLegHeight);
+
+        // Update and draw ball
+        if (launched && ball) {
+          ball.update();
+          ball.show();
+
+          // Check for collisions
+          checkCollisions(catcherX, catcherHeadY, catcherBodyY, catcherBodyHeight, catcherLegHeight);
+
+          // Update max height
+          if (ball.pos.y < maxHeight) {
+            maxHeight = ball.pos.y;
+            maxHeightDiv.textContent = `Max Height: ${((p.height - maxHeight) / scale).toFixed(2)} m`;
+          }
+        }
+      };
+
+      class Ball {
+        constructor(x, y, vx, vy) {
+          this.pos = p.createVector(x, y);
+          this.vel = p.createVector(vx, vy);
+          this.radius = 10;
         }
 
+        update() {
+          // Apply gravity
+          this.vel.y += gravity / 60;
 
-        /**
-         * Updates the scalar field using Perlin noise to simulate fluid flow.
-         */
-        function updateScalarField() {
-            for (let i = 0; i < numX; i++) {
-                for (let j = 0; j < numY; j++) {
-                    if (channelMasks[j][i] === 1) {
-                        let noiseVal = p.noise(
-                            i * noiseScale + time * flowSpeed,
-                            j * noiseScale,
-                            time * flowSpeed * 0.5 // A third dimension to make it dynamic
-                        );
-                        scalarField[i][j] = noiseVal;
-                    } else {
-                        scalarField[i][j] = 0; // Set values outside channel to 0
-                    }
-                }
-            }
+          // Apply air resistance (drag)
+          const speed = this.vel.mag();
+          const dragForce = p5.Vector.mult(this.vel, -0.5 * airDensity * dragCoefficient * Math.PI * (ballDiameter / 2) ** 2 * speed / ballMass);
+          this.vel.add(dragForce);
+
+          // Apply wind
+          this.vel.x += windSpeed / 60;
+
+          // Update position
+          this.pos.add(p5.Vector.mult(this.vel, 1 / 60));
         }
 
-        /**
-         * Draws the channel network onto a graphics buffer.
-         * @param {p5.Graphics} pg - The graphics buffer to draw on.
-         */
-        function drawChannelNetwork(pg) {
-            pg.background(0); // Black background
-            pg.stroke(255);   // White stroke for the channels
-            pg.strokeWeight(30); // Make channels thicker for better sampling
-            pg.noFill();
-
-            // Central channel
-            pg.line(40, 300, 760, 300);
-
-            // Branching structures
-            for (let i = 0; i < 5; i++) {
-                let x = 150 + i * 120;
-                pg.line(x, 300, x, 100);
-                pg.line(x, 300, x, 500);
-
-                pg.line(x - 40, 100, x + 40, 100);
-                pg.line(x - 40, 500, x + 40, 500);
-            }
+        show() {
+          p.fill(255);
+          p.stroke(0);
+          p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
         }
+      }
+
+      function launchBall() {
+        if (launched) return;
+
+        launched = true;
+        launchButton.disabled = true;
+
+        // Calculate initial velocity components
+        const angleRad = p.radians(angle);
+        const vx = velocity * p.cos(angleRad) * scale;
+        const vy = -velocity * p.sin(angleRad) * scale;
+
+        // Create ball
+        ball = new Ball(70, p.height - 100, vx, vy);
+
+        // Initialize max height
+        maxHeight = ball.pos.y;
+        maxHeightDiv.textContent = `Max Height: ${((p.height - maxHeight) / scale).toFixed(2)} m`;
+        resultDiv.textContent = '';
+      }
+
+      function resetSimulation() {
+        launched = false;
+        caught = false;
+        hitGround = false;
+        ball = null;
+        launchButton.disabled = false;
+        resultDiv.textContent = '';
+        maxHeightDiv.textContent = '';
+      }
+
+      function checkCollisions(catcherX, catcherHeadY, catcherBodyY, catcherBodyHeight, catcherLegHeight) {
+        if (!ball) return;
+
+        // Check for catch
+        const distanceToHead = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherHeadY);
+        const distanceToBody = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherBodyY + catcherBodyHeight / 2);
+        const distanceToLegs = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherBodyY + catcherBodyHeight + catcherLegHeight / 2);
+
+        if (distanceToHead < ball.radius + 10 ||
+            distanceToBody < ball.radius + 20 ||
+            distanceToLegs < ball.radius + 15) {
+          caught = true;
+          resultDiv.textContent = 'CAUGHT!';
+          return;
+        }
+
+        // Check for ground hit
+        if (ball.pos.y > p.height - 50) {
+          hitGround = true;
+          resultDiv.textContent = 'Hit the ground';
+          return;
+        }
+      }
+
+      function updateVelocity() {
+        velocity = parseFloat(velocitySlider.value);
+        document.getElementById('velocity-value').textContent = velocity;
+      }
+
+      function updateAngle() {
+        angle = parseFloat(angleSlider.value);
+        document.getElementById('angle-value').textContent = angle;
+      }
+
+      function updateWind() {
+        windSpeed = parseFloat(windSlider.value);
+        document.getElementById('wind-value').textContent = windSpeed;
+      }
+
+      function updateCatcherHeight() {
+        catcherY = parseFloat(catcherHeightSlider.value);
+        document.getElementById('catcher-height-value').textContent = catcherY;
+      }
     };
 
-    let myp5 = new window.p5(sketch);
-</script>
+    new p5(sketch);
+  </script>
+</body>
+</html>

@@ -42,6 +42,18 @@
             align-items: center;
         }
 
+        #relaunch-note {
+            font-size: 0.8rem;
+            color: #4a5568;
+            text-align: center;
+            max-width: 250px;
+            padding: 0.5rem;
+            margin-bottom: 1rem;
+            border: 1px dashed #a0aec0;
+            border-radius: 5px;
+            background-color: #edf2f7;
+        }
+
         .slider-group {
             margin: 0.75rem 0;
             width: 100%;
@@ -72,6 +84,22 @@
         input[type="range"]:hover {
             opacity: 1;
         }
+        
+        input[type="range"]:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        input[type="range"]:disabled::-webkit-slider-thumb {
+            background: #a0aec0;
+            cursor: not-allowed;
+        }
+
+        input[type="range"]:disabled::-moz-range-thumb {
+            background: #a0aec0;
+            cursor: not-allowed;
+        }
+
 
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
@@ -106,12 +134,33 @@
             cursor: pointer;
             transition: background-color 0.3s;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            width: 85%;
+            max-width: 250px;
         }
 
         button:hover {
             background-color: #3182ce;
         }
+
+        button:disabled {
+            background-color: #a0aec0;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
         
+        /* Style for the new toggle button */
+        #toggle-trajectory-button {
+            display: none; /* Hidden by default */
+            margin-top: 0.75rem;
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+            background-color: #63b3ed;
+        }
+        
+        #toggle-trajectory-button:hover {
+            background-color: #4299e1;
+        }
+
         #stats {
             position: absolute;
             top: 10px;
@@ -148,8 +197,10 @@
 </head>
 
 <body>
-    <!-- Controls are now on the left -->
     <div id="ui-container">
+        <div id="relaunch-note">
+            <p>Adjust sliders and press <strong>Launch</strong> to see changes.</p>
+        </div>
         <div class="slider-group">
             <label id="velocity-label" for="velocity">Initial Velocity: 40 m/s</label>
             <input type="range" id="velocity" min="10" max="30" value="20" step="1">
@@ -167,7 +218,7 @@
             <input type="range" id="reach" min="1.5" max="3.0" value="2.5" step="0.1">
         </div>
         <button id="launch-button">Launch Baseball</button>
-        <!-- Instructions Section -->
+        <button id="toggle-trajectory-button">Hide Trajectory</button>
         <div id="instructions">
             <p><strong>Wind Effects:</strong></p>
             <ul>
@@ -177,7 +228,6 @@
         </div>
     </div>
 
-    <!-- Canvas is on the right -->
     <div id="canvas-container">
         <div id="stats"></div>
     </div>
@@ -187,7 +237,7 @@
 
         const sketch = (p) => {
             // --- DOM Elements ---
-            let velocitySlider, angleSlider, windSlider, reachSlider, launchButton;
+            let velocitySlider, angleSlider, windSlider, reachSlider, launchButton, toggleButton;
             let velocityLabel, angleLabel, windLabel, reachLabel, statsDiv;
 
             // --- Simulation Constants ---
@@ -212,9 +262,10 @@
             let catchResult = "";
             let isSwinging = false;
             let swingFrame = 0;
-            const SWING_DURATION = 15; // Total frames for swing animation
-            const CONTACT_FRAME = 6;  // Frame when ball is launched
-            let catcherPose = 'ready'; // New state for catcher animation
+            const SWING_DURATION = 15;
+            const CONTACT_FRAME = 6;
+            let catcherPose = 'ready';
+            let showTrajectory = true; // New state for toggling trajectory visibility
 
             // --- Canvas & Scaling ---
             let canvasWidth, canvasHeight;
@@ -226,7 +277,7 @@
                     this.pos = p.createVector(1, throwHeight);
                     this.vel = p5.Vector.fromAngle(p.radians(initialAngle)).mult(initialV);
                     this.acc = p.createVector(0, 0);
-                    this.rotation = 0; // Add rotation property
+                    this.rotation = 0;
                 }
 
                 applyForce(force) {
@@ -236,23 +287,17 @@
 
                 update(dt, windSpeed) {
                     if (!this.pos) return;
-
                     const gravityForce = p.createVector(0, -g * mass);
                     this.applyForce(gravityForce);
-
                     const windVector = p.createVector(windSpeed, 0);
                     const relativeVelocity = p5.Vector.sub(this.vel, windVector);
                     const speed = relativeVelocity.mag();
                     const dragMagnitude = 0.5 * rho * speed * speed * C_d * area;
-                    const dragForce = relativeVelocity.copy();
-                    dragForce.normalize().mult(-dragMagnitude);
+                    const dragForce = relativeVelocity.copy().normalize().mult(-dragMagnitude);
                     this.applyForce(dragForce);
-                    
                     this.vel.add(this.acc.copy().mult(dt));
                     this.pos.add(this.vel.copy().mult(dt));
                     this.acc.mult(0);
-                    
-                    // Update rotation based on velocity
                     this.rotation += this.vel.mag() * 0.01; 
                 }
             }
@@ -263,22 +308,26 @@
                 canvasHeight = container.offsetHeight;
                 p.createCanvas(canvasWidth, canvasHeight).parent(container);
                 
+                // Select all UI elements
                 velocitySlider = document.getElementById('velocity');
                 angleSlider = document.getElementById('angle');
                 windSlider = document.getElementById('wind');
                 reachSlider = document.getElementById('reach');
                 launchButton = document.getElementById('launch-button');
+                toggleButton = document.getElementById('toggle-trajectory-button'); // Get the new button
                 velocityLabel = document.getElementById('velocity-label');
                 angleLabel = document.getElementById('angle-label');
                 windLabel = document.getElementById('wind-label');
                 reachLabel = document.getElementById('reach-label');
                 statsDiv = document.getElementById('stats');
 
+                // Assign event listeners
                 launchButton.onclick = startSwing;
-                velocitySlider.oninput = updateLabels;
-                angleSlider.oninput = updateLabels;
-                windSlider.oninput = updateLabels;
-                reachSlider.oninput = updateLabels;
+                toggleButton.onclick = toggleTrajectoryVisibility; // Assign its function
+                velocitySlider.oninput = handleSliderInput;
+                angleSlider.oninput = handleSliderInput;
+                windSlider.oninput = handleSliderInput;
+                reachSlider.oninput = handleSliderInput;
                 
                 const fieldWidthMeters = outfielderDist * 1.1;
                 scaleFactor = canvasWidth / fieldWidthMeters;
@@ -297,13 +346,29 @@
                 outfielderReach = parseFloat(reachSlider.value);
                 reachLabel.innerText = `Catcher Reach: ${outfielderReach.toFixed(2)} m`;
             }
+            
+            function handleSliderInput() {
+                updateLabels();
+                if (simulationEnded) {
+                    simulationEnded = false;
+                    catchResult = "Ready to Launch!"; 
+                    catcherPose = 'ready'; 
+                    trajectory = []; // Clear previous trajectory when sliders change
+                }
+            }
 
             function startSwing() {
-                if (isSwinging || inFlight) return; // Prevent multiple swings
+                if (isSwinging || inFlight) return; 
+                showTrajectory = true; // Ensure new trajectory is visible by default
                 isSwinging = true;
-                simulationEnded = false; // Reset ended state on new launch
-                catcherPose = 'ready'; // Reset catcher's pose
+                simulationEnded = false; 
+                catcherPose = 'ready'; 
                 swingFrame = 0;
+            }
+            
+            // New function to handle the toggle button click
+            function toggleTrajectoryVisibility() {
+                showTrajectory = !showTrajectory;
             }
 
             function checkCatch(prevPos, currentPos) {
@@ -321,7 +386,6 @@
                 const headY_px = bodyTopY_px - headRadius_px;
                 const visualHandY_px = headY_px - 25; 
                 const feetY_px = bodyBottomY_px + legLength_px;
-
                 const catcherLeft_m = outfielderDist + (elbowX_px - armThickness_px / 2) / scaleFactor;
                 const catcherRight_m = outfielderDist + (bodyWidth_px / 2) / scaleFactor;
                 const catcherTop_m = - (visualHandY_px - handSize_px / 2) / scaleFactor;
@@ -331,7 +395,7 @@
                     currentPos.y >= catcherBottom_m && currentPos.y <= catcherTop_m) {
                     catchResult = `CAUGHT! (at ${currentPos.y.toFixed(2)}m high)`;
                     inFlight = false;
-                    simulationEnded = true; // Mark simulation as ended
+                    simulationEnded = true;
                     return; 
                 }
                 
@@ -341,7 +405,7 @@
                     if (interceptY >= catcherBottom_m && interceptY <= catcherTop_m) {
                         catchResult = `CAUGHT! (at ${interceptY.toFixed(2)}m high)`;
                         inFlight = false;
-                        simulationEnded = true; // Mark simulation as ended
+                        simulationEnded = true;
                     }
                 }
             }
@@ -371,211 +435,97 @@
             function drawBatter(swingProgress) {
                 p.push();
                 p.translate(15, 0);
-
-                const bodyWidth = 15;
-                const bodyHeight = 35;
-                const legThickness = 6;
-                const armThickness = 6;
-                const headRadius = 8;
-                const bodyBottomY = -legThickness;
-                const bodyTopY = bodyBottomY - bodyHeight;
-                const legLength = 20;
-                const feetY = bodyBottomY + legLength;
-
-                // Legs
+                const bodyWidth = 15, bodyHeight = 35, legThickness = 6, headRadius = 8;
+                const bodyBottomY = -legThickness, bodyTopY = bodyBottomY - bodyHeight;
+                const legLength = 20, feetY = bodyBottomY + legLength;
                 p.stroke('#e53e3e');
                 p.strokeWeight(legThickness);
                 p.line(-bodyWidth/4, bodyBottomY, -bodyWidth/4, feetY);
                 p.line(bodyWidth/4, bodyBottomY, bodyWidth/4, feetY);
-
-                // Body
                 p.fill('#e53e3e');
                 p.noStroke();
                 p.rectMode(p.CORNER);
                 p.rect(-bodyWidth/2, bodyTopY, bodyWidth, bodyHeight, 4);
-
-                // Head
                 p.fill('#fbd38d');
                 p.ellipse(0, bodyTopY - headRadius, headRadius * 2, headRadius * 2);
-
-                // Bat animation
                 p.push();
-                const handY = bodyTopY + 15;
-                const handX = -5;
-                p.translate(handX, handY); // Pivot around hands
-
-                const startAngle = p.PI / 4;
-                const endAngle = -p.PI / 2;
-                let currentAngle = startAngle;
-                if (swingProgress >= 0) {
-                    currentAngle = p.map(swingProgress, 0, 1, startAngle, endAngle);
-                }
-
+                const handY = bodyTopY + 15, handX = -5;
+                p.translate(handX, handY);
+                const startAngle = p.PI / 4, endAngle = -p.PI / 2;
+                let currentAngle = p.map(swingProgress, 0, 1, startAngle, endAngle);
+                if (swingProgress < 0) currentAngle = startAngle;
                 p.rotate(currentAngle);
-
                 p.noStroke();
-                p.fill(160, 82, 45); // 'Sienna' wood color
-
-                const batLength = 55;
-                const barrelTopWidth = 5;
-                const barrelBottomWidth = 4;
-                const handleWidth = 2;
-                const knobWidth = 4;
-                const knobHeight = 3;
-                const barrelLength = batLength * 0.65;
-                const handleLength = batLength * 0.35;
-
-                // Draw the main body of the bat
+                p.fill(160, 82, 45);
+                const batLength = 55, barrelTopWidth = 5, barrelBottomWidth = 4, handleWidth = 2;
+                const knobWidth = 4, knobHeight = 3, handleLength = batLength * 0.35;
                 p.beginShape();
                 p.vertex(-barrelTopWidth, -batLength);
                 p.vertex(-barrelBottomWidth, -handleLength);
-                p.vertex(-handleWidth, 0);
-                p.vertex(-knobWidth, knobHeight / 2);
-                p.vertex(-knobWidth, knobHeight);
-                p.vertex(knobWidth, knobHeight);
-                p.vertex(knobWidth, knobHeight / 2);
-                p.vertex(handleWidth, 0);
-                p.vertex(barrelBottomWidth, -handleLength);
-                p.vertex(barrelTopWidth, -batLength);
+                p.vertex(-handleWidth, 0); p.vertex(-knobWidth, knobHeight / 2); p.vertex(-knobWidth, knobHeight);
+                p.vertex(knobWidth, knobHeight); p.vertex(knobWidth, knobHeight / 2); p.vertex(handleWidth, 0);
+                p.vertex(barrelBottomWidth, -handleLength); p.vertex(barrelTopWidth, -batLength);
                 p.endShape(p.CLOSE);
-
-                // Add the rounded cap
                 p.arc(0, -batLength, barrelTopWidth * 2, barrelTopWidth * 2, p.PI, p.TWO_PI);
-
-                // Add a simple highlight for a cylindrical feel
                 p.fill(255, 255, 255, 60);
                 p.beginShape();
-                p.vertex(-barrelTopWidth * 0.5, -batLength);
-                p.vertex(-barrelBottomWidth * 0.5, -handleLength);
-                p.vertex(-handleWidth * 0.5, 0);
-                p.vertex(handleWidth * 0.5, 0);
-                p.vertex(barrelBottomWidth * 0.5, -handleLength);
-                p.vertex(barrelTopWidth * 0.5, -batLength);
+                p.vertex(-barrelTopWidth * 0.5, -batLength); p.vertex(-barrelBottomWidth * 0.5, -handleLength);
+                p.vertex(-handleWidth * 0.5, 0); p.vertex(handleWidth * 0.5, 0);
+                p.vertex(barrelBottomWidth * 0.5, -handleLength); p.vertex(barrelTopWidth * 0.5, -batLength);
                 p.endShape(p.CLOSE);
-                
-                // Add a rounded highlight cap
                 p.arc(0, -batLength, barrelTopWidth, barrelTopWidth, p.PI, p.TWO_PI);
-                
-                p.pop(); // End bat rotation/translation
-                p.pop(); // End batter translation
+                p.pop(); p.pop();
             }
 
-            // Function signature now accepts a 'pose'
             function drawCatcher(x_pos_px, ground_y_px, reach_m, pose) {
                 p.push();
                 p.translate(x_pos_px, ground_y_px);
-                
-                const legThickness = 6;
-                const headRadius = 8;
-                const bodyWidth = 15;
-                const bodyHeight = 35;
-                const helmetOffset = 2;
-                const verticalShift = p.map(reach_m, 1.5, 3.0, 5, -15);
-                
-                const bodyBottomY = verticalShift; 
-                const bodyTopY = bodyBottomY - bodyHeight;
-                const headY = bodyTopY - headRadius;
-                const legLength = 20;
-                const feetY = bodyBottomY + legLength;
-
-                // Draw Legs
-                p.stroke('#2d3748');
-                p.strokeWeight(legThickness);
+                const legThickness = 6, headRadius = 8, bodyWidth = 15, bodyHeight = 35;
+                const helmetOffset = 2, verticalShift = p.map(reach_m, 1.5, 3.0, 5, -15);
+                const bodyBottomY = verticalShift, bodyTopY = bodyBottomY - bodyHeight;
+                const headY = bodyTopY - headRadius, legLength = 20, feetY = bodyBottomY + legLength;
+                p.stroke('#2d3748'); p.strokeWeight(legThickness);
                 p.line(-bodyWidth/4, bodyBottomY, -bodyWidth/4, feetY);
                 p.line(bodyWidth/4, bodyBottomY, bodyWidth/4, feetY);
-
-                // Draw Body
-                p.fill('#4299e1');
-                p.noStroke();
-                p.rectMode(p.CORNER);
+                p.fill('#4299e1'); p.noStroke(); p.rectMode(p.CORNER);
                 p.rect(-bodyWidth / 2, bodyTopY, bodyWidth, bodyHeight, 4);
-
-                // Draw Head
-                p.fill('#fbd38d');
-                p.noStroke();
+                p.fill('#fbd38d'); p.noStroke();
                 p.ellipse(0, headY, headRadius * 2, headRadius * 2);
-
-                // Draw Helmet
                 p.fill('#e53e3e');
                 p.arc(0, headY, headRadius * 2 + helmetOffset, headRadius * 2 + helmetOffset, p.PI, p.TWO_PI);
-                
-                // Draw arms based on pose
-                const shoulderY = bodyTopY + 5;
-                const handSize = 8;
-                const armThickness = 6;
-                
+                const shoulderY = bodyTopY + 5, handSize = 8, armThickness = 6;
                 if (pose === 'missed') {
-                    // Pose for a missed catch (arms down)
-                    const elbowY = shoulderY + 15;
-                    const elbowX = 10; 
-                    const handY = elbowY + 20;
-                    const handX = elbowX;
-
-                    p.stroke('#2d3748');
-                    p.strokeWeight(armThickness);
-                    p.line(0, shoulderY, elbowX, elbowY); // Upper arm
-                    p.line(elbowX, elbowY, handX, handY); // Forearm
-
-                    p.fill('#fbd38d');
-                    p.noStroke();
-                    p.ellipse(handX, handY, handSize, handSize); // Hand
-                } else { // 'ready' pose
+                    const elbowY = shoulderY + 15, elbowX = 10, handY = elbowY + 20, handX = elbowX;
+                    p.stroke('#2d3748'); p.strokeWeight(armThickness);
+                    p.line(0, shoulderY, elbowX, elbowY); p.line(elbowX, elbowY, handX, handY);
+                    p.fill('#fbd38d'); p.noStroke(); p.ellipse(handX, handY, handSize, handSize);
+                } else {
                     const visualHandY = headY - 25; 
-                    const elbowY = shoulderY + (visualHandY - shoulderY) / 2;
-                    const elbowX = -10;
-                    const handY = visualHandY + handSize / 2;
-                    const handX = 0;
-
-                    p.stroke('#2d3748');
-                    p.strokeWeight(armThickness);
-                    p.line(0, shoulderY, elbowX, elbowY); // Upper arm
-                    p.line(elbowX, elbowY, handX, handY); // Forearm
-
-                    p.fill('#fbd38d');
-                    p.noStroke();
-                    p.ellipse(handX, handY, handSize, handSize); // Hand
+                    const elbowY = shoulderY + (visualHandY - shoulderY) / 2, elbowX = -10;
+                    const handY = visualHandY + handSize / 2, handX = 0;
+                    p.stroke('#2d3748'); p.strokeWeight(armThickness);
+                    p.line(0, shoulderY, elbowX, elbowY); p.line(elbowX, elbowY, handX, handY);
+                    p.fill('#fbd38d'); p.noStroke(); p.ellipse(handX, handY, handSize, handSize);
                 }
-
-                p.noStroke();
-                p.fill('#e53e3e');
-                p.textAlign(p.CENTER);
+                p.noStroke(); p.fill('#e53e3e'); p.textAlign(p.CENTER);
                 p.text('Catcher', 0, 20 + legLength);
-
                 p.pop();
             }
 
             function displayEndMessage() {
                 let message = "";
                 let messageColor;
-
                 if (catchResult.includes("CAUGHT")) {
-                    message = "CAUGHT!";
-                    messageColor = p.color(45, 155, 245); // Blue for caught
+                    message = "CAUGHT!"; messageColor = p.color(45, 155, 245);
                 } else if (catchResult.includes("MISSED")) {
-                    message = "MISSED!";
-                    messageColor = p.color(229, 62, 62); // Red for missed
-                } else {
-                    return; // Don't display if no definitive result yet
-                }
-
+                    message = "MISSED!"; messageColor = p.color(229, 62, 62);
+                } else { return; }
                 p.push();
-                p.textAlign(p.CENTER, p.CENTER);
-                p.textSize(64);
-                p.textStyle(p.BOLD);
-                p.rectMode(p.CENTER);
-
-                // Get text dimensions for a snug background
+                p.textAlign(p.CENTER, p.CENTER); p.textSize(64); p.textStyle(p.BOLD); p.rectMode(p.CENTER);
                 let textW = p.textWidth(message);
-                
-                // Draw a semi-transparent background for the text
-                p.fill(255, 255, 255, 200);
-                p.noStroke();
+                p.fill(255, 255, 255, 200); p.noStroke();
                 p.rect(canvasWidth / 2, canvasHeight / 2, textW + 60, 120, 15);
-
-                // Draw the text with a stroke for better visibility
-                p.fill(messageColor);
-                p.stroke(255);
-                p.strokeWeight(4);
+                p.fill(messageColor); p.stroke(255); p.strokeWeight(4);
                 p.text(message, canvasWidth / 2, canvasHeight / 2);
                 p.pop();
             }
@@ -603,44 +553,31 @@
                     const dt = Math.min(p.deltaTime / 1000, 0.02);
                     const prevPos = ball.pos.copy();
                     const windSpeed = parseFloat(windSlider.value);
-                    
                     ball.update(dt, windSpeed);
                     trajectory.push(ball.pos.copy());
                     maxArcHeight = Math.max(maxArcHeight, ball.pos.y);
                     checkCatch(prevPos, ball.pos);
-
                     if (inFlight && ball.pos.y < 0) {
-                        inFlight = false;
-                        simulationEnded = true;
-                        catchResult = "MISSED! (Hit the ground)";
-                        catcherPose = 'missed'; // Trigger missed pose
+                        inFlight = false; simulationEnded = true;
+                        catchResult = "MISSED! (Hit the ground)"; catcherPose = 'missed';
                     }
                      if (inFlight && ball.pos.x > canvasWidth / scaleFactor) {
-                        inFlight = false;
-                        simulationEnded = true;
-                        catchResult = "MISSED! (Overthrow)";
-                        catcherPose = 'missed'; // Trigger missed pose
+                        inFlight = false; simulationEnded = true;
+                        catchResult = "MISSED! (Overthrow)"; catcherPose = 'missed';
                     }
                 }
                 
                 // Drawing
                 drawField();
-
                 p.push();
                 p.translate(30, canvasHeight * 0.85);
-
-                let swingProgress = -1;
-                if (isSwinging) {
-                    swingProgress = swingFrame / SWING_DURATION;
-                }
+                let swingProgress = isSwinging ? swingFrame / SWING_DURATION : -1;
                 drawBatter(swingProgress);
-                // Pass the current catcher pose to the draw function
                 drawCatcher(outfielderDist * scaleFactor, 0, outfielderReach, catcherPose);
 
-                if (trajectory.length > 0) {
-                    p.noFill();
-                    p.strokeWeight(2);
-                    p.stroke(0, 0, 0, 80);
+                // Draw trajectory only if toggled on
+                if (trajectory.length > 0 && showTrajectory) {
+                    p.noFill(); p.strokeWeight(2); p.stroke(0, 0, 0, 80);
                     p.beginShape();
                     for (const pos of trajectory) {
                         p.vertex(pos.x * scaleFactor, -pos.y * scaleFactor);
@@ -648,68 +585,58 @@
                     p.endShape();
                 }
 
-                // Draw the ball if it's in flight OR if the simulation just ended
                 if ((inFlight || simulationEnded) && ball) {
                     const ballX = ball.pos.x * scaleFactor;
                     const ballY = -ball.pos.y * scaleFactor;
-                    
-                    // Draw the white ball
-                    p.noStroke();
-                    p.fill(255);
-                    p.ellipse(ballX, ballY, 12, 12);
-
-                    // Draw the rotating red seams
+                    p.noStroke(); p.fill(255); p.ellipse(ballX, ballY, 12, 12);
                     p.push();
-                    p.translate(ballX, ballY);
-                    p.rotate(ball.rotation);
-                    p.stroke(255, 0, 0);
-                    p.strokeWeight(1.5);
-                    p.noFill();
-                    // Draw two arcs to simulate seams
-                    const seamSize = 10;
-                    const seamGap = 0.4;
+                    p.translate(ballX, ballY); p.rotate(ball.rotation);
+                    p.stroke(255, 0, 0); p.strokeWeight(1.5); p.noFill();
+                    const seamSize = 10, seamGap = 0.4;
                     p.arc(0, 0, seamSize, seamSize, -p.PI / 2 + seamGap, p.PI / 2 - seamGap);
                     p.arc(0, 0, seamSize, seamSize, p.PI / 2 + seamGap, -p.PI / 2 - seamGap);
                     p.pop();
                 }
-                
                 p.pop();
 
-                // UI Text
+                // UI Text & State Handling
                 let statusText = inFlight ? 'In Flight' : (isSwinging ? 'Swinging...' : 'Finished');
-                 if (catchResult === "Ready to Launch!") {
-                    statusText = "Ready";
-                }
-                
-                let statsText = `Status: ${catchResult || statusText}<br>`;
-                statsText += `Max Arc Height: ${maxArcHeight.toFixed(2)} m`;
+                 if (catchResult === "Ready to Launch!") statusText = "Ready";
+                let statsText = `Status: ${catchResult || statusText}<br>Max Arc Height: ${maxArcHeight.toFixed(2)} m`;
                 if(catchResult && catchResult !== "Ready to Launch!") {
-                     statsText = `Result: <strong>${catchResult}</strong><br>` + `Max Arc Height: ${maxArcHeight.toFixed(2)} m`;
+                     statsText = `Result: <strong>${catchResult}</strong><br>Max Arc Height: ${maxArcHeight.toFixed(2)} m`;
                 }
-
                 statsDiv.innerHTML = statsText;
 
                 if (simulationEnded) {
                     displayEndMessage();
                 }
+
+                // --- UI Controls Logic ---
+                const isSimulating = inFlight || isSwinging;
+                velocitySlider.disabled = isSimulating;
+                angleSlider.disabled = isSimulating;
+                windSlider.disabled = isSimulating;
+                reachSlider.disabled = isSimulating;
+                launchButton.disabled = isSimulating;
+
+                // Manage visibility and text of the trajectory toggle button
+                if (simulationEnded) {
+                    toggleButton.style.display = 'block';
+                    toggleButton.innerText = showTrajectory ? 'Hide Trajectory' : 'Show Trajectory';
+                } else {
+                    toggleButton.style.display = 'none';
+                }
             };
 
             p.windowResized = () => {
                 const container = document.getElementById('canvas-container');
-                canvasWidth = container.offsetWidth;
-                canvasHeight = container.offsetHeight;
+                canvasWidth = container.offsetWidth; canvasHeight = container.offsetHeight;
                 p.resizeCanvas(canvasWidth, canvasHeight);
                 const fieldWidthMeters = outfielderDist * 1.1;
                 scaleFactor = canvasWidth / fieldWidthMeters;
-                
-                // Reset state on resize
-                inFlight = false;
-                isSwinging = false;
-                simulationEnded = false; 
-                ball = null;
-                trajectory = [];
-                catchResult = "Ready to Launch!";
-                catcherPose = 'ready'; // Reset catcher pose on resize
+                inFlight = false; isSwinging = false; simulationEnded = false; 
+                ball = null; trajectory = []; catchResult = "Ready to Launch!"; catcherPose = 'ready';
             };
         }
 
