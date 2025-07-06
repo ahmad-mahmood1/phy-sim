@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ice Skater Angular Momentum Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .font-mono {
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        canvas {
+            display: block;
+            border-radius: 8px;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body class="bg-slate-100 flex flex-col justify-center items-center min-h-screen p-4 sm:p-6">
+
+    <div class="w-full max-w-6xl">
+        <h1 class="text-3xl sm:text-4xl font-bold text-slate-800 mb-4 text-center">Ice Skater: Angular Momentum in
+            Action ⛸️</h1>
+        <p class="text-center text-slate-600 mb-6 max-w-3xl mx-auto">An interactive simulation demonstrating the
+            conservation of angular momentum. See how a skater changes their spin speed, while balancing on a single
+            leg, by adjusting their arm position,
+            which alters their moment of inertia.</p>
+
+        <main class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+            <div id="canvas-container"
+                class="lg:col-span-3 relative border-2 border-slate-400 shadow-xl rounded-lg overflow-hidden h-[600px] bg-white">
+            </div>
+
+            <div class="lg:col-span-2 flex flex-col gap-5">
+                <div class="bg-white p-5 rounded-lg shadow-lg border border-slate-200 space-y-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-800 mb-3">Controls</h2>
+                        <div class="control-row flex flex-col gap-2 w-full">
+                            <label for="arm-slider" class="text-sm font-medium text-slate-700">Arm Position</label>
+                            <div class="flex items-center gap-4">
+                                <span class="text-xs text-slate-500">In</span>
+                                <input type="range" id="arm-slider" min="0" max="90" value="90" step="1" class="w-full">
+                                <span class="text-xs text-slate-500">Out</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr />
+
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-800 mb-2">Physics Readout</h2>
+                        <p class="text-sm text-center font-mono text-slate-600 bg-slate-100 p-2 rounded-md mb-4">L = I ×
+                            ω</p>
+                        <div class="space-y-3 font-mono text-sm">
+                            <p><b>Angular Momentum (L):</b> <span id="l-value"
+                                    class="font-bold text-blue-600 float-right"></span></p>
+                            <p><b>Moment of Inertia (I):</b> <span id="i-value"
+                                    class="font-bold text-green-600 float-right"></span></p>
+                            <p><b>Spin Speed (ω):</b> <span id="omega-value"
+                                    class="font-bold text-red-600 float-right"></span></p>
+                        </div>
+                    </div>
+
+                    <hr />
+
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-800 mb-2">Center of Mass <span
+                                class="text-orange-500">(●)</span></h2>
+                        <p class="text-sm text-slate-600">
+                            The <b class="text-orange-500">orange circle</b> marks the skater's combined <b>Center of
+                                Mass (CoM)</b>.
+                            <br><br>
+                            When the arms extend, the CoM shifts away from the body's central axis. This <b
+                                class="text-green-600">increases the Moment of Inertia (I)</b>, making it harder to
+                            rotate. To conserve angular momentum, the skater's spin speed must decrease.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+
+    <script type="module">
+        import p5 from 'p5';
+
+        // --- UI Elements ---
+        const iValueDisplay = document.getElementById('i-value');
+        const omegaValueDisplay = document.getElementById('omega-value');
+        const lValueDisplay = document.getElementById('l-value');
+
+        const sketch = (p) => {
+            class BodyPart {
+                constructor(mass, w, h, partColor) {
+                    this.mass = mass;
+                    this.w = w;
+                    this.h = h;
+                    this.color = partColor;
+                    this.basePos = p.createVector(0, 0, 0);
+                    this.worldPos = p.createVector(0, 0, 0);
+                    this.localYRotation = 0;
+                }
+
+                getDepth() {
+                    if (this === dancer.armL || this === dancer.armR) {
+                        const angle = this.localYRotation;
+                        const sign = (this === dancer.armL) ? -1 : 1;
+                        const localTipOffsetX = sign * this.w * p.cos(angle);
+                        const localTipOffsetZ = sign * this.w * p.sin(angle);
+                        const localTipPos = p.createVector(this.basePos.x + localTipOffsetX, this.basePos.y, this.basePos.z + localTipOffsetZ);
+                        const theta = currentAngle;
+                        const worldTipZ = localTipPos.x * p.sin(theta) + localTipPos.z * p.cos(theta);
+                        return (this.worldPos.z + worldTipZ) / 2;
+                    } else {
+                        return this.worldPos.z;
+                    }
+                }
+
+                draw() {
+                    const isArm = (this === dancer.armL || this === dancer.armR);
+                    const isTorso = (this === dancer.torso);
+
+                    if (isArm) {
+                        p.push();
+                        const angle = this.localYRotation;
+                        const sign = (this === dancer.armL) ? -1 : 1;
+                        const localTipOffsetX = sign * this.w * p.cos(angle);
+                        const localTipOffsetZ = sign * this.w * p.sin(angle);
+                        const localTipPos = p.createVector(this.basePos.x + localTipOffsetX, this.basePos.y, this.basePos.z + localTipOffsetZ);
+                        const theta = currentAngle;
+                        const worldTipX = localTipPos.x * p.cos(theta) - localTipPos.z * p.sin(theta);
+                        const worldTipY = localTipPos.y;
+                        const worldTipZ = localTipPos.x * p.sin(theta) + localTipPos.z * p.cos(theta);
+
+                        const avgZ = (this.worldPos.z + worldTipZ) / 2;
+                        const arm_perspective_scale = p.map(avgZ, -100, 100, 0.75, 1.25);
+
+                        p.stroke(p.lerpColor(this.color, p.color(0), 0.3));
+                        p.strokeWeight(this.h * arm_perspective_scale);
+                        p.line(this.worldPos.x, this.worldPos.y, worldTipX, worldTipY);
+                        p.pop();
+                    } else {
+                        p.push();
+                        const perspective_scale = p.map(this.worldPos.z, -100, 100, 0.75, 1.25);
+                        p.translate(this.worldPos.x, this.worldPos.y);
+
+                        if (isTorso) {
+                            const w = this.w * perspective_scale;
+                            const h = this.h * perspective_scale;
+                            const backVisibility = p.map(p.cos(currentAngle), -1, 1, 0, 1);
+                            const isTurningRight = p.sin(currentAngle) > 0;
+                            p.noStroke();
+                            p.rectMode(p.CENTER);
+                            const ctx = p.drawingContext;
+                            const gradient = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+                            const stop = p.constrain(backVisibility, 0, 1);
+                            if (isTurningRight) {
+                                gradient.addColorStop(0, torsoFrontColor.toString());
+                                gradient.addColorStop(stop, torsoFrontColor.toString());
+                                gradient.addColorStop(stop, torsoBackColor.toString());
+                                gradient.addColorStop(1, torsoBackColor.toString());
+                            } else {
+                                gradient.addColorStop(0, torsoBackColor.toString());
+                                gradient.addColorStop(1 - stop, torsoBackColor.toString());
+                                gradient.addColorStop(1 - stop, torsoFrontColor.toString());
+                                gradient.addColorStop(1, torsoFrontColor.toString());
+                            }
+                            ctx.fillStyle = gradient;
+                            p.rect(0, 0, w, h, 5);
+                            p.stroke(p.lerpColor(torsoFrontColor, p.color(0), 0.3));
+                            p.strokeWeight(2);
+                            p.noFill();
+                            p.rect(0, 0, w, h, 5);
+                        } else {
+                            p.fill(this.color);
+                            p.stroke(p.lerpColor(this.color, p.color(0), 0.3));
+                            p.strokeWeight(2);
+                            p.rectMode(p.CENTER);
+                            p.rect(0, 0, this.w * perspective_scale, this.h * perspective_scale, 5);
+                        }
+                        p.pop();
+                    }
+                }
+            }
+
+            let dancer = {};
+            let armSlider;
+            const angularMomentum = 500000;
+            let momentOfInertia = 0;
+            let angularVelocity = 0;
+            let currentAngle = 0;
+            let centerOfMass;
+            let torsoFrontColor, torsoBackColor;
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(container.offsetWidth, container.offsetHeight);
+                canvas.parent(container);
+
+                centerOfMass = p.createVector(0, 0, 0);
+
+                torsoFrontColor = p.color(100, 100, 110);
+                torsoBackColor = p.color(60, 60, 70);
+                const headColor = p.color(240, 220, 200);
+                const legColor = p.color(50, 50, 60);
+                const armColorL = p.color(200, 50, 50);
+                const armColorR = p.color(50, 100, 200);
+                const skateColor = p.color(200, 200, 210);
+
+                dancer.torso = new BodyPart(20, 50, 120, torsoFrontColor);
+                dancer.head = new BodyPart(5, 40, 40, headColor);
+                dancer.armL = new BodyPart(4, 80, 20, armColorL);
+                dancer.armR = new BodyPart(4, 80, 20, armColorR);
+                dancer.legPivot = new BodyPart(8, 25, 110, legColor);
+                dancer.legFree = new BodyPart(8, 25, 100, legColor);
+                dancer.skate = new BodyPart(0.5, 40, 10, skateColor);
+
+                armSlider = p.select('#arm-slider');
+                updatePose(armSlider.value());
+
+                // Set initial constant value for L
+                lValueDisplay.innerText = `${(angularMomentum / 10000).toFixed(2)} (constant)`;
+            };
+
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+            }
+
+            p.draw = () => {
+                p.background(220, 235, 250);
+                drawIceRink();
+                drawShadow();
+
+                const armExtension = armSlider.value();
+
+                updatePose(armExtension);
+                calculateMomentOfInertia();
+                angularVelocity = angularMomentum / momentOfInertia;
+                currentAngle += angularVelocity * (p.deltaTime / 1000);
+                updateWorldPositions(currentAngle);
+                calculateCenterOfMass();
+
+                drawDancer();
+                updateInfoPanel();
+            };
+
+            function drawIceRink() {
+                p.noStroke();
+                p.fill(255, 255, 255, 150);
+                p.rect(0, p.height - 100, p.width, 100);
+                p.fill(200, 215, 230);
+                p.rect(0, p.height - 100, p.width, 2);
+            }
+
+            function drawShadow() {
+                p.noStroke();
+                p.fill(0, 0, 0, 20);
+                p.ellipse(p.width / 2, p.height - 90, 60, 20);
+            }
+
+            function updatePose(extension) {
+                dancer.torso.basePos.set(0, 0, 0);
+                dancer.head.basePos.set(0, -80, 0);
+                dancer.legPivot.basePos.set(0, 115, 0);
+                dancer.skate.basePos.set(
+                    dancer.legPivot.basePos.x,
+                    dancer.legPivot.basePos.y + dancer.legPivot.h / 2 + dancer.skate.h / 2 - 2,
+                    dancer.legPivot.basePos.z
+                );
+
+                const shoulderY = -40;
+                const shoulderX = dancer.torso.w / 2;
+                dancer.armL.basePos.set(-shoulderX, shoulderY, 0);
+                dancer.armR.basePos.set(shoulderX, shoulderY, 0);
+
+                const armYRotation = p.map(extension, 90, 0, 0, p.HALF_PI);
+                dancer.armL.localYRotation = armYRotation;
+                dancer.armR.localYRotation = armYRotation;
+
+                const freeLegX = p.map(extension, 0, 90, 30, 35);
+                const freeLegZ = p.map(extension, 0, 90, -20, 20);
+                const legSwingZ = p.sin(currentAngle * 2) * 10;
+                dancer.legFree.basePos.set(freeLegX, 100, freeLegZ + legSwingZ);
+            }
+
+            function calculateMomentOfInertia() {
+                let totalInertia = 0;
+                for (const partName in dancer) {
+                    const part = dancer[partName];
+                    let partCenterPos = part.basePos.copy();
+
+                    if (part === dancer.armL || part === dancer.armR) {
+                        const angle = part.localYRotation;
+                        const sign = (part === dancer.armL) ? -1 : 1;
+                        const offsetX = sign * (part.w / 2) * p.cos(angle);
+                        const offsetZ = sign * (part.w / 2) * p.sin(angle);
+                        partCenterPos.x += offsetX;
+                        partCenterPos.z += offsetZ;
+                    }
+
+                    const r = p.createVector(partCenterPos.x, partCenterPos.z).mag();
+                    totalInertia += part.mass * r * r;
+                }
+                momentOfInertia = totalInertia + 22000; // Base inertia for the core body
+            }
+
+            function calculateCenterOfMass() {
+                let totalMass = 0;
+                let weightedSum = p.createVector(0, 0, 0);
+
+                for (const partName in dancer) {
+                    const part = dancer[partName];
+                    let partCenterWorldPos;
+
+                    // For arms, calculate the center of the arm in world space
+                    if (part === dancer.armL || part === dancer.armR) {
+                        const angle = part.localYRotation;
+                        const sign = (part === dancer.armL) ? -1 : 1;
+                        const localCenterOffsetX = sign * (part.w / 2) * p.cos(angle);
+                        const localCenterOffsetZ = sign * (part.w / 2) * p.sin(angle);
+                        const relativeScale = armSlider.value() * 1.5
+                        const localCenterPos = p.createVector(part.basePos.x + localCenterOffsetX + relativeScale, part.basePos.y, part.basePos.z + localCenterOffsetZ);
+
+                        // Rotate this local center position into world space
+                        const theta = currentAngle;
+                        const worldCenterX = localCenterPos.x * p.cos(theta) - localCenterPos.z * p.sin(theta);
+                        const worldCenterY = localCenterPos.y;
+                        const worldCenterZ = localCenterPos.x * p.sin(theta) + localCenterPos.z * p.cos(theta);
+                        partCenterWorldPos = p.createVector(worldCenterX, worldCenterY, worldCenterZ);
+                    } else {
+                        // For other parts, the worldPos is the center
+                        partCenterWorldPos = part.worldPos.copy();
+                    }
+
+                    weightedSum.add(p5.Vector.mult(partCenterWorldPos, part.mass));
+                    totalMass += part.mass;
+                }
+
+                if (totalMass > 0) {
+                    centerOfMass = p5.Vector.div(weightedSum, totalMass);
+                }
+            }
+
+            function updateWorldPositions(angle) {
+                for (const partName in dancer) {
+                    const part = dancer[partName];
+                    const x = part.basePos.x * p.cos(angle) - part.basePos.z * p.sin(angle);
+                    const z = part.basePos.x * p.sin(angle) + part.basePos.z * p.cos(angle);
+                    part.worldPos.set(x, part.basePos.y, z);
+                }
+            }
+
+            function drawCenterOfMass() {
+                p.push();
+                p.fill(255, 100, 0, 220); // Bright, slightly transparent orange
+                p.stroke(255);
+                p.strokeWeight(2);
+                p.translate(centerOfMass.x, centerOfMass.y);
+
+                const perspective_scale = p.map(centerOfMass.z, -100, 100, 0.75, 1.25);
+                const marker_size = 12 * perspective_scale;
+
+                p.ellipse(0, 0, marker_size, marker_size);
+                p.pop();
+            }
+
+            function drawDancer() {
+                p.push();
+                const footBottomLocalY = dancer.legPivot.basePos.y + dancer.legPivot.h / 2;
+                const skaterCenterY = (p.height - 100) - footBottomLocalY;
+                p.translate(p.width / 2, skaterCenterY);
+
+                const drawOrder = Object.values(dancer).sort((a, b) => a.getDepth() - b.getDepth());
+
+                for (const part of drawOrder) {
+                    part.draw();
+                }
+                drawCenterOfMass();
+                p.pop();
+            }
+
+            function updateInfoPanel() {
+                iValueDisplay.innerText = `${(momentOfInertia / 1000).toFixed(2)} kg·m²`;
+                omegaValueDisplay.innerText = `${angularVelocity.toFixed(3)} rad/s`;
+            }
+        }
+
+        new p5(sketch);
+
+    </script>
+</body>
+
+</html>

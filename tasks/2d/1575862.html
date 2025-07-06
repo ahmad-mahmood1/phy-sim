@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wooden Floor Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+            text-align: center;
+        }
+
+        /* Main container for side-by-side layout */
+        #main-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+            width: 90%;
+            max-width: 1200px;
+            /* Increased max-width for the new layout */
+        }
+
+        #simulation-wrapper {
+            flex: 2;
+            /* Simulation takes more space */
+            min-width: 300px;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: #fff;
+            width: 100%;
+            aspect-ratio: 800 / 400;
+        }
+
+        /* Styling for the info card */
+        #info-card {
+            flex: 1;
+            /* Info card takes less space */
+            min-width: 280px;
+            background-color: #ffffff;
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: left;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        #info-card h3 {
+            margin-top: 0;
+            font-size: 1.2em;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        #info-card p {
+            font-size: 0.9em;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        #info-card strong {
+            color: #000;
+        }
+
+        #intensity-display {
+            margin-top: 20px;
+            font-size: 18px;
+            color: #333;
+            font-weight: bold;
+        }
+
+        #controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        button {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 16px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            border: 2px solid #333;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        button:hover {
+            background-color: #333;
+            color: #fff;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            margin-bottom: 10px;
+        }
+
+        p.description {
+            margin-top: 0;
+            max-width: 800px;
+            padding: 0 20px;
+            margin-bottom: 20px;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <h1>Wooden Floor Simulation</h1>
+    <p class="description">A simulation to evaluate creak intensity by visualizing the vibration response of a wooden
+        floor.</p>
+
+    <!-- Main container wraps simulation and info card -->
+    <div id="main-container">
+        <div id="simulation-wrapper">
+            <div id="canvas-container"></div>
+            <div id="intensity-display">Creak Intensity: 0.00</div>
+            <div id="controls">
+                <button id="walk-button">Walk</button>
+                <button id="run-button">Run</button>
+                <button id="reset-button">Reset</button>
+            </div>
+        </div>
+
+        <!-- Information card -->
+        <div id="info-card">
+            <h3>How It Works</h3>
+            <p>
+                <strong>Creak Intensity:</strong> This value represents the loudness of a floorboard creak. It's
+                calculated from the <strong>speed of the plank's vibration</strong> at the moment of impact. A faster,
+                harder step (like running) causes a higher velocity and a greater intensity.
+            </p>
+            <p>
+                <strong>Vibration Circles:</strong> The glowing rings are a visual representation of the sound. The
+                <strong>size and brightness</strong> of the circle are directly proportional to the calculated Creak
+                Intensity, providing an immediate visual cue for how loud the creak is.
+            </p>
+            <p>
+                <strong>Floor Vibration:</strong> Each floor plank moves vertically in a wave pattern that ripples out
+                from the walker's position. The vibration is strongest at the point of impact and gets weaker (dampens)
+                with distance, mimicking how physical vibrations travel through a solid surface.
+            </p>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation Constants ---
+            const NUM_PLANKS = 20;
+            const WALKER_START_X = 30;
+
+            const MOVEMENT_MODES = {
+                standing: { speed: 0, amplitude: 0, animSpeed: 0 },
+                walking: { speed: 0.75, amplitude: 2.5, animSpeed: 0.25 },
+                running: { speed: 2.0, amplitude: 4.0, animSpeed: 0.5 }
+            };
+
+            const VIBRATION_WAVELENGTH = 0.05;
+            const VIBRATION_DAMPENING = 0.008;
+            const CREAK_INTENSITY_MULTIPLIER = 50;
+
+            // --- State Variables ---
+            let planks = [];
+            let walkerX;
+            let plankWidth;
+            let canvasWidth;
+            let canvasHeight;
+            let floorBaseY;
+            let creakIntensity = 0;
+            let intensityDisplayElement;
+            let movementMode = 'standing';
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                canvasWidth = container.offsetWidth;
+                canvasHeight = container.offsetHeight;
+                p.createCanvas(canvasWidth, canvasHeight);
+
+                intensityDisplayElement = document.getElementById('intensity-display');
+
+                initializeSimulation();
+
+                document.getElementById('walk-button').onclick = () => {
+                    if (walkerX >= canvasWidth) {
+                        walkerX = WALKER_START_X;
+                    }
+                    movementMode = 'walking';
+                };
+
+                document.getElementById('run-button').onclick = () => {
+                    if (walkerX >= canvasWidth) {
+                        walkerX = WALKER_START_X;
+                    }
+                    movementMode = 'running';
+                };
+
+                document.getElementById('reset-button').onclick = () => {
+                    initializeSimulation();
+                };
+            };
+
+            function initializeSimulation() {
+                walkerX = WALKER_START_X;
+                movementMode = 'standing';
+                floorBaseY = canvasHeight * 0.8;
+                plankWidth = canvasWidth / NUM_PLANKS;
+                planks = [];
+
+                const currentFloorThickness = canvasHeight - floorBaseY;
+
+                for (let i = 0; i < NUM_PLANKS; i++) {
+                    const plank = {
+                        x: i * plankWidth,
+                        y: floorBaseY,
+                        prevY: floorBaseY,
+                        velocity: 0,
+                        grain: []
+                    };
+
+                    const numGrainLines = p.floor(p.random(5, 10));
+                    for (let j = 0; j < numGrainLines; j++) {
+                        const linePoints = [];
+                        const yOffset = p.random(currentFloorThickness * 0.05, currentFloorThickness * 0.95);
+                        const noiseSeed = p.random(1000);
+
+                        for (let k = 0; k <= plankWidth; k += 5) {
+                            const noiseVal = p.noise(noiseSeed + k * 0.05);
+                            const y = yOffset + p.map(noiseVal, 0, 1, -4, 4);
+                            linePoints.push({ x: k, y: y });
+                        }
+                        plank.grain.push(linePoints);
+                    }
+                    planks.push(plank);
+                }
+                if (intensityDisplayElement) {
+                    intensityDisplayElement.textContent = `Creak Intensity: 0.00`;
+                }
+            }
+
+            function drawCreakEffect(x, y, intensity) {
+                if (intensity <= 0.1) return;
+                p.push();
+                p.noFill();
+                const alpha = p.map(intensity, 0, 10, 0, 220);
+                const radius = p.map(intensity, 0, 10, 10, 80);
+                p.stroke(255, 230, 180, alpha);
+                p.strokeWeight(p.map(intensity, 0, 10, 1, 5));
+                p.ellipse(x, y, radius, radius);
+                p.pop();
+            }
+
+            function drawWalker(x, y) {
+                p.push();
+                p.translate(x, y);
+                const headSize = 25;
+                const bodyHeight = 30;
+                const legLength = 25;
+                const armLength = 25;
+                const hipY = -legLength;
+                const shoulderY = -legLength - bodyHeight;
+                const headY = shoulderY - headSize / 2;
+                p.stroke(40, 40, 50);
+                p.strokeWeight(5);
+                p.strokeCap(p.ROUND);
+
+                let legAngle, armAngle;
+                const currentMode = MOVEMENT_MODES[movementMode];
+
+                if (movementMode === 'walking' || movementMode === 'running') {
+                    legAngle = p.sin(p.frameCount * currentMode.animSpeed) * 0.6;
+                    armAngle = p.sin(p.frameCount * currentMode.animSpeed) * 0.8;
+                } else { // standing
+                    legAngle = 0.15;
+                    armAngle = 0.1;
+                }
+
+                p.line(0, hipY, legLength * p.sin(legAngle), 0);
+                p.line(0, hipY, legLength * p.sin(-legAngle), 0);
+                p.line(0, hipY, 0, shoulderY);
+                p.line(0, shoulderY, armLength * p.sin(-armAngle), shoulderY + armLength * p.cos(armAngle));
+                p.line(0, shoulderY, armLength * p.sin(armAngle), shoulderY + armLength * p.cos(armAngle));
+
+                p.noStroke();
+                p.fill(50, 50, 60);
+                p.ellipse(0, headY, headSize, headSize);
+                p.pop();
+            }
+
+            p.draw = () => {
+                p.background(245, 245, 245);
+
+                const currentMode = MOVEMENT_MODES[movementMode];
+
+                if (movementMode !== 'standing') {
+                    walkerX += currentMode.speed;
+                    if (walkerX > canvasWidth) {
+                        movementMode = 'standing';
+                        walkerX = WALKER_START_X;
+                    }
+                }
+
+                const baseRed = 139, baseGreen = 69, baseBlue = 19;
+                let walkerY = floorBaseY;
+                const stepImpact = (movementMode !== 'standing') ? p.abs(p.sin(p.frameCount * currentMode.animSpeed)) : 0;
+
+                creakIntensity = 0;
+
+                for (let i = 0; i < planks.length; i++) {
+                    const plank = planks[i];
+
+                    const plankCenterX = plank.x + plankWidth / 2;
+                    const distanceToWalker = p.abs(plankCenterX - walkerX);
+                    const wavePhase = p.frameCount * 0.1 - distanceToWalker * VIBRATION_WAVELENGTH;
+                    const dampening = p.exp(-VIBRATION_DAMPENING * distanceToWalker);
+                    const vibrationOffset = p.sin(wavePhase) * currentMode.amplitude * dampening * stepImpact;
+
+                    plank.y = floorBaseY + vibrationOffset;
+                    plank.velocity = plank.y - plank.prevY;
+                    plank.prevY = plank.y;
+
+                    p.fill(baseRed, baseGreen, baseBlue);
+                    p.stroke(80, 40, 0);
+                    p.strokeWeight(2);
+                    p.rect(plank.x, plank.y, plankWidth, canvasHeight - plank.y);
+
+                    p.push();
+                    p.translate(plank.x, plank.y);
+                    p.stroke(baseRed - 50, baseGreen - 30, baseBlue - 10, 150);
+                    p.strokeWeight(0.75);
+                    p.noFill();
+                    plank.grain.forEach(line => {
+                        p.beginShape();
+                        line.forEach(pt => p.vertex(pt.x, pt.y));
+                        p.endShape();
+                    });
+                    p.pop();
+
+                    if (walkerX >= plank.x && walkerX < plank.x + plankWidth) {
+                        walkerY = plank.y;
+                        if (movementMode !== 'standing') {
+                            const impactTiming = p.constrain(p.abs(p.cos(p.frameCount * currentMode.animSpeed)), 0, 1);
+                            creakIntensity = p.abs(plank.velocity) * CREAK_INTENSITY_MULTIPLIER * impactTiming;
+                        }
+                    }
+                }
+
+                drawCreakEffect(walkerX, walkerY, creakIntensity);
+                drawWalker(walkerX, walkerY);
+                intensityDisplayElement.textContent = `Creak Intensity: ${creakIntensity.toFixed(2)}`;
+            };
+
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                // Check if container exists and has a size
+                if (container && container.offsetWidth > 0) {
+                    canvasWidth = container.offsetWidth;
+                    canvasHeight = container.offsetHeight;
+                    p.resizeCanvas(canvasWidth, canvasHeight);
+                    initializeSimulation(); // Re-initialize to adapt to new size
+                }
+            };
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>
