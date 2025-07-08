@@ -4,254 +4,389 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Floor Vibration Simulation</title>
+    <title>Hand Tremor Simulation</title>
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+        }
+    }
+    </script>
     <style>
         body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #f0f0f0;
-        }
-
-        #main-container {
-            display: flex;
-            flex-direction: row;
-            gap: 20px;
-        }
-
-        #simulation-container {
+            font-family: Arial, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
+            padding: 20px;
+            background-color: #f0f0f0;
         }
 
         #canvas-container {
-            border: 1px solid #ccc;
-        }
-
-        #info-card {
-            width: 250px;
-            padding: 15px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         }
 
         #controls {
-            margin: 15px 0;
+            margin-bottom: 20px;
             display: flex;
             gap: 10px;
         }
 
         button {
-            padding: 8px 15px;
-            border: none;
-            border-radius: 4px;
+            padding: 8px 16px;
             background-color: #4CAF50;
             color: white;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
         }
 
         button:hover {
             background-color: #45a049;
         }
-    </style>
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.4/+esm"
-            }
+
+        button.active {
+            background-color: #2e7d32;
         }
-    </script>
+
+        #instructions {
+            max-width: 600px;
+            text-align: center;
+            margin-bottom: 20px;
+            background-color: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
 </head>
 
 <body>
-    <div id="main-container">
-        <div id="simulation-container">
-            <div id="canvas-container"></div>
-            <div id="controls">
-                <button id="walk-btn">Walk</button>
-                <button id="run-btn">Run</button>
-                <button id="reset-btn">Reset</button>
-            </div>
-            <div>Creak Intensity: <span id="intensity-value">0</span></div>
-        </div>
-        <div id="info-card">
-            <h3>How it works:</h3>
-            <p>• Creak intensity is calculated based on the vertical velocity of the plank under the figure.</p>
-            <p>• The impact visualization (yellow circle) grows with higher intensity.</p>
-            <p>• Floor vibration is simulated as a wave that spreads from the figure and weakens with distance.</p>
-        </div>
+    <div id="instructions">
+        <p>Click on the tremor level buttons to change the intensity of the hand tremor.
+            The pen will draw the word "hello" with the selected tremor effect.</p>
+        <p>Note: The simulation might take a few seconds to start, and may sometimes appear jittery or frozen.
+            This is due to the performance-intensive nature of the Perlin noise simulation.
+            If the animation appears stuck, try restarting it or adjusting the tremor level.</p>
     </div>
+
+    <div id="canvas-container"></div>
+    <div id="controls">
+        <button id="low">Low Tremor</button>
+        <button id="medium">Medium Tremor</button>
+        <button id="high">High Tremor</button>
+        <button id="restart">Restart Animation</button>
+    </div>
+
     <script type="module">
         import p5 from 'p5';
 
-        // Main variables
-        let floorWidth = 800;
-        let floorDepth = 300;
-        let plankCount = 30;
-        let plankWidth = floorWidth / plankCount;
-        let personX = 0;
-        let isWalking = false;
-        let isRunning = false;
-        let planks = [];
-        let damping = 0.98;
-        let personVel = 0;
-        let personSpeed = 2;
-        let intensityValue = 0;
-        let intensityDisplay = document.getElementById('intensity-value');
-        let controls = {
-            walk: document.getElementById('walk-btn'),
-            run: document.getElementById('run-btn'),
-            reset: document.getElementById('reset-btn')
-        };
+        // p5.js sketch using instance mode
+        const sketch = (p) => {
+            // --- Configuration ---
+            const LETTER_SPACING = 30; // Space between letters
+            const BASE_Y = 200; // Baseline Y position
+            const PEN_LENGTH = 20; // Visual length of the pen
+            const PEN_HEAD_SIZE = 5; // Size of the pen tip
+            const ANIMATION_DURATION = 200; // Frames for full animation
+            const TRAIL_OPACITY = 50; // Trail opacity (0-255)
+            const PATH_POINTS = {
+                // Predefined points for "hello" (Each sub-array is a letter)
+                h: [[0, 0], [0, -40], [0, -20], [15, -20], [15, 0]],
+                e: [[0, 0], [15, 0], [15, -20], [0, -20], [15, -30]],
+                l: [[0, 0], [0, -40], [0, -20], [15, -20]],
+                o: [[7.5, -10], [15, -20], [0, -20], [7.5, -30], [7.5, -10]]
+            };
 
-        // p5.js sketch
-        new p5((p) => {
-            p.setup = function () {
-                let canvas = p.createCanvas(floorWidth, floorDepth);
+            // --- State Variables ---
+            let currentTremor = { amplitude: 8, frequency: 0.05 }; // Default: Medium
+            let currentLetterIndex = 0; // Index of current letter in "hello"
+            let currentPointIndex = 0; // Index within current letter's path
+            let animationProgress = 0; // Progress through current path segment (0-1)
+            let frameCounter = 0; // Counts frames for animation timing
+            let isAnimating = true; // True if animation is running
+            let trailPoints = []; // Stores {x, y, age} for trail effect
+            let currentTremorLevel = 'medium'; // Track active tremor level button
+            let letters; // Array of letters with x offsets
+
+            // --- p5.js Setup ---
+            p.setup = () => {
+                const canvas = p.createCanvas(600, 300);
                 canvas.parent('canvas-container');
 
-                // Initialize planks
-                for (let i = 0; i < plankCount; i++) {
-                    planks.push({
-                        x: i * plankWidth,
-                        y: 0,
-                        vel: 0,
-                        amp: 0,
-                        phase: p.random(p.TWO_PI)
-                    });
-                }
-
-                // Set up controls
-                controls.walk.addEventListener('click', () => {
-                    isWalking = true;
-                    isRunning = false;
+                // Pre-calculate cumulative X offsets for each letter in "hello"
+                letters = "hello".split('').map((char, i) => {
+                    const prevLetters = "hello".slice(0, i); // Letters before current one
+                    const cumulativeSpacing = prevLetters.length * LETTER_SPACING;
+                    return { char, xOffset: cumulativeSpacing };
                 });
 
-                controls.run.addEventListener('click', () => {
-                    isWalking = false;
-                    isRunning = true;
-                });
+                // Setup event listeners for buttons
+                document.getElementById('low').addEventListener('click', () => setTremorLevel('low'));
+                document.getElementById('medium').addEventListener('click', () => setTremorLevel('medium'));
+                document.getElementById('high').addEventListener('click', () => setTremorLevel('high'));
+                document.getElementById('restart').addEventListener('click', restartAnimation);
 
-                controls.reset.addEventListener('click', () => {
-                    resetSimulation();
-                });
+                setTremorLevel('medium'); // Set initial tremor and activate button
             };
 
-            p.draw = function () {
-                p.background(240);
-                updatePersonPosition();
-                updatePlanks();
-                drawFloor();
-                drawPerson();
-                calculateIntensity();
+            // --- p5.js Draw Loop ---
+            p.draw = () => {
+                p.background(255); // White background
+
+                // Draw coordinate grid (optional, for visual reference)
+                drawGrid();
+
+                // Update and draw trail effect
+                updateTrail();
+                drawTrail();
+
+                // Animate pen movement if active
+                if (isAnimating) {
+                    animatePen();
+                }
+
+                // Draw the pen icon at its current position
+                const { x, y } = getCurrentPenPosition();
+                drawPen(x, y);
             };
 
-            function resetSimulation() {
-                personX = 0;
-                isWalking = false;
-                isRunning = false;
-                for (let plank of planks) {
-                    plank.y = 0;
-                    plank.vel = 0;
-                    plank.amp = 0;
-                }
-            }
+            // --- Animation Logic ---
+            /**
+             * Animates the pen drawing the current letter.
+             * Moves along path points, applies tremor, updates trail.
+             */
+            function animatePen() {
+                frameCounter++;
 
-            function updatePersonPosition() {
-                if (isWalking || isRunning) {
-                    personVel = isRunning ? 4 : 2;
-                    personX += personVel;
+                // Calculate animation progress (0-1) based on frame counter
+                animationProgress = p.min(frameCounter / ANIMATION_DURATION, 1);
 
-                    if (personX > p.width) {
-                        personX = 0;
-                        isWalking = false;
-                        isRunning = false;
+                // Get interpolated position along current path segment
+                let { x, y } = getCurrentPenPosition();
+
+                // Apply tremor offset to the pen position
+                const tremorOffset = getTremorOffset();
+                x += tremorOffset.x;
+                y += tremorOffset.y;
+
+                // Add current position to trail for visualization
+                trailPoints.push({ x, y, age: 0 });
+
+                // Check if current segment is complete
+                if (animationProgress >= 1) {
+                    // Advance to next point in the current letter's path
+                    currentPointIndex++;
+
+                    // Check if current letter is complete
+                    if (currentPointIndex >= getCurrentLetterPoints().length - 1) {
+                        // Advance to next letter or stop animation
+                        currentLetterIndex++;
+                        currentPointIndex = 0;
+                        frameCounter = 0;
+
+                        if (currentLetterIndex >= letters.length) {
+                            isAnimating = false; // Stop animation when all letters are drawn
+                            console.log("Animation complete!");
+                        }
+                    } else {
+                        // Reset progress for next segment
+                        frameCounter = 0;
                     }
                 }
             }
 
-            function updatePlanks() {
-                for (let i = 0; i < planks.length; i++) {
-                    let plank = planks[i];
-                    let distance = p.abs(personX - plank.x - plankWidth / 2);
-                    let influence = p.max(0, 1 - distance / 200);
+            /**
+             * Returns the interpolated (x, y) position of the pen along the current path segment.
+             * @returns {{x: number, y: number}} The interpolated position.
+             */
+            function getCurrentPenPosition() {
+                const letter = letters[currentLetterIndex];
+                const points = getCurrentLetterPoints();
+                const currentPoint = points[currentPointIndex];
+                const nextPoint = points[currentPointIndex + 1];
 
-                    // Add vibration when figure is near
-                    if (influence > 0) {
-                        let amplitude = isRunning ? 8 : 4;
-                        plank.amp = amplitude * influence;
-                        plank.phase += 0.2;
-                    }
+                // Interpolate between current and next point based on animation progress
+                const x = letter.xOffset + p.lerp(currentPoint[0], nextPoint[0], animationProgress);
+                const y = BASE_Y + p.lerp(currentPoint[1], nextPoint[1], animationProgress);
 
-                    // Update plank position
-                    plank.vel += plank.amp * p.sin(plank.phase);
-                    plank.vel *= damping;
-                    plank.y += plank.vel;
-                }
+                return { x, y };
             }
 
-            function drawFloor() {
-                p.noStroke();
-                for (let i = 0; i < planks.length; i++) {
-                    let plank = planks[i];
-                    p.fill(139, 69, 19);
-                    p.rect(plank.x, p.height / 2 + plank.y, plankWidth, p.height);
-                }
+            /**
+             * Returns the array of points defining the path for the current letter.
+             * @returns {number[][]} Array of [x, y] coordinates.
+             */
+            function getCurrentLetterPoints() {
+                const letter = letters[currentLetterIndex];
+                return PATH_POINTS[letter.char];
             }
 
-            function drawPerson() {
-                let currentPlank = getCurrentPlank();
-                if (!currentPlank) return;
+            // --- Tremor Simulation ---
+            let noiseOffsetX = 0; // Offset for Perlin noise in X direction
+            let noiseOffsetY = 1000; // Offset for Perlin noise in Y direction (different from X)
 
-                // Body
+            /**
+             * Generates a tremor offset using Perlin noise.
+             * @returns {{x: number, y: number}} The tremor offset.
+             */
+            function getTremorOffset() {
+                // Generate smooth, continuous noise values based on frequency and amplitude
+                const nx = p.noise(noiseOffsetX) * 2 - 1; // Normalize noise to [-1, 1]
+                const ny = p.noise(noiseOffsetY) * 2 - 1;
+
+                // Increment noise offsets based on frequency for continuous motion
+                noiseOffsetX += currentTremor.frequency;
+                noiseOffsetY += currentTremor.frequency;
+
+                // Scale noise by amplitude to control tremor intensity
+                return { x: nx * currentTremor.amplitude, y: ny * currentTremor.amplitude };
+            }
+
+            // --- Visuals ---
+            /**
+             * Draws a simple pen icon at the specified (x, y) position.
+             * @param {number} x - The x-coordinate.
+             * @param {number} y - The y-coordinate.
+             */
+            function drawPen(x, y) {
+                p.push(); // Save current drawing style and coordinate system
+                p.translate(x, y); // Move origin to pen tip
+
+                // Draw pen body (line from tip to base)
                 p.stroke(0);
                 p.strokeWeight(2);
-                p.line(personX, currentPlank.y, personX, currentPlank.y - 40);
+                p.line(0, 0, 0, PEN_LENGTH);
 
-                // Head
-                p.fill(255, 205, 148);
-                p.ellipse(personX, currentPlank.y - 50, 20, 20);
+                // Draw pen tip (small circle)
+                p.fill(0);
+                p.noFill();
+                p.ellipse(0, 0, PEN_HEAD_SIZE * 2);
+                p.pop(); // Restore drawing style and coordinate system
+            }
 
-                // Arms
-                p.line(personX - 15, currentPlank.y - 30, personX + 15, currentPlank.y - 30);
+            /**
+             * Draws a coordinate grid for visual reference.
+             */
+            function drawGrid() {
+                p.stroke(200); // Light gray grid lines
+                p.strokeWeight(1);
 
-                // Legs
-                p.line(personX, currentPlank.y, personX - 10, currentPlank.y + 30);
-                p.line(personX, currentPlank.y, personX + 10, currentPlank.y + 30);
+                // Draw vertical grid lines
+                for (let x = 0; x < p.width; x += 50) {
+                    p.line(x, 0, x, p.height);
+                }
 
-                // Impact effect
-                if (isWalking || isRunning) {
-                    let intensity = p.abs(getCurrentPlankVelocity());
-                    p.fill(255, 255, 0, 150);
-                    p.noStroke();
-                    p.ellipse(personX, currentPlank.y, intensity * 20, intensity * 20);
+                // Draw horizontal grid lines
+                for (let y = 0; y < p.height; y += 50) {
+                    p.line(0, y, p.width, y);
+                }
+
+                // Draw axes (thicker black lines)
+                p.stroke(0);
+                p.strokeWeight(2);
+                p.line(0, BASE_Y, p.width, BASE_Y); // Horizontal axis (baseline)
+                p.line(p.width / 2, 0, p.width / 2, p.height); // Vertical axis (center)
+            }
+
+            /**
+             * Updates the age of each point in the trail and removes old points.
+             */
+            function updateTrail() {
+                // Increment age of each point
+                for (let i = trailPoints.length - 1; i >= 0; i--) {
+                    trailPoints[i].age++;
+
+                    // Remove points older than a threshold (e.g., 50 frames)
+                    if (trailPoints[i].age > 50) {
+                        trailPoints.splice(i, 1);
+                    }
                 }
             }
 
-            function getCurrentPlank() {
-                let plankIndex = p.floor(personX / plankWidth);
-                if (plankIndex >= 0 && plankIndex < planks.length) {
-                    return planks[plankIndex];
+            /**
+             * Draws the trail of points left by the pen.
+             */
+            function drawTrail() {
+                // Draw a fading trail behind the pen
+                p.noFill();
+                p.beginShape(); // Start drawing a polyline
+
+                // Draw line segments connecting trail points
+                for (let i = 0; i < trailPoints.length - 1; i++) {
+                    const p1 = trailPoints[i];
+                    const p2 = trailPoints[i + 1];
+
+                    // Calculate opacity based on point age (newer points are more opaque)
+                    const opacity = p.map(p1.age, 0, 50, TRAIL_OPACITY, 0);
+                    p.stroke(0, opacity);
+
+                    // Draw line segment between consecutive points
+                    p.line(p1.x, p1.y, p2.x, p2.y);
                 }
-                return null;
+                p.endShape(); // Finish drawing the polyline
             }
 
-            function getCurrentPlankVelocity() {
-                let plank = getCurrentPlank();
-                return plank ? plank.vel : 0;
+
+            // --- Controls ---
+            /**
+             * Sets the tremor level and updates the button state.
+             * @param {string} level - The tremor level ("low", "medium", or "high").
+             */
+            function setTremorLevel(level) {
+                // Reset animation state and noise offsets
+                restartAnimation();
+
+                // Update current tremor settings based on selected level
+                switch (level) {
+                    case 'low':
+                        currentTremor = { amplitude: 8, frequency: 0.03 };
+                        break;
+                    case 'medium':
+                        currentTremor = { amplitude: 12, frequency: 0.05 };
+                        break;
+                    case 'high':
+                        currentTremor = { amplitude: 16, frequency: 0.07 };
+                        break;
+                    default:
+                        console.error("Invalid tremor level:", level);
+                        return;
+                }
+
+                // Update active button state
+                currentTremorLevel = level;
+                updateButtonState();
             }
 
-            function calculateIntensity() {
-                intensityValue = p.abs(getCurrentPlankVelocity()).toFixed(2);
-                intensityDisplay.textContent = intensityValue;
+            /**
+             * Restarts the animation from the beginning.
+             */
+            function restartAnimation() {
+                currentLetterIndex = 0;
+                currentPointIndex = 0;
+                animationProgress = 0;
+                frameCounter = 0;
+                isAnimating = true;
+                trailPoints = [];
+                noiseOffsetX = 0; // Reset noise offsets
+                noiseOffsetY = 1000;
             }
-        });
+
+            /**
+             * Updates the visual state of the tremor level buttons.
+             */
+            function updateButtonState() {
+                // Remove "active" class from all buttons
+                document.querySelectorAll('#controls button').forEach(btn => btn.classList.remove('active'));
+
+                // Add "active" class to the button matching the current tremor level
+                document.getElementById(currentTremorLevel).classList.add('active');
+            }
+        };
+
+        // Initialize p5.js instance
+        new p5(sketch);
     </script>
 </body>
 
