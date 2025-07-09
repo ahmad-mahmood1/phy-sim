@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Tunnel Stress Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a1a;
+            font-family: 'Roboto Mono', monospace;
+            color: #f0f2f5;
+            text-align: center;
+        }
+
+        #simulation-wrapper {
+            position: relative;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #444;
+            box-shadow: 0 4px 25px rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: #000000;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(42, 42, 42, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid #555;
+            text-align: left;
+        }
+
+        #controls p {
+            margin: 0 0 10px 0;
+            font-size: 0.9em;
+            font-weight: 700;
+        }
+
+        #reset-button {
+            display: block;
+            width: 100%;
+            padding: 8px 10px;
+            background-color: #0074d9;
+            border: none;
+            color: white;
+            font-family: 'Roboto Mono', monospace;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 700;
+            transition: background-color 0.2s;
+        }
+        #reset-button:hover {
+            background-color: #005fad;
+        }
+
+
+        #info {
+            margin-top: 20px;
+            padding: 15px 25px;
+            background-color: #2a2a2a;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            border: 1px solid #444;
+            max-width: 650px;
+        }
+        
+        h1 {
+            margin-bottom: 10px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: 1px;
+        }
+
+        p {
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <h1>2D Tunnel Stress Simulation</h1>
+    <div id="simulation-wrapper">
+        <div id="canvas-container"></div>
+        <div id="controls">
+            <p>Load: <span id="weight-display">1200</span> kN</p>
+            <button id="reset-button">Reset</button>
+        </div>
+    </div>
+    <div id="info">
+        <p>A static rock applies a constant load to the tunnel structure.</p>
+        <p>Observe the color change: <span style="color: #ff4136;">■ Red = Tension</span>, <span style="color: #0074d9;">■ Blue = Compression</span></p>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation Parameters ---
+            const springStiffness = 2.0; // Lowered stiffness for stability
+            const particleMass = 10;
+            const damping = 0.99; // High damping to settle oscillations
+            const gravity = 0.03; // Lowered gravity
+            
+            // --- Load Object ---
+            let rock = {
+                weight: 1200, // in kilonewtons (kN)
+                width: 120,
+                x: 0, // will be set in setup
+                y: 0, // will be calculated dynamically
+            };
+            let loadMagnitude; // Calculated from rock weight
+
+            // --- Physics Object Collections ---
+            let particles = [];
+            let springs = [];
+            let innerParticles = [];
+            let outerParticles = [];
+            let initialPositions = []; // To store original state for reset
+            
+            // --- Color & View Definitions ---
+            let neutralColor, compressionColor, tensionColor;
+            let vanishingPoint;
+
+            // --- Particle Class (2D) ---
+            class Particle {
+                constructor(x, y) {
+                    this.position = p.createVector(x, y);
+                    this.velocity = p.createVector(0, 0);
+                    this.acceleration = p.createVector(0, 0);
+                    this.mass = particleMass;
+                    this.locked = false;
+                }
+
+                applyForce(force) {
+                    let f = p5.Vector.div(force, this.mass);
+                    this.acceleration.add(f);
+                }
+
+                update() {
+                    if (!this.locked) {
+                        this.velocity.add(this.acceleration);
+                        this.velocity.mult(damping);
+                        this.position.add(this.velocity);
+                    }
+                    this.acceleration.mult(0);
+                }
+                
+                show() {
+                    p.stroke(0, 150);
+                    p.strokeWeight(this.locked ? 8 : 5);
+                    p.point(this.position.x, this.position.y);
+                }
+            }
+
+            // --- Spring Class (2D) ---
+            class Spring {
+                constructor(p1, p2, k) {
+                    this.p1 = p1;
+                    this.p2 = p2;
+                    this.k = k;
+                    this.restLength = p5.Vector.dist(this.p1.position, this.p2.position);
+                }
+
+                update() {
+                    let force = p5.Vector.sub(this.p2.position, this.p1.position);
+                    let currentLength = force.mag();
+                    let stretch = currentLength - this.restLength;
+                    
+                    force.normalize();
+                    force.mult(-1 * this.k * stretch);
+
+                    this.p1.applyForce(p5.Vector.mult(force, -1));
+                    this.p2.applyForce(force);
+                }
+                
+                getStrain() {
+                     let currentLength = p5.Vector.dist(this.p1.position, this.p2.position);
+                     return (currentLength - this.restLength) / this.restLength;
+                }
+
+                show() {
+                    const strain = this.getStrain();
+                    const maxStrain = 0.02; // Adjusted strain sensitivity for new physics
+                    const mappedStrain = p.map(p.constrain(strain, -maxStrain, maxStrain), -maxStrain, maxStrain, 0, 1);
+                    
+                    let color;
+                    if (mappedStrain < 0.5) { // Compression
+                        color = p.lerpColor(neutralColor, compressionColor, p.map(mappedStrain, 0.5, 0, 0, 1));
+                    } else { // Tension
+                        color = p.lerpColor(neutralColor, tensionColor, p.map(mappedStrain, 0.5, 1, 0, 1));
+                    }
+                    
+                    p.stroke(color);
+                    p.strokeWeight(3);
+                    p.line(this.p1.position.x, this.p1.position.y, this.p2.position.x, this.p2.position.y);
+                }
+            }
+            
+            // --- Simulation Reset Function ---
+            const resetSimulation = () => {
+                for (let i = 0; i < particles.length; i++) {
+                    particles[i].position.set(initialPositions[i]);
+                    particles[i].velocity.mult(0);
+                    particles[i].acceleration.mult(0);
+                }
+            };
+
+            // --- p5.js Setup Function ---
+            p.setup = () => {
+                const canvasWidth = 700;
+                const canvasHeight = 550;
+                let canvas = p.createCanvas(canvasWidth, canvasHeight);
+                canvas.parent('canvas-container');
+                
+                // --- Initialize Colors and View ---
+                neutralColor = p.color(180, 180, 180);
+                compressionColor = p.color(0, 116, 217);
+                tensionColor = p.color(255, 65, 54);
+                vanishingPoint = p.createVector(p.width / 2, p.height / 2 - 50);
+                
+                // --- Initialize Horseshoe Tunnel Structure ---
+                const tunnelThickness = 25;
+                const archRadius = 200;
+                const wallHeight = 150;
+                const numArchSegments = 30;
+                const numWallSegments = 10;
+                const totalSegments = numWallSegments + numArchSegments + numWallSegments;
+                const centerX = p.width / 2;
+                const archBaseY = p.height - wallHeight - 50;
+                const archSpanAngle = p.PI * 2 / 3; 
+                const startAngle = p.PI + (p.PI - archSpanAngle) / 2;
+                const endAngle = p.TWO_PI - (p.PI - archSpanAngle) / 2;
+
+                // Create all particles for the 2D truss
+                for (let i = 0; i <= totalSegments; i++) {
+                    let ix, iy, ox, oy;
+                    if (i <= numWallSegments) {
+                        const t = i / numWallSegments;
+                        const wallTopInnerX = centerX + archRadius * p.cos(startAngle);
+                        const wallTopInnerY = archBaseY + archRadius * p.sin(startAngle);
+                        ix = wallTopInnerX;
+                        iy = p.lerp(wallTopInnerY + wallHeight, wallTopInnerY, t);
+                        ox = ix - tunnelThickness;
+                        oy = iy;
+                    } else if (i <= numWallSegments + numArchSegments) {
+                        const t = (i - numWallSegments) / numArchSegments;
+                        const angle = p.lerp(startAngle, endAngle, t);
+                        ix = centerX + archRadius * p.cos(angle);
+                        iy = archBaseY + archRadius * p.sin(angle);
+                        ox = centerX + (archRadius + tunnelThickness) * p.cos(angle);
+                        oy = archBaseY + (archRadius + tunnelThickness) * p.sin(angle);
+                    } else {
+                        const t = (i - numWallSegments - numArchSegments) / numWallSegments;
+                        const wallTopInnerX = centerX + archRadius * p.cos(endAngle);
+                        const wallTopInnerY = archBaseY + archRadius * p.sin(endAngle);
+                        ix = wallTopInnerX;
+                        iy = p.lerp(wallTopInnerY, wallTopInnerY + wallHeight, t);
+                        ox = ix + tunnelThickness;
+                        oy = iy;
+                    }
+                    innerParticles.push(new Particle(ix, iy));
+                    outerParticles.push(new Particle(ox, oy));
+                }
+
+                particles = [...innerParticles, ...outerParticles];
+
+                // Store initial positions for reset
+                for (const particle of particles) {
+                    initialPositions.push(particle.position.copy());
+                }
+
+                // --- Create Springs for the Truss Structure ---
+                for (let i = 0; i < innerParticles.length - 1; i++) springs.push(new Spring(innerParticles[i], innerParticles[i + 1], springStiffness));
+                for (let i = 0; i < outerParticles.length - 1; i++) springs.push(new Spring(outerParticles[i], outerParticles[i + 1], springStiffness));
+                for (let i = 0; i < innerParticles.length; i++) springs.push(new Spring(innerParticles[i], outerParticles[i], springStiffness));
+                const diagonalStiffness = springStiffness * 0.7;
+                for (let i = 0; i < innerParticles.length - 1; i++) {
+                    springs.push(new Spring(innerParticles[i], outerParticles[i + 1], diagonalStiffness));
+                    springs.push(new Spring(outerParticles[i], innerParticles[i + 1], diagonalStiffness));
+                }
+                
+                // Lock the base particles
+                innerParticles[0].locked = true;
+                outerParticles[0].locked = true;
+                innerParticles[innerParticles.length - 1].locked = true;
+                outerParticles[outerParticles.length - 1].locked = true;
+
+                // --- Setup Load ---
+                rock.x = p.width / 2;
+                loadMagnitude = rock.weight / 20000; // Adjusted load magnitude for new stiffness
+                document.getElementById('weight-display').innerText = `${rock.weight} kN`;
+
+                // --- Setup Controls ---
+                const resetButton = document.getElementById('reset-button');
+                resetButton.addEventListener('click', resetSimulation);
+            };
+
+            // --- Function to draw the rock load ---
+            const drawRock = () => {
+                p.push();
+                p.translate(rock.x, rock.y); // rock.y is now the top of the arch
+                p.noStroke();
+
+                // Base rock color
+                p.fill(85, 80, 75);
+
+                // Generate a bumpy, irregular shape for the rock using Perlin noise
+                // The shape is drawn relative to rock.y. The bottom of the shape is at y=0.
+                p.beginShape();
+                const noiseSeed = 42; // Use a fixed seed for a consistent rock shape
+                for (let angle = 0; angle < p.TWO_PI; angle += 0.4) {
+                    let offset = p.map(p.noise(noiseSeed + p.cos(angle), noiseSeed + p.sin(angle)), 0, 1, -15, 15);
+                    let r = (rock.width / 2) + offset;
+                    let x = r * p.cos(angle);
+                    
+                    let y_base = r * p.sin(angle);
+                    // Make the bottom of the rock (where sin(angle) > 0) sit near y=0
+                    // and the top (where sin(angle) < 0) go upwards (negative y)
+                    let y = y_base < 0 ? y_base - 20 : y_base * 0.2; 
+                    p.vertex(x, y);
+                }
+                p.endShape(p.CLOSE);
+
+                // Add some darker shades for texture/shadows, also relative to the new origin
+                p.fill(65, 60, 55, 150);
+                p.beginShape();
+                for (let angle = 0; angle < p.TWO_PI; angle += 0.5) {
+                    let offset = p.map(p.noise(noiseSeed + 5 + p.cos(angle), noiseSeed + 5 + p.sin(angle)), 0, 1, -10, 10);
+                    let r = (rock.width / 2.5) + offset;
+                    let x = r * p.cos(angle);
+                    let y_base = r * p.sin(angle);
+                    let y = y_base < 0 ? y_base - 20 : y_base * 0.3;
+                    p.vertex(x + 5, y);
+                }
+                p.endShape(p.CLOSE);
+
+                // Add a few highlights
+                p.fill(105, 100, 95, 180);
+                p.beginShape();
+                p.vertex(-20, -35);
+                p.vertex(0, -42);
+                p.vertex(10, -38);
+                p.vertex(5, -32);
+                p.endShape(p.CLOSE);
+
+                p.pop();
+            };
+
+            // --- p5.js Draw Function ---
+            p.draw = () => {
+                p.background(10, 10, 15);
+
+                // --- Draw Perspective Background ---
+                const roadTopLeft = innerParticles[0].position;
+                const roadTopRight = innerParticles[innerParticles.length - 1].position;
+                p.fill(40, 40, 45);
+                p.noStroke();
+                p.quad(0, p.height, p.width, p.height, roadTopRight.x, roadTopRight.y, roadTopLeft.x, roadTopLeft.y);
+                p.triangle(roadTopLeft.x, roadTopLeft.y, roadTopRight.x, roadTopRight.y, vanishingPoint.x, vanishingPoint.y);
+                p.fill(20, 20, 25);
+                p.beginShape();
+                p.vertex(innerParticles[0].position.x, innerParticles[0].position.y);
+                for(let i = 0; i < innerParticles.length; i++){
+                    p.vertex(innerParticles[i].position.x, innerParticles[i].position.y);
+                }
+                p.vertex(vanishingPoint.x, vanishingPoint.y);
+                p.endShape(p.CLOSE);
+
+                // --- Apply Forces ---
+                const gravityForce = p.createVector(0, gravity);
+                const loadForce = p.createVector(0, loadMagnitude);
+                for (let particle of particles) {
+                    particle.applyForce(gravityForce);
+                }
+                for (let particle of outerParticles) {
+                    if (p.abs(particle.position.x - rock.x) < rock.width / 2) {
+                        particle.applyForce(loadForce);
+                    }
+                }
+
+                // --- Update Physics ---
+                for (let spring of springs) {
+                    spring.update();
+                }
+                for (let particle of particles) {
+                    particle.update();
+                }
+
+                // --- Draw Simulation Elements ---
+                for (let spring of springs) {
+                    spring.show();
+                }
+                // Also draw the particles so we can see the nodes
+                for (let particle of particles) {
+                    particle.show();
+                }
+                
+                // --- Position and Draw Rock ---
+                // Find the current highest point of the arch directly under the rock
+                let currentHighestY = p.height;
+                for (const particle of outerParticles) {
+                    if (p.abs(particle.position.x - rock.x) < rock.width / 2) {
+                        if (particle.position.y < currentHighestY) {
+                            currentHighestY = particle.position.y;
+                        }
+                    }
+                }
+                // Set the rock's base y-position to this highest point
+                rock.y = currentHighestY;
+                drawRock();
+            };
+        };
+        
+        new p5(sketch);
+    </script>
+</body>
+
+</html>
