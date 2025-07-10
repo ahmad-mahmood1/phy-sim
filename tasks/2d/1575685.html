@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #app-container {
+            display: flex;
+            flex-direction: row; /* Changed to row for side-by-side layout */
+            align-items: stretch; /* Make items stretch to the same height */
+            gap: 25px;
+            padding: 25px;
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+        }
+
+        #simulation-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .simulation-title {
+            font-size: 1.5em;
+            font-weight: 700;
+            margin-bottom: 0;
+            text-align: center;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            overflow: hidden; /* Ensures canvas corners are rounded */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        #controls-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            width: 100%;
+            border: 1px solid #eee;
+        }
+        
+        .slider-label {
+            font-size: 1em;
+            font-weight: 700;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 80%;
+            height: 10px;
+            background: #ddd;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+        
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #4a90e2;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #4a90e2;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+        }
+        
+        /* --- Info Card Styles --- */
+        #info-card {
+            width: 220px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            border: 1px solid #eee;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #info-card h3 {
+            text-align: center;
+            margin-top: 0;
+            font-weight: 700;
+            font-size: 1.1em;
+            color: #333;
+        }
+        
+        .info-section-title {
+             margin-top: 15px;
+        }
+
+        .gradient-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            height: 100px;
+        }
+
+        .gradient-bar {
+            width: 30px;
+            border-radius: 5px;
+            background: linear-gradient(to top,
+                rgb(66, 133, 244),
+                rgb(255, 224, 192),
+                rgb(219, 68, 55)
+            );
+            border: 1px solid #ddd;
+        }
+
+        .gradient-labels {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            font-size: 12px;
+            font-weight: bold;
+            color: #555;
+            padding: 5px 0;
+        }
+
+        .info-text {
+            font-size: 13px;
+            color: #666;
+            margin-top: 15px;
+            line-height: 1.5;
+        }
+        
+        .layer-list {
+            font-size: 12px;
+            color: #666;
+            padding-left: 0;
+            margin: 10px 0 0 0;
+            list-style-type: none;
+        }
+
+        .layer-list li {
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="app-container">
+        <div id="simulation-wrapper">
+            <h2 class="simulation-title">Thermal Conduction in Palm Skin Layers</h2>
+            <div id="canvas-container">
+                </div>
+            <div id="controls-container">
+                <div class="slider-label">External Temperature: <span id="temp-value">20°C</span></div>
+                </div>
+        </div>
+        <div id="info-card">
+            <h3>Temperature Key</h3>
+            <div class="gradient-container">
+                <div class="gradient-bar"></div>
+                <div class="gradient-labels">
+                    <span>50°C</span>
+                    <span>37°C</span>
+                    <span>-10°C</span>
+                </div>
+            </div>
+            <p class="info-text">
+                This simulation models heat transfer through the tissue layers of the human palm.
+            </p>
+            <h3 class="info-section-title">Palm Layers</h3>
+            <ul class="layer-list">
+                <li><strong>Epidermis:</strong> The thin, outermost protective layer of skin.</li>
+                <li><strong>Dermis:</strong> The thicker layer containing nerves and blood vessels.</li>
+                <li><strong>Subcutaneous Fat:</strong> A layer of fat and tissue for insulation.</li>
+                <li><strong>Muscle:</strong> The deep tissue that enables movement.</li>
+            </ul>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // Core simulation parameters
+            const coreBodyTemp = 37.0; // Core body temperature in Celsius
+            const timeFactor = 0.008; // Controls the speed of heat transfer simulation
+            const convectionFactor = 0.08; // Represents heat transfer rate to the air
+
+            let layers = [];
+            let externalTempSlider;
+            let tempValueDisplay;
+            let skinBox;
+
+            // Data for each skin layer. Thickness is a relative proportion.
+            const layerData = [
+                { name: 'Epidermis', thickness: 0.10, conductivity: 0.21 },
+                { name: 'Dermis', thickness: 0.20, conductivity: 0.37 },
+                { name: 'Subcutaneous Fat', thickness: 0.35, conductivity: 0.20 },
+                { name: 'Muscle', thickness: 0.35, conductivity: 0.50 }
+            ];
+
+            p.setup = () => {
+                const canvasContainer = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(600, 400);
+                canvas.parent(canvasContainer);
+                p.textFont('Roboto Mono');
+
+                // Define the bounding box for the skin layers section
+                skinBox = {
+                    w: p.width * 0.5,
+                    h: p.height * 0.8,
+                    x: (p.width - p.width * 0.5) / 2,
+                    y: (p.height - p.height * 0.8) / 2
+                };
+
+                // --- Initialize Layers relative to the skinBox ---
+                let yPos = skinBox.y;
+                for (const data of layerData) {
+                    const layerHeight = skinBox.h * data.thickness;
+                    layers.push({
+                        ...data,
+                        y: yPos,
+                        h: layerHeight,
+                        temp: coreBodyTemp // Initialize all layers to core body temperature
+                    });
+                    yPos += layerHeight;
+                }
+
+                // --- Initialize UI Controls ---
+                const controlsContainer = document.getElementById('controls-container');
+                externalTempSlider = p.createSlider(-20, 100, 20, 1); // min, max, start, step
+                externalTempSlider.parent(controlsContainer);
+                externalTempSlider.style('width', '80%'); // Match CSS for consistency
+                
+                tempValueDisplay = document.getElementById('temp-value');
+            };
+
+            p.draw = () => {
+                p.background(250);
+                const externalTemp = externalTempSlider.value();
+                tempValueDisplay.textContent = `${externalTemp}°C`;
+
+                // --- Run Thermal Conduction Simulation ---
+                updateTemperatures(externalTemp);
+
+                // --- Draw Visualization ---
+                drawLayers();
+                drawLabels(externalTemp);
+            };
+            
+            function updateTemperatures(externalTemp) {
+                let newTemps = layers.map(l => l.temp);
+
+                for (let i = 0; i < layers.length; i++) {
+                    const layer = layers[i];
+                    const tempInward = (i === layers.length - 1) ? coreBodyTemp : layers[i + 1].temp;
+                    const tempOutward = (i === 0) ? externalTemp : layers[i - 1].temp;
+                    const conductivityOutward = (i === 0) ? convectionFactor : layer.conductivity;
+                    const conductivityInward = (i === layers.length - 1) ? layers[i].conductivity : layers[i+1].conductivity;
+
+                    const flowFromInward = (tempInward - layer.temp) * conductivityInward;
+                    const flowToOutward = (layer.temp - tempOutward) * conductivityOutward;
+                    
+                    newTemps[i] += (flowFromInward - flowToOutward) * timeFactor;
+                }
+
+                for (let i = 0; i < layers.length; i++) {
+                    layers[i].temp = newTemps[i];
+                }
+            }
+
+            /**
+             * Draws the rectangles representing the skin layers inside the defined skinBox.
+             */
+            function drawLayers() {
+                for (const layer of layers) {
+                    const tempColor = mapTempToColor(layer.temp);
+                    p.fill(tempColor);
+                    p.noStroke();
+                    p.rect(skinBox.x, layer.y, skinBox.w, layer.h);
+                }
+            }
+
+            /**
+             * Draws text labels outside the colored skin section for better visibility.
+             * @param {number} externalTemp - The current external temperature.
+             */
+            function drawLabels(externalTemp) {
+                p.fill(50); // Dark grey color for all text for consistency
+                p.textSize(12);
+
+                // --- Draw Labels for each layer ---
+                for (const layer of layers) {
+                    const labelY = layer.y + layer.h / 2;
+
+                    // Draw layer name to the left
+                    p.textAlign(p.RIGHT, p.CENTER);
+                    p.text(layer.name, skinBox.x - 15, labelY);
+                    
+                    // Draw temperature to the right
+                    p.textAlign(p.LEFT, p.CENTER);
+                    p.text(`${layer.temp.toFixed(2)}°C`, skinBox.x + skinBox.w + 15, labelY);
+                    
+                    // Draw connector lines
+                    p.stroke(200);
+                    p.strokeWeight(1);
+                    p.line(skinBox.x - 10, labelY, skinBox.x, labelY);
+                    p.line(skinBox.x + skinBox.w, labelY, skinBox.x + skinBox.w + 10, labelY);
+                }
+
+                // --- Draw general labels for environment and core ---
+                p.noStroke();
+                p.textAlign(p.CENTER, p.BOTTOM);
+                p.text(`External Environment: ${externalTemp.toFixed(1)}°C`, skinBox.x + skinBox.w / 2, skinBox.y - 5);
+                
+                p.textAlign(p.CENTER, p.TOP);
+                p.text(`Body Core: ${coreBodyTemp.toFixed(1)}°C`, skinBox.x + skinBox.w / 2, skinBox.y + skinBox.h + 5);
+            }
+
+            /**
+             * Maps a temperature value to a color, creating a gradient from cold (blue)
+             * to neutral (skin tone) to hot (red).
+             * @param {number} temp - The temperature to map.
+             * @returns {p5.Color} The corresponding color.
+             */
+            function mapTempToColor(temp) {
+                const minTemp = -10;
+                const maxTemp = 50;
+                const coldColor = p.color(66, 133, 244); // Google Blue
+                const bodyColor = p.color(255, 224, 192); // Neutral skin tone
+                const hotColor = p.color(219, 68, 55); // Google Red
+                
+                let mappedTemp;
+                if (temp < coreBodyTemp) {
+                    // Map from cold to body temperature
+                    mappedTemp = p.map(temp, minTemp, coreBodyTemp, 0, 1, true);
+                    return p.lerpColor(coldColor, bodyColor, mappedTemp);
+                } else {
+                    // Map from body temperature to hot
+                    mappedTemp = p.map(temp, coreBodyTemp, maxTemp, 0, 1, true);
+                    return p.lerpColor(bodyColor, hotColor, mappedTemp);
+                }
+            }
+        };
+
+        new p5(sketch);
+
+    </script>
+</body>
+
+</html>

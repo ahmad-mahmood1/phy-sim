@@ -1,116 +1,103 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bamboo Simulation</title>
-
-    <script type="importmap">
-        {
-          "imports": {
-            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-          }
-        }
-      </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Thermal Conduction Simulation</title>
+  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+    }
+  }
+  </script>
 </head>
-
 <body>
-    <script type="module">
-        import p5 from 'p5';
+  <script type="module">
+    import p5 from 'p5';
 
-        new p5((sketch) => {
-            let segments = [];
-            let growthTimer = 0;
-            let wind = 0;
-            let rainfall = 0;
-            let sliderWind;
-            let sliderRain;
-            let resetButton;
+    new p5((p) => {
+      // Skin layer parameters (thickness in mm, thermal conductivity in W/m·K)
+      const layers = [
+        { name: 'Epidermis', thickness: 0.05, conductivity: 0.21 },
+        { name: 'Dermis', thickness: 1.5, conductivity: 0.37 },
+        { name: 'Subcutaneous Fat', thickness: 4.0, conductivity: 0.21 },
+        { name: 'Muscle', thickness: 10.0, conductivity: 0.49 }
+      ];
+      const totalThickness = layers.reduce((sum, layer) => sum + layer.thickness, 0);
+      const scale = 50; // pixels per mm
+      const dt = 0.1; // time step
 
-            class Segment {
-                constructor(x, y, len) {
-                    this.x = x;
-                    this.y = y;
-                    this.len = len;
-                    this.angle = 0;
-                    this.angularVelocity = 0;
-                    this.angularAcceleration = 0;
-                    this.mass = 1;
-                }
+      let tempCore = 37;
+      let tempExternal = 20;
+      let temperatures = [];
+      let slider;
 
-                applyForce(force) {
-                    let torque = force * this.len;
-                    this.angularAcceleration += torque / this.mass;
-                }
+      p.setup = () => {
+        p.createCanvas(800, 600);
+        slider = p.createSlider(0, 50, tempExternal);
+        slider.position(50, p.height - 40);
+        slider.style('width', '200px');
+        initializeTemperatures();
+      };
 
-                update() {
-                    this.angularVelocity += this.angularAcceleration;
-                    this.angle += this.angularVelocity;
-                    this.angularAcceleration = 0;
-                }
+      p.draw = () => {
+        p.background(240);
+        tempExternal = slider.value();
+        updateTemperatures();
+        drawLayers();
+        drawLegend();
+      };
 
-                display() {
-                    sketch.push();
-                    sketch.translate(this.x, this.y);
-                    sketch.rotate(this.angle);
-                    sketch.stroke(76, 153, 0);
-                    sketch.strokeWeight(4);
-                    sketch.line(0, 0, 0, -this.len);
-                    sketch.pop();
-                }
-            }
+      function initializeTemperatures() {
+        temperatures = layers.map(() => tempCore);
+      }
 
-            sketch.setup = function () {
-                sketch.createCanvas(800, 600);
-                segments.push(new Segment(sketch.width / 2, sketch.height, 100));
-                sliderWind = sketch.createSlider(0, 10, 0);
-                sliderWind.position(20, 20);
-                sliderRain = sketch.createSlider(0, 10, 0);
-                sliderRain.position(20, 50);
-                resetButton = sketch.createButton('Reset');
-                resetButton.position(20, 80);
-                resetButton.mousePressed(reset);
-            }
+      function updateTemperatures() {
+        // Update temperatures based on heat conduction between layers
+        for (let i = 0; i < layers.length; i++) {
+          let top = i > 0 ? temperatures[i - 1] : tempExternal;
+          let bottom = i < layers.length - 1 ? temperatures[i + 1] : tempCore;
+          let k = layers[i].conductivity;
+          let tempNew = temperatures[i] + dt * k * (top + bottom - 2 * temperatures[i]);
+          temperatures[i] = tempNew;
+        }
+      }
 
-            sketch.draw = function () {
-                sketch.background(240);
-                wind = sliderWind.value();
-                rainfall = sliderRain.value();
-                sketch.fill(0);
-                sketch.text(`Wind: ${wind}`, 160, 35);
-                sketch.text(`Rainfall: ${rainfall}`, 160, 65);
+      function drawLayers() {
+        let yOffset = 100;
+        let xOffset = 100;
+        for (let i = 0; i < layers.length; i++) {
+          let layer = layers[i];
+          let h = layer.thickness * scale;
+          let temp = temperatures[i];
+          let c = p.map(temp, tempExternal, tempCore, 0, 255);
+          p.fill(c, 255 - c, 255);
+          p.stroke(0);
+          p.rect(xOffset, yOffset, 400, h);
+          p.fill(0);
+          p.noStroke();
+          p.textSize(14);
+          p.textAlign(p.LEFT, p.TOP);
+          p.text(`${layer.name}: ${temp.toFixed(1)}°C`, xOffset + 10, yOffset + 10);
+          yOffset += h;
+        }
+        p.textSize(18);
+        p.text(`Core Temperature: ${tempCore}°C`, xOffset, yOffset + 20);
+        p.text(`External Temperature: ${tempExternal}°C`, xOffset, yOffset + 50);
+      }
 
-                if (sketch.frameCount % 180 === 0 && segments.length < 10) {
-                    let lastSegment = segments[segments.length - 1];
-                    segments.push(new Segment(lastSegment.x, lastSegment.y - lastSegment.len, 80));
-                }
-
-                let baseSegment = segments[0];
-                baseSegment.applyForce(wind);
-
-                for (let i = 1; i < segments.length; i++) {
-                    let segment = segments[i];
-                    segment.applyForce(wind);
-                    segment.applyForce(rainfall * 0.5);
-                    segment.mass = 1 + rainfall * 0.1;
-                    segment.update();
-                }
-
-                for (let i = segments.length - 1; i >= 0; i--) {
-                    let segment = segments[i];
-                    segment.display();
-                }
-            }
-
-            function reset() {
-                segments = [];
-                segments.push(new Segment(sketch.width / 2, sketch.height, 100));
-                sliderWind.value(0);
-                sliderRain.value(0);
-            }
-        });
-    </script>
+      function drawLegend() {
+        p.textSize(16);
+        p.textAlign(p.LEFT, p.TOP);
+        p.fill(0);
+        p.text('Thermal Conductivity:', 550, 100);
+        for (let i = 0; i < layers.length; i++) {
+          p.text(`${layers[i].name}: ${layers[i].conductivity} W/m·K`, 550, 130 + i * 30);
+        }
+      }
+    });
+  </script>
 </body>
-
 </html>
