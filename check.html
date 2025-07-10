@@ -1,273 +1,210 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8" />
-  <title>2D Baseball Physics Simulation</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Canal Flood Gate Simulation (Fixed)</title>
   <style>
-    body { margin: 0; padding: 20px; font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
-    .controls { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: center; }
-    .control-group { display: flex; flex-direction: column; align-items: center; }
-    label { margin-bottom: 5px; font-size: 14px; }
-    button { padding: 8px 16px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; background-color: #4CAF50; color: white; }
-    button:disabled { background-color: #cccccc; cursor: not-allowed; }
-  </style>
-  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-  <script type="importmap">
-    {
-      "imports": {
-        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-      }
+    body {
+      margin: 0;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
     }
-  </script>
+
+    canvas {
+      display: block;
+    }
+
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #fff;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
+    }
+  </style>
+  <script type="importmap">
+      {
+        "imports": {
+          "matter-js": "https://cdn.jsdelivr.net/npm/matter-js@0.20.0/+esm"
+        }
+      }
+    </script>
 </head>
+
 <body>
-  <h1>2D Baseball Physics Simulation</h1>
-
-  <div class="controls">
-    <div class="control-group">
-      <label for="velocity">Launch Velocity (m/s)</label>
-      <input type="range" id="velocity" min="10" max="50" value="30">
-      <span id="velocity-value">30</span>
-    </div>
-
-    <div class="control-group">
-      <label for="angle">Launch Angle (°)</label>
-      <input type="range" id="angle" min="0" max="90" value="45">
-      <span id="angle-value">45</span>
-    </div>
-
-    <div class="control-group">
-      <label for="wind">Wind Speed (m/s)</label>
-      <input type="range" id="wind" min="-10" max="10" value="0">
-      <span id="wind-value">0</span>
-    </div>
-
-    <div class="control-group">
-      <label for="catcher-height">Catcher Height</label>
-      <input type="range" id="catcher-height" min="0" max="100" value="50">
-      <span id="catcher-height-value">50</span>
-    </div>
-
-    <button id="launch">Launch Ball</button>
-    <button id="reset">Reset</button>
+  <canvas id="canvas" width="800" height="600"></canvas>
+  <div id="info">
+    <p>Hydrostatic Torque: <span id="torque">0.00</span> Nm</p>
+    <p>Status: <span id="status">OK</span></p>
+    <button id="toggle-button">Toggle Gate</button>
   </div>
 
-  <div id="simulation-container"></div>
-  <div id="result"></div>
-  <div id="max-height"></div>
-
   <script type="module">
-    import p5 from "p5";
+    import Matter from 'matter-js';
+    const { Engine, Render, Runner, World, Bodies, Body, Constraint, Events, Common } = Matter;
 
-    const sketch = (p) => {
-      // Physics constants
-      const gravity = 9.81; // m/s²
-      const airDensity = 1.225; // kg/m³
-      const ballMass = 0.145; // kg (baseball mass)
-      const ballDiameter = 0.074; // m (baseball diameter)
-      const dragCoefficient = 0.47; // sphere drag coefficient
-      const scale = 5; // pixels per meter
-
-      // Game state
-      let ball = null;
-      let launched = false;
-      let caught = false;
-      let hitGround = false;
-      let maxHeight = 0;
-      let catcherY = 50;
-
-      // Controls
-      let velocity = 30;
-      let angle = 45;
-      let windSpeed = 0;
-
-      // UI elements
-      let velocitySlider, angleSlider, windSlider, catcherHeightSlider;
-      let launchButton, resetButton;
-      let resultDiv, maxHeightDiv;
-
-      p.setup = () => {
-        const canvas = p.createCanvas(800, 400);
-        canvas.parent('simulation-container');
-
-        // Initialize UI elements
-        velocitySlider = document.getElementById('velocity');
-        angleSlider = document.getElementById('angle');
-        windSlider = document.getElementById('wind');
-        catcherHeightSlider = document.getElementById('catcher-height');
-        launchButton = document.getElementById('launch');
-        resetButton = document.getElementById('reset');
-        resultDiv = document.getElementById('result');
-        maxHeightDiv = document.getElementById('max-height');
-
-        // Add event listeners
-        velocitySlider.addEventListener('input', updateVelocity);
-        angleSlider.addEventListener('input', updateAngle);
-        windSlider.addEventListener('input', updateWind);
-        catcherHeightSlider.addEventListener('input', updateCatcherHeight);
-        launchButton.addEventListener('click', launchBall);
-        resetButton.addEventListener('click', resetSimulation);
-
-        // Initialize UI values
-        updateVelocity();
-        updateAngle();
-        updateWind();
-        updateCatcherHeight();
-      };
-
-      p.draw = () => {
-        p.background(240);
-
-        // Draw field
-        p.fill(100, 200, 100);
-        p.noStroke();
-        p.rect(0, p.height - 50, p.width, 50);
-
-        // Draw batter
-        p.fill(200, 100, 50);
-        p.rect(50, p.height - 100, 20, 50);
-
-        // Draw catcher
-        const catcherX = p.width - 100;
-        const catcherHeadY = p.height - 100 - catcherY;
-        const catcherBodyHeight = 100;
-        const catcherBodyY = catcherHeadY + 20;
-        const catcherLegHeight = 50;
-
-        // Catcher head
-        p.fill(50, 100, 200);
-        p.ellipse(catcherX, catcherHeadY, 20, 20);
-
-        // Catcher body
-        p.fill(200, 50, 50);
-        p.rect(catcherX - 10, catcherBodyY, 20, catcherBodyHeight);
-
-        // Catcher legs
-        p.fill(50, 50, 200);
-        p.rect(catcherX - 10, catcherBodyY + catcherBodyHeight, 20, catcherLegHeight);
-
-        // Update and draw ball
-        if (launched && ball) {
-          ball.update();
-          ball.show();
-
-          // Check for collisions
-          checkCollisions(catcherX, catcherHeadY, catcherBodyY, catcherBodyHeight, catcherLegHeight);
-
-          // Update max height
-          if (ball.pos.y < maxHeight) {
-            maxHeight = ball.pos.y;
-            maxHeightDiv.textContent = `Max Height: ${((p.height - maxHeight) / scale).toFixed(2)} m`;
-          }
-        }
-      };
-
-      class Ball {
-        constructor(x, y, vx, vy) {
-          this.pos = p.createVector(x, y);
-          this.vel = p.createVector(vx, vy);
-          this.radius = 10;
-        }
-
-        update() {
-          // Apply gravity
-          this.vel.y += gravity / 60;
-
-          // Apply air resistance (drag)
-          const speed = this.vel.mag();
-          const dragForce = p5.Vector.mult(this.vel, -0.5 * airDensity * dragCoefficient * Math.PI * (ballDiameter / 2) ** 2 * speed / ballMass);
-          this.vel.add(dragForce);
-
-          // Apply wind
-          this.vel.x += windSpeed / 60;
-
-          // Update position
-          this.pos.add(p5.Vector.mult(this.vel, 1 / 60));
-        }
-
-        show() {
-          p.fill(255);
-          p.stroke(0);
-          p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
-        }
-      }
-
-      function launchBall() {
-        if (launched) return;
-
-        launched = true;
-        launchButton.disabled = true;
-
-        // Calculate initial velocity components
-        const angleRad = p.radians(angle);
-        const vx = velocity * p.cos(angleRad) * scale;
-        const vy = -velocity * p.sin(angleRad) * scale;
-
-        // Create ball
-        ball = new Ball(70, p.height - 100, vx, vy);
-
-        // Initialize max height
-        maxHeight = ball.pos.y;
-        maxHeightDiv.textContent = `Max Height: ${((p.height - maxHeight) / scale).toFixed(2)} m`;
-        resultDiv.textContent = '';
-      }
-
-      function resetSimulation() {
-        launched = false;
-        caught = false;
-        hitGround = false;
-        ball = null;
-        launchButton.disabled = false;
-        resultDiv.textContent = '';
-        maxHeightDiv.textContent = '';
-      }
-
-      function checkCollisions(catcherX, catcherHeadY, catcherBodyY, catcherBodyHeight, catcherLegHeight) {
-        if (!ball) return;
-
-        // Check for catch
-        const distanceToHead = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherHeadY);
-        const distanceToBody = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherBodyY + catcherBodyHeight / 2);
-        const distanceToLegs = p.dist(ball.pos.x, ball.pos.y, catcherX, catcherBodyY + catcherBodyHeight + catcherLegHeight / 2);
-
-        if (distanceToHead < ball.radius + 10 ||
-            distanceToBody < ball.radius + 20 ||
-            distanceToLegs < ball.radius + 15) {
-          caught = true;
-          resultDiv.textContent = 'CAUGHT!';
-          return;
-        }
-
-        // Check for ground hit
-        if (ball.pos.y > p.height - 50) {
-          hitGround = true;
-          resultDiv.textContent = 'Hit the ground';
-          return;
-        }
-      }
-
-      function updateVelocity() {
-        velocity = parseFloat(velocitySlider.value);
-        document.getElementById('velocity-value').textContent = velocity;
-      }
-
-      function updateAngle() {
-        angle = parseFloat(angleSlider.value);
-        document.getElementById('angle-value').textContent = angle;
-      }
-
-      function updateWind() {
-        windSpeed = parseFloat(windSlider.value);
-        document.getElementById('wind-value').textContent = windSpeed;
-      }
-
-      function updateCatcherHeight() {
-        catcherY = parseFloat(catcherHeightSlider.value);
-        document.getElementById('catcher-height-value').textContent = catcherY;
+    // Simulation configuration
+    const config = {
+      width: 800,
+      height: 600,
+      water: {
+        particles: 500,
+        radius: 5,
+        x: 50,
+        y: 450,
+        width: 700,
+        height: 150,
+        density: 0.001, // Slightly increased density for more effect
+        frictionAir: 0.03,
+        fillColor: '#4682B4'
+      },
+      gate: {
+        width: 30,
+        height: 150,
+        density: 0.01,
+        pivot: { x: 50, y: 75 }, // Simplified pivot point
+        motorTorque: 3 // The force applied to open/close the gate
+      },
+      wall: {
+        thickness: 50
+      },
+      thresholds: {
+        warning: 1000,
+        danger: 2000
       }
     };
 
-    new p5(sketch);
+    // Initialize Matter.js engine and renderer
+    const engine = Engine.create();
+    const render = Render.create({
+      canvas: document.getElementById('canvas'),
+      engine: engine,
+      options: {
+        width: config.width,
+        height: config.height,
+        wireframes: false,
+        background: '#87CEEB'
+      }
+    });
+
+    // World configuration
+    engine.gravity.y = 1.0;
+
+    // Create static canal environment
+    const floor = Bodies.rectangle(config.width / 2, config.height - config.wall.thickness / 2, config.width, config.wall.thickness, { isStatic: true, render: { fillStyle: '#808080' } });
+    const leftWall = Bodies.rectangle(config.wall.thickness / 2, config.height / 2, config.wall.thickness, config.height, { isStatic: true, render: { fillStyle: '#808080' } });
+    const rightWall = Bodies.rectangle(config.width - config.wall.thickness / 2, config.height / 2, config.wall.thickness, config.height, { isStatic: true, render: { fillStyle: '#808080' } });
+
+    // Create a DYNAMIC flood gate
+    const gate = Bodies.rectangle(
+      config.gate.pivot.x,
+      config.gate.pivot.y + config.gate.height / 2,
+      config.gate.width,
+      config.gate.height, {
+      density: config.gate.density,
+      render: { fillStyle: '#A0522D' }
+    }
+    );
+
+    // Create a constraint to act as a pivot for the gate
+    const gateConstraint = Constraint.create({
+      pointA: { x: config.gate.pivot.x, y: config.gate.pivot.y },
+      bodyB: gate,
+      pointB: { x: 0, y: -config.gate.height / 2 },
+      stiffness: 0.9,
+      length: 0
+    });
+
+    World.add(engine.world, [floor, leftWall, rightWall, gate, gateConstraint]);
+
+    // Create water particles
+    const waterParticles = [];
+    for (let i = 0; i < config.water.particles; i++) {
+      const x = Common.random(config.water.x, config.water.x + config.water.width);
+      const y = Common.random(config.water.y - config.water.height, config.water.y);
+      const particle = Bodies.circle(x, y, config.water.radius, {
+        density: config.water.density,
+        friction: 0.1,
+        restitution: 0.2,
+        render: { fillStyle: config.water.fillColor }
+      });
+      waterParticles.push(particle);
+    }
+    World.add(engine.world, waterParticles);
+
+    // --- CONTROL LOGIC ---
+    let isClosing = false; // Start in the open state
+    const torqueElement = document.getElementById('torque');
+    const statusElement = document.getElementById('status');
+    const toggleButton = document.getElementById('toggle-button');
+
+    toggleButton.addEventListener('click', () => {
+      isClosing = !isClosing;
+    });
+
+    // Main simulation loop
+    Events.on(engine, 'afterUpdate', () => {
+      // --- Gate Motor Control ---
+      // Apply torque to move the gate, letting the physics engine handle collisions
+      if (isClosing) {
+        // Apply torque to close the gate (clockwise)
+        if (gate.angle < Math.PI / 2) {
+          gate.torque = config.gate.motorTorque;
+        } else {
+          gate.torque = 0;
+        }
+      } else {
+        // Apply torque to open the gate (counter-clockwise)
+        if (gate.angle > 0) {
+          gate.torque = -config.gate.motorTorque;
+        } else {
+          gate.torque = 0;
+        }
+      }
+
+      // --- UI and Status Update ---
+      // This section now only CALCULATES and DISPLAYS the torque for the UI.
+      // The actual physics is handled by the engine's collisions.
+      let calculatedTorque = 0;
+      const waterLevel = waterParticles.reduce((min, p) => Math.min(min, p.position.y), config.height);
+      const gateBottomY = gate.position.y + (config.gate.height / 2) * Math.cos(gate.angle);
+
+      if (gate.angle > 0.1 && gateBottomY > waterLevel) {
+        const submergedHeight = gateBottomY - waterLevel;
+        // Simplified hydrostatic force calculation for display
+        const force = 0.5 * config.water.density * 100 * submergedHeight * submergedHeight;
+        const leverArm = (2 / 3) * submergedHeight;
+        calculatedTorque = force * leverArm;
+      }
+
+      torqueElement.textContent = calculatedTorque.toFixed(2);
+
+      // Update status based on torque
+      if (calculatedTorque > config.thresholds.danger) {
+        statusElement.textContent = 'DANGER';
+        statusElement.style.color = '#FF0000';
+      } else if (calculatedTorque > config.thresholds.warning) {
+        statusElement.textContent = 'WARNING';
+        statusElement.style.color = '#FFA500';
+      } else {
+        statusElement.textContent = 'OK';
+        statusElement.style.color = '#00FF00';
+      }
+    });
+
+    // Start simulation
+    Runner.run(engine);
+    Render.run(render);
   </script>
 </body>
+
 </html>

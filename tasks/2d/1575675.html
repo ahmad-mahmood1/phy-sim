@@ -13,8 +13,6 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }
-
-        /* The custom style block is no longer needed and has been removed. */
     </style>
     <script type="importmap">
         {
@@ -30,8 +28,13 @@
     <div class="w-full max-w-4xl mx-auto">
         <div class="bg-white rounded-xl shadow-lg p-6 mb-4">
             <h1 class="text-2xl font-bold text-gray-800 mb-2 text-center">Hand Tremor Writing Simulator</h1>
-            <p class="text-gray-600 text-center mb-4">An animated pen will attempt to write "hello". Select a tremor
-                level to see how a pateint with hand tremors will have their writing affected.</p>
+            <p class="text-gray-600 text-center mb-4">
+                This simulation demonstrates the effect of essential tremor on handwriting. Hand tremors cause
+                involuntary, rhythmic shaking. As the pen attempts to write "hello," the simulation introduces pulsating
+                movements based on the selected tremor level. This results in writing that appears shaky and jagged.
+                Observe how higher tremor levels increase the distortion, making the writing less controlled and
+                legible.
+            </p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                 <div class="space-y-2">
@@ -69,35 +72,23 @@
             let pathIndex = 0;
             let lerpAmount = 0;
             const animationSpeed = 0.02;
-            const lowAmp = 8
-            const midAmp = 12
-            const highAmp = 16
-            const baseFreq = 3
+            const lowAmp = 8;
+            const midAmp = 12;
+            const highAmp = 16;
+            const baseFreq = 3;
 
             // --- TREMOR SETTINGS ---
             let tremorAmplitude = midAmp; // Default: Medium
-            let tremorFrequency = baseFreq;  // Default: Medium
+            let tremorFrequency = baseFreq; // Default: Medium
 
             // --- GRAPHICS & ASSETS ---
             let writingLayer;
             let penLayer;
-            let penImage;
 
             // --- DOM ELEMENTS ---
             let lowButton, mediumButton, highButton;
             let clearButton;
             let canvasContainer;
-
-            // =================================================================
-            // PRELOAD
-            // =================================================================
-            p.preload = () => {
-                const imageUrl = 'https://i.imgur.com/b2a7a4G.png';
-                penImage = p.loadImage(imageUrl,
-                    () => console.log("Pen image loaded successfully."),
-                    () => console.error("Failed to load pen image from:", imageUrl)
-                );
-            };
 
             // =================================================================
             // SETUP
@@ -137,11 +128,14 @@
             // DRAW
             // =================================================================
             p.draw = () => {
+                // Only run the animation if the path is not finished
                 if (pathIndex < path.length - 1) {
+                    // --- PATH INTERPOLATION ---
                     const startPoint = path[pathIndex];
                     const endPoint = path[pathIndex + 1];
                     const targetPoint = p5.Vector.lerp(startPoint, endPoint, lerpAmount);
 
+                    // --- TREMOR CALCULATION ---
                     const amplitude = tremorAmplitude;
                     const frequency = tremorFrequency;
                     time += frequency / 100;
@@ -149,14 +143,17 @@
                     const tremorY = p.map(p.noise(time + 10000), 0, 1, -amplitude, amplitude);
                     const currentPoint = p.createVector(targetPoint.x + tremorX, targetPoint.y + tremorY);
 
+                    // --- DRAWING THE LINE ---
                     if (prevPoint) {
                         writingLayer.line(prevPoint.x, prevPoint.y, currentPoint.x, currentPoint.y);
                     }
                     prevPoint = currentPoint;
 
+                    // --- DRAWING THE PEN ---
                     penLayer.clear();
                     drawPen(penLayer, currentPoint);
 
+                    // --- ANIMATION PROGRESSION ---
                     lerpAmount += animationSpeed;
                     if (lerpAmount >= 1.0) {
                         lerpAmount = 0;
@@ -164,7 +161,8 @@
                     }
                 }
 
-                p.background(250, 250, 245);
+                // --- RENDER LAYERS ---
+                p.background(250, 250, 245); // Paper texture color
                 p.image(writingLayer, 0, 0);
                 p.image(penLayer, 0, 0);
             };
@@ -178,9 +176,6 @@
                 resetAnimation();
             }
 
-            /**
-             * Updates button styles by swapping Tailwind classes.
-             */
             function updateActiveButton() {
                 const buttons = [
                     { el: lowButton, amp: lowAmp },
@@ -188,14 +183,11 @@
                     { el: highButton, amp: highAmp }
                 ];
 
-                const activeClasses = ['bg-blue-800', 'shadow-md']; // Active state
-                const inactiveClasses = ['bg-blue-500', 'hover:bg-blue-600']; // Inactive state
+                const activeClasses = ['bg-blue-800', 'shadow-md'];
+                const inactiveClasses = ['bg-blue-500', 'hover:bg-blue-600'];
 
                 buttons.forEach(btn => {
-                    // Remove all state classes first
                     btn.el.classList.remove(...activeClasses, ...inactiveClasses);
-
-                    // Apply the correct classes based on the current tremorAmplitude
                     if (btn.amp === tremorAmplitude) {
                         btn.el.classList.add(...activeClasses);
                     } else {
@@ -217,25 +209,37 @@
                 p.resizeCanvas(newSize.width, newSize.height);
                 writingLayer.resizeCanvas(newSize.width, newSize.height);
                 penLayer.resizeCanvas(newSize.width, newSize.height);
-                createWritingPath();
+                createWritingPath(); // Recalculate path for new dimensions
                 resetAnimation();
             }
 
+            /**
+             * Draws a vector-based pen on the given graphics layer.
+             * This replaces the need for an external image.
+             * @param {p5.Graphics} g The graphics layer to draw on.
+             * @param {p5.Vector} penTipPos The position for the tip of the pen.
+             */
             function drawPen(g, penTipPos) {
                 g.push();
                 g.translate(penTipPos.x, penTipPos.y);
-                g.rotate(p.QUARTER_PI / 2);
+                g.rotate(p.QUARTER_PI / 2); // Slight angle for the pen
 
+                // Pen Body
                 g.noStroke();
-                g.fill(80, 90, 100);
-                g.rect(-5, -70, 10, 70, 3);
-                g.fill(40, 40, 40);
-                g.triangle(-5, 0, 5, 0, 0, 8);
+                g.fill(60, 120, 200); // Blue pen color
+                g.rect(-6, -80, 12, 70, 4); // Main body
 
-                if (penImage && penImage.width > 1) {
-                    g.imageMode(p.CENTER);
-                    g.image(penImage, 20, -60, 150, 150);
-                }
+                // Pen Grip
+                g.fill(80, 90, 100, 150); // Darker, semi-transparent grip
+                g.rect(-7, -40, 14, 30, 4);
+
+                // Pen Nib Holder (cone)
+                g.fill(200, 200, 210); // Silver color
+                g.triangle(-6, -10, 6, -10, 0, 0);
+
+                // Pen Nib (tip)
+                g.fill(40, 40, 40); // Dark metal tip
+                g.triangle(-3, 0, 3, 0, 0, 8);
 
                 g.pop();
             }
@@ -264,7 +268,7 @@
                 const e_circle_center = p.createVector(currentX + e_radius, e_center_y);
                 path.push(p.createVector(currentX, e_center_y));
                 for (let i = 0; i <= 5; i++) {
-                    const angle = p.map(i, 0, 5, 0, 6.1);
+                    const angle = p.map(i, 0, 5, 0, 6.1); // Slightly less than TWO_PI for a gap
                     const x = e_circle_center.x + e_radius * p.cos(angle);
                     const y = e_circle_center.y - e_radius * p.sin(angle);
                     path.push(p.createVector(x, y));

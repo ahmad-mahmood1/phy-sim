@@ -2,391 +2,1403 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hand Tremor Simulation</title>
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
-    {
-        "imports": {
-            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-        }
-    }
-    </script>
+    <meta charset="UTF-8" />
+    <title>River Overflow</title>
     <style>
         body {
+            margin: 0;
+            overflow: hidden;
             font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
-            background-color: #f0f0f0;
+            background: #1a1a1a;
         }
 
-        #canvas-container {
-            margin-bottom: 20px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        canvas {
+            display: block;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.9), rgba(30, 30, 30, 0.8));
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: none;
         }
 
         #controls {
-            margin-bottom: 20px;
-            display: flex;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.9), rgba(30, 30, 30, 0.8));
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: none;
+            flex-direction: column;
             gap: 10px;
         }
 
-        button {
-            padding: 8px 16px;
-            background-color: #4CAF50;
+        #gameMenu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.95), rgba(30, 30, 30, 0.9));
             color: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+        }
+
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.95), rgba(30, 30, 30, 0.9));
+            color: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            display: none;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        button {
+            background: linear-gradient(135deg, #4287f5, #2196F3);
             border: none;
-            border-radius: 4px;
+            color: white;
+            padding: 12px 25px;
+            border-radius: 25px;
+            font-size: 16px;
             cursor: pointer;
+            transition: all 0.3s;
+            min-width: 150px;
         }
 
         button:hover {
-            background-color: #45a049;
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(66, 135, 245, 0.4);
         }
 
-        button.active {
-            background-color: #2e7d32;
+        button:disabled {
+            background: linear-gradient(135deg, #666, #444);
+            cursor: not-allowed;
+            transform: scale(1);
         }
 
-        #instructions {
-            max-width: 600px;
-            text-align: center;
-            margin-bottom: 20px;
-            background-color: #e3f2fd;
-            padding: 10px;
-            border-radius: 5px;
+        .barrier-selector {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            justify-content: center;
+        }
+
+        .barrier-option {
+            background: linear-gradient(135deg, #555, #333);
+            padding: 15px 25px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+
+        .barrier-option:hover {
+            transform: scale(1.05);
+            border-color: #4287f5;
+        }
+
+        .barrier-option.selected {
+            background: linear-gradient(135deg, #4287f5, #2196F3);
+            border-color: #64b5f6;
+        }
+
+        #startButton {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+        }
+
+        #resetButton {
+            background: linear-gradient(135deg, #f44336, #e53935);
         }
     </style>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+        }
+      }
+    </script>
 </head>
 
 <body>
-    <div id="instructions">
-        <p>Click on the tremor level buttons to change the intensity of the hand tremor.
-            The pen will draw the word "hello" with the selected tremor effect.</p>
-        <p>Note: The simulation might take a few seconds to start, and may sometimes appear jittery or frozen.
-            This is due to the performance-intensive nature of the Perlin noise simulation.
-            If the animation appears stuck, try restarting it or adjusting the tremor level.</p>
+    <div id="ui">
+        <h3 style="margin: 0 0 15px 0; font-size: 24px;">River Defense</h3>
+        <p style="margin: 8px 0; font-size: 18px;">Barriers: <span id="barriers"
+                style="color: #4287f5; font-weight: bold;">15</span></p>
+        <p style="margin: 8px 0; font-size: 18px;">Buildings Safe: <span id="safe"
+                style="color: #4CAF50; font-weight: bold;">6</span>/<span id="total"
+                style="color: #4CAF50; font-weight: bold;">6</span></p>
+        <p style="margin: 12px 0 0 0; font-size: 14px; opacity: 0.8;" id="gamePhase">Planning Phase - Place your
+            barriers strategically!</p>
+        <p id="rotateHint" style="display: none; margin-top: 5px; font-size: 12px; color: #90caf9;">Press R to rotate
+            barrier</p>
+        <div id="waterLevel" style="display: none; margin-top: 10px; font-size: 14px; color: #64b5f6;">Water Progress:
+            <span id="waterPercent">0%</span></div>
+        <div id="riverStatus" style="display: none; margin-top: 5px; font-size: 12px; color: #ffeb3b;">River Status:
+            <span id="riverState">Filling</span></div>
+        <div id="timerDisplay" style="display: none; margin-top: 10px; font-size: 16px; color: #f44336;">Time Remaining:
+            <span id="timeRemaining">10</span> seconds</div>
     </div>
 
-    <div id="canvas-container"></div>
     <div id="controls">
-        <button id="low">Low Tremor</button>
-        <button id="medium">Medium Tremor</button>
-        <button id="high">High Tremor</button>
-        <button id="restart">Restart Animation</button>
+        <button id="startFlowButton">Start River Overflow</button>
+        <button id="resetButton">Reset Game</button>
+        <button onclick="location.reload()">Main Menu</button>
+    </div>
+
+    <div id="gameMenu">
+        <h1 style="font-size: 36px; margin-bottom: 20px;">River Overflow</h1>
+        <p style="font-size: 18px; margin-bottom: 30px; opacity: 0.9;">
+            Strategically place barriers to protect buildings from the incoming flood!
+        </p>
+
+  <h3 style="margin-bottom: 15px;">Select Difficulty:</h3>
+        <div class="barrier-selector">
+            <div class="barrier-option" data-barriers="40" data-difficulty="easy">
+                <div style="font-size: 24px; font-weight: bold;">Easy</div>
+                <div style="font-size: 12px;">Simple River</div>
+                <div style="font-size: 12px;">40 Barriers</div>
+            </div>
+            <div class="barrier-option selected" data-barriers="35" data-difficulty="medium">
+                <div style="font-size: 24px; font-weight: bold;">Medium</div>
+                <div style="font-size: 12px;">Winding River</div>
+                <div style="font-size: 12px;">35 Barriers</div>
+            </div>
+            <div class="barrier-option" data-barriers="30" data-difficulty="hard">
+                <div style="font-size: 24px; font-weight: bold;">Hard</div>
+                <div style="font-size: 12px;">Complex River</div>
+                <div style="font-size: 12px;">30 Barriers</div>
+            </div>
+        </div>
+
+  <button id="startButton" style="margin-top: 20px; padding: 15px 40px; font-size: 20px;">
+            Start Game
+        </button>
+
+  <p style="margin-top: 20px; font-size: 14px; opacity: 0.7;">
+            Press R to rotate barriers during placement!
+        </p>
+    </div>
+
+    <div id="gameOver">
+        <h2 style="font-size: 32px; margin-bottom: 20px;">Game Over!</h2>
+        <p id="result" style="font-size: 20px; margin-bottom: 30px;"></p>
+        <button onclick="location.reload()">Play Again</button>
+        <button onclick="location.reload()">Main Menu</button>
     </div>
 
     <script type="module">
         import p5 from 'p5';
 
-        // p5.js sketch using instance mode
-        const sketch = (p) => {
-            // --- Configuration ---
-            const LETTER_SPACING = 30; // Space between letters
-            const BASE_Y = 200; // Baseline Y position
-            const PEN_LENGTH = 20; // Visual length of the pen
-            const PEN_HEAD_SIZE = 5; // Size of the pen tip
-            const ANIMATION_DURATION = 200; // Frames for full animation
-            const TRAIL_OPACITY = 50; // Trail opacity (0-255)
-            const PATH_POINTS = {
-                // Predefined points for "hello" (Each sub-array is a letter)
-                h: [[0, 0], [0, -40], [0, -20], [15, -20], [15, 0]],
-                e: [[0, 0], [15, 0], [15, -20], [0, -20], [15, -30]],
-                l: [[0, 0], [0, -40], [0, -20], [15, -20]],
-                o: [[7.5, -10], [15, -20], [0, -20], [7.5, -30], [7.5, -10]]
+        new p5((p) => {
+            const GRID_SIZE = 6;
+            let cols, rows;
+            let waterGrid = [];
+            let riverCapacityGrid = [];
+            let waterFront = 0;
+            let riverFilled = false;
+            let barrierRotation = 'horizontal';
+            let frameCounter = 0;
+
+        let buildings = [];
+            let barriers = [];
+            let river = [];
+            let riverPath = [];
+            let particles = [];
+            let roads = [];
+
+        let barriersLeft = 35;
+            let totalBarriers = 35;
+            let selectedBarrierCount = 35;
+            let selectedDifficulty = 'medium';
+            let gameOver = false;
+            let waterFlowing = false;
+            let waterSpeed = 1.0;
+            let time = 0;
+            let gameStarted = false;
+            let totalWaterReleased = 0;
+            let maxWater = 50000;
+            let screenCoverage = 0;
+
+        const colors = {
+                grass: '#3a7c3a',
+                water: '#1e88e5',
+                deepWater: '#1565c0',
+                shallowWater: '#64b5f6',
+                foam: '#ffffff',
+                barrier: '#5d5d5d',
+                barrierHighlight: '#757575',
+                road: '#3e3e3e',
+                roadLine: '#666666',
+                riverBed: '#4a4a4a',
+                shadow: 'rgba(0, 0, 0, 0.3)',
+                modernBuilding: '#6e6e6e',
+                modernRoof: '#505050',
+                classicBuilding: '#8b6914',
+                classicRoof: '#8b4513'
             };
 
-            // --- State Variables ---
-            let currentTremor = { amplitude: 8, frequency: 0.05 }; // Default: Medium
-            let currentLetterIndex = 0; // Index of current letter in "hello"
-            let currentPointIndex = 0; // Index within current letter's path
-            let animationProgress = 0; // Progress through current path segment (0-1)
-            let frameCounter = 0; // Counts frames for animation timing
-            let isAnimating = true; // True if animation is running
-            let trailPoints = []; // Stores {x, y, age} for trail effect
-            let currentTremorLevel = 'medium'; // Track active tremor level button
-            let letters; // Array of letters with x offsets
+            let ROADS = [];
 
-            // --- p5.js Setup ---
-            p.setup = () => {
-                const canvas = p.createCanvas(600, 300);
-                canvas.parent('canvas-container');
+            class Building {
+                constructor(x, y, w, h, type, style = 'classic') {
+                    this.x = x;
+                    this.y = y;
+                    this.w = w;
+                    this.h = h;
+                    this.type = type;
+                    this.style = style;
+                    this.flooded = false;
+                    this.floodLevel = 0;
+                    this.waterSurroundCount = 0;
+                    this.baseColor = this.generateBaseColor();
+                    this.roofColor = this.generateRoofColor();
+                    this.rotation = p.random([0, 90, 180, 270]);
+            }
 
-                // Pre-calculate cumulative X offsets for each letter in "hello"
-                letters = "hello".split('').map((char, i) => {
-                    const prevLetters = "hello".slice(0, i); // Letters before current one
-                    const cumulativeSpacing = prevLetters.length * LETTER_SPACING;
-                    return { char, xOffset: cumulativeSpacing };
+          generateBaseColor() {
+                    if (this.style === 'modern') {
+                        const modernColors = ['#6e6e6e', '#7a7a7a', '#5a5a5a', '#828282'];
+                        return p.random(modernColors);
+                    } else {
+                        const classicColors = ['#8b6914', '#a0522d', '#8b7355', '#704214'];
+                        return p.random(classicColors);
+                    }
+          }
+
+            generateRoofColor() {
+                    if (this.style === 'modern') {
+                        const modernRoofs = ['#505050', '#404040', '#606060', '#454545'];
+                        return p.random(modernRoofs);
+                    } else {
+                        const classicRoofs = ['#8b4513', '#a0522d', '#cd853f', '#6b4423'];
+                        return p.random(classicRoofs);
+                    }
+            }
+
+          //function to draw building
+                draw() {
+                    p.push();
+                    p.translate(this.x + this.w / 2, this.y + this.h / 2);
+                    p.rotate(p.radians(this.rotation));
+                    p.translate(-this.w / 2, -this.h / 2);
+
+          p.fill(0, 0, 0, 80);
+                    p.noStroke();
+                    p.rect(4, 4, this.w, this.h, this.style === 'modern' ? 2 : 5);
+
+          p.fill(this.baseColor);
+                    p.rect(0, 0, this.w, this.h, this.style === 'modern' ? 2 : 5);
+
+        if (this.style === 'modern') {
+                        this.drawModernBuilding();
+                    } else {
+                        this.drawClassicBuilding();
+             }
+
+               p.pop();
+            }
+
+          //function to draw modern style building
+                drawModernBuilding() {
+                    p.fill(this.roofColor);
+                    p.rect(3, 3, this.w - 6, this.h - 6, 1);
+
+         p.fill(255, 255, 255, 20);
+                    p.rect(5, 5, this.w - 10, 3);
+                    p.rect(5, this.h - 8, this.w - 10, 3);
+
+            p.fill(255, 255, 255, 15);
+                    for (let i = 12; i < this.w - 12; i += 15) {
+                        p.rect(i, 5, 2, this.h - 10);
+              }
+
+              p.fill(0, 0, 0, 30);
+                    p.rect(8, 8, this.w - 16, 1);
+                    p.rect(8, this.h / 2, this.w - 16, 1);
+
+          if (this.type === 'commercial' || this.type === 'industrial') {
+                        p.fill('#555555');
+                        p.rect(this.w - 25, 8, 15, 15, 2);
+                        p.rect(10, this.h - 23, 15, 15, 2);
+                    }
+            }
+
+          //function to draw classic style building
+                drawClassicBuilding() {
+                    p.fill(this.roofColor);
+                    p.rect(5, 5, this.w - 10, this.h - 10, 3);
+
+            p.fill(0, 0, 0, 30);
+                    for (let i = 10; i < this.w - 10; i += 12) {
+                        p.rect(i, 5, 2, this.h - 10);
+                }
+
+            if (this.type === 'house') {
+                        p.fill('#3e3e3e');
+                        p.rect(this.w - 20, 10, 8, 12, 1);
+                }
+
+            p.fill(0, 0, 0, 40);
+                    p.rect(8, 8, this.w - 16, 2);
+                    p.rect(8, this.h - 10, this.w - 16, 2);
+
+           if (this.type === 'industrial') {
+                        p.fill('#505050');
+                        p.circle(this.w / 2, this.h / 2, 15);
+                        p.fill('#404040');
+                        p.rect(15, 15, 8, this.h - 30);
+                    }
+            }
+
+          //function to check if building is under water
+                checkFlooding() {
+                    let gridX = Math.floor(this.x / GRID_SIZE);
+                    let gridY = Math.floor(this.y / GRID_SIZE);
+                    let gridW = Math.ceil(this.w / GRID_SIZE);
+                    let gridH = Math.ceil(this.h / GRID_SIZE);
+
+           let totalWater = 0;
+                    let cellCount = 0;
+                    let surroundingWater = 0;
+
+          let topWater = 0, bottomWater = 0, leftWater = 0, rightWater = 0;
+
+        for (let i = gridX - 2; i < gridX + gridW + 2; i++) {
+                        for (let j = gridY - 2; j < gridY + gridH + 2; j++) {
+                            if (i >= 0 && i < cols && j >= 0 && j < rows) {
+                                let water = waterGrid[i][j];
+
+              if (i < gridX || i >= gridX + gridW || j < gridY || j >= gridY + gridH) {
+                                    if (j < gridY) topWater += water;
+                                    else if (j >= gridY + gridH) bottomWater += water;
+                                    if (i < gridX) leftWater += water;
+                                    else if (i >= gridX + gridW) rightWater += water;
+
+                    if (water > 0.1) surroundingWater++;
+                            }
+
+                  totalWater += water;
+                                cellCount++;
+                            }
+                        }
+              }
+
+              this.waterSurroundCount = 0;
+                    if (topWater > 0.3) this.waterSurroundCount++;
+                    if (bottomWater > 0.3) this.waterSurroundCount++;
+                    if (leftWater > 0.3) this.waterSurroundCount++;
+                    if (rightWater > 0.3) this.waterSurroundCount++;
+
+            this.floodLevel = cellCount > 0 ? totalWater / cellCount : 0;
+
+           this.flooded = this.floodLevel > 0.08 ||
+                        this.waterSurroundCount >= 3 ||
+                        surroundingWater > cellCount * 0.4;
+                }
+        }
+
+        class Barrier {
+                constructor(x, y, rotation) {
+                    this.gridX = Math.floor(x / GRID_SIZE);
+                    this.gridY = Math.floor(y / GRID_SIZE);
+                    this.x = this.gridX * GRID_SIZE;
+                    this.y = this.gridY * GRID_SIZE;
+                    this.rotation = rotation;
+                    this.width = this.rotation === 'horizontal' ? GRID_SIZE * 12 : GRID_SIZE * 3;
+                    this.height = this.rotation === 'horizontal' ? GRID_SIZE * 3 : GRID_SIZE * 12;
+                    this.placed = p.millis();
+            }
+
+          //function to draw barrier
+                draw() {
+                    p.fill(0, 0, 0, 60);
+                    p.rect(this.x + 3, this.y + 3, this.width, this.height, 3);
+
+        let gradient = p.drawingContext.createLinearGradient(this.x, this.y, this.x + this.width, this.y + this.height);
+                    gradient.addColorStop(0, colors.barrier);
+                    gradient.addColorStop(1, colors.barrierHighlight);
+                    p.drawingContext.fillStyle = gradient;
+                    p.rect(this.x, this.y, this.width, this.height, 3);
+
+            p.fill(0, 0, 0, 40);
+                    if (this.rotation === 'horizontal') {
+                        for (let i = 0; i < 5; i++) {
+                            p.rect(this.x + 4 + i * (this.width / 5), this.y + 4, 2, this.height - 8);
+                        }
+                        p.rect(this.x + 4, this.y + this.height / 2 - 1, this.width - 8, 2);
+                    } else {
+                        for (let i = 0; i < 5; i++) {
+                            p.rect(this.x + 4, this.y + 4 + i * (this.height / 5), this.width - 8, 2);
+                        }
+                        p.rect(this.x + this.width / 2 - 1, this.y + 4, 2, this.height - 8);
+            }
+
+                p.stroke(255, 255, 255, 30);
+                    p.strokeWeight(1);
+                    p.noFill();
+                    p.rect(this.x + 1, this.y + 1, this.width - 2, this.height - 2, 3);
+                    p.noStroke();
+                }
+        }
+
+        class WaterParticle {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.vx = p.random(-0.5, 2);
+                    this.vy = p.random(-0.5, 0.5);
+                    this.life = 255;
+                    this.size = p.random(6, 12);
+          }
+
+            //function to update water particle
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.life -= 8;
+                    this.size *= 0.95;
+          }
+
+            //function to draw water particle
+                draw() {
+                    p.fill(255, 255, 255, this.life * 0.4);
+                    p.circle(this.x, this.y, this.size);
+                }
+            }
+
+            //function to start new game
+            function startNewGame(barrierCount, difficulty) {
+                gameStarted = true;
+                barriersLeft = barrierCount;
+                totalBarriers = barrierCount;
+                selectedDifficulty = difficulty;
+                waterFlowing = false;
+                gameOver = false;
+                time = 0;
+                totalWaterReleased = 0;
+                waterFront = 0;
+                riverFilled = false;
+                barriers = [];
+                particles = [];
+                barrierRotation = 'horizontal';
+                screenCoverage = 0;
+
+      // Adjust water speed based on difficulty
+                if (difficulty === 'easy') {
+                    waterSpeed = 0.8;
+                    maxWater = 40000;
+                } else if (difficulty === 'medium') {
+                    waterSpeed = 1.0;
+                    maxWater = 50000;
+                } else if (difficulty === 'hard') {
+                    waterSpeed = 1.3;
+                    maxWater = 60000;
+          }
+
+            for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        waterGrid[i][j] = 0;
+                        riverCapacityGrid[i][j] = 0;
+                    }
+          }
+
+            createRiver(difficulty);
+
+      river.forEach(cell => {
+                    if (cell.x >= 0 && cell.x < cols && cell.y >= 0 && cell.y < rows) {
+                        riverCapacityGrid[cell.x][cell.y] = cell.depth * 0.5;
+                    }
+          });
+
+            buildings.forEach(b => {
+                    b.flooded = false;
+                    b.floodLevel = 0;
+                    b.waterSurroundCount = 0;
+          });
+
+            updateUI();
+                document.getElementById('gamePhase').textContent = 'Planning Phase - Place your barriers strategically!';
+                document.getElementById('rotateHint').style.display = 'block';
+                document.getElementById('timerDisplay').style.display = 'none';
+        }
+
+        //function to start water flow
+            function startWater() {
+                waterFlowing = true;
+                time = 0;
+                console.log('Water flow started - no more barrier placement allowed!');
+                document.getElementById('gamePhase').innerHTML = '<span style="color: #ff5252;">Water is flowing! No more barriers can be placed!</span>';
+                document.getElementById('rotateHint').style.display = 'none';
+                document.getElementById('timerDisplay').style.display = 'block';
+            }
+
+            //function to setup event listeners
+            function setupEventListeners() {
+                document.querySelectorAll('.barrier-option').forEach(option => {
+                    option.addEventListener('click', function () {
+                        selectedBarrierCount = parseInt(this.dataset.barriers);
+                        selectedDifficulty = this.dataset.difficulty;
+                        document.querySelectorAll('.barrier-option').forEach(opt => opt.classList.remove('selected'));
+                        this.classList.add('selected');
+                    });
                 });
 
-                // Setup event listeners for buttons
-                document.getElementById('low').addEventListener('click', () => setTremorLevel('low'));
-                document.getElementById('medium').addEventListener('click', () => setTremorLevel('medium'));
-                document.getElementById('high').addEventListener('click', () => setTremorLevel('high'));
-                document.getElementById('restart').addEventListener('click', restartAnimation);
+          document.getElementById('startButton').addEventListener('click', function () {
+                    document.getElementById('gameMenu').style.display = 'none';
+                    document.getElementById('ui').style.display = 'block';
+                    document.getElementById('controls').style.display = 'flex';
+                    startNewGame(selectedBarrierCount, selectedDifficulty);
+                });
 
-                setTremorLevel('medium'); // Set initial tremor and activate button
-            };
+          document.getElementById('startFlowButton').addEventListener('click', function () {
+                    startWater();
+                    this.disabled = true;
+                    document.getElementById('waterLevel').style.display = 'block';
+                    document.getElementById('riverStatus').style.display = 'block';
+                });
 
-            // --- p5.js Draw Loop ---
-            p.draw = () => {
-                p.background(255); // White background
+          document.getElementById('resetButton').addEventListener('click', function () {
+                    startNewGame(totalBarriers, selectedDifficulty);
+                    document.getElementById('startFlowButton').disabled = false;
+                    document.getElementById('gameOver').style.display = 'none';
+                    document.getElementById('waterLevel').style.display = 'none';
+                    document.getElementById('riverStatus').style.display = 'none';
+                    document.getElementById('timerDisplay').style.display = 'none';
+                });
+            }
 
-                // Draw coordinate grid (optional, for visual reference)
-                drawGrid();
-
-                // Update and draw trail effect
-                updateTrail();
-                drawTrail();
-
-                // Animate pen movement if active
-                if (isAnimating) {
-                    animatePen();
+            //function to check if area is occupied by building
+            function isAreaOccupiedByBuilding(x, y, w, h) {
+                for (let building of buildings) {
+                    if (x < building.x + building.w && x + w > building.x &&
+                        y < building.y + building.h && y + h > building.y) {
+                        return true;
+                    }
                 }
+                return false;
+            }
 
-                // Draw the pen icon at its current position
-                const { x, y } = getCurrentPenPosition();
-                drawPen(x, y);
-            };
+            //function to check if area overlaps with existing river
+            function isAreaOccupiedByRiver(x, y, w, h) {
+                let gridX = Math.floor(x / GRID_SIZE);
+                let gridY = Math.floor(y / GRID_SIZE);
+                let gridW = Math.ceil(w / GRID_SIZE);
+                let gridH = Math.ceil(h / GRID_SIZE);
 
-            // --- Animation Logic ---
-            /**
-             * Animates the pen drawing the current letter.
-             * Moves along path points, applies tremor, updates trail.
-             */
-            function animatePen() {
-                frameCounter++;
-
-                // Calculate animation progress (0-1) based on frame counter
-                animationProgress = p.min(frameCounter / ANIMATION_DURATION, 1);
-
-                // Get interpolated position along current path segment
-                let { x, y } = getCurrentPenPosition();
-
-                // Apply tremor offset to the pen position
-                const tremorOffset = getTremorOffset();
-                x += tremorOffset.x;
-                y += tremorOffset.y;
-
-                // Add current position to trail for visualization
-                trailPoints.push({ x, y, age: 0 });
-
-                // Check if current segment is complete
-                if (animationProgress >= 1) {
-                    // Advance to next point in the current letter's path
-                    currentPointIndex++;
-
-                    // Check if current letter is complete
-                    if (currentPointIndex >= getCurrentLetterPoints().length - 1) {
-                        // Advance to next letter or stop animation
-                        currentLetterIndex++;
-                        currentPointIndex = 0;
-                        frameCounter = 0;
-
-                        if (currentLetterIndex >= letters.length) {
-                            isAnimating = false; // Stop animation when all letters are drawn
-                            console.log("Animation complete!");
+          for (let i = gridX; i < gridX + gridW; i++) {
+                    for (let j = gridY; j < gridY + gridH; j++) {
+                        if (i >= 0 && i < cols && j >= 0 && j < rows) {
+                            if (riverCapacityGrid[i][j] > 0) {
+                                return true;
+                            }
                         }
-                    } else {
-                        // Reset progress for next segment
-                        frameCounter = 0;
                     }
                 }
+                return false;
             }
 
-            /**
-             * Returns the interpolated (x, y) position of the pen along the current path segment.
-             * @returns {{x: number, y: number}} The interpolated position.
-             */
-            function getCurrentPenPosition() {
-                const letter = letters[currentLetterIndex];
-                const points = getCurrentLetterPoints();
-                const currentPoint = points[currentPointIndex];
-                const nextPoint = points[currentPointIndex + 1];
+            p.setup = () => {
+                p.createCanvas(p.windowWidth, p.windowHeight);
 
-                // Interpolate between current and next point based on animation progress
-                const x = letter.xOffset + p.lerp(currentPoint[0], nextPoint[0], animationProgress);
-                const y = BASE_Y + p.lerp(currentPoint[1], nextPoint[1], animationProgress);
+          cols = Math.floor(p.width / GRID_SIZE);
+                rows = Math.floor(p.height / GRID_SIZE);
 
-                return { x, y };
-            }
-
-            /**
-             * Returns the array of points defining the path for the current letter.
-             * @returns {number[][]} Array of [x, y] coordinates.
-             */
-            function getCurrentLetterPoints() {
-                const letter = letters[currentLetterIndex];
-                return PATH_POINTS[letter.char];
-            }
-
-            // --- Tremor Simulation ---
-            let noiseOffsetX = 0; // Offset for Perlin noise in X direction
-            let noiseOffsetY = 1000; // Offset for Perlin noise in Y direction (different from X)
-
-            /**
-             * Generates a tremor offset using Perlin noise.
-             * @returns {{x: number, y: number}} The tremor offset.
-             */
-            function getTremorOffset() {
-                // Generate smooth, continuous noise values based on frequency and amplitude
-                const nx = p.noise(noiseOffsetX) * 2 - 1; // Normalize noise to [-1, 1]
-                const ny = p.noise(noiseOffsetY) * 2 - 1;
-
-                // Increment noise offsets based on frequency for continuous motion
-                noiseOffsetX += currentTremor.frequency;
-                noiseOffsetY += currentTremor.frequency;
-
-                // Scale noise by amplitude to control tremor intensity
-                return { x: nx * currentTremor.amplitude, y: ny * currentTremor.amplitude };
-            }
-
-            // --- Visuals ---
-            /**
-             * Draws a simple pen icon at the specified (x, y) position.
-             * @param {number} x - The x-coordinate.
-             * @param {number} y - The y-coordinate.
-             */
-            function drawPen(x, y) {
-                p.push(); // Save current drawing style and coordinate system
-                p.translate(x, y); // Move origin to pen tip
-
-                // Draw pen body (line from tip to base)
-                p.stroke(0);
-                p.strokeWeight(2);
-                p.line(0, 0, 0, PEN_LENGTH);
-
-                // Draw pen tip (small circle)
-                p.fill(0);
-                p.noFill();
-                p.ellipse(0, 0, PEN_HEAD_SIZE * 2);
-                p.pop(); // Restore drawing style and coordinate system
-            }
-
-            /**
-             * Draws a coordinate grid for visual reference.
-             */
-            function drawGrid() {
-                p.stroke(200); // Light gray grid lines
-                p.strokeWeight(1);
-
-                // Draw vertical grid lines
-                for (let x = 0; x < p.width; x += 50) {
-                    p.line(x, 0, x, p.height);
-                }
-
-                // Draw horizontal grid lines
-                for (let y = 0; y < p.height; y += 50) {
-                    p.line(0, y, p.width, y);
-                }
-
-                // Draw axes (thicker black lines)
-                p.stroke(0);
-                p.strokeWeight(2);
-                p.line(0, BASE_Y, p.width, BASE_Y); // Horizontal axis (baseline)
-                p.line(p.width / 2, 0, p.width / 2, p.height); // Vertical axis (center)
-            }
-
-            /**
-             * Updates the age of each point in the trail and removes old points.
-             */
-            function updateTrail() {
-                // Increment age of each point
-                for (let i = trailPoints.length - 1; i >= 0; i--) {
-                    trailPoints[i].age++;
-
-                    // Remove points older than a threshold (e.g., 50 frames)
-                    if (trailPoints[i].age > 50) {
-                        trailPoints.splice(i, 1);
+          for (let i = 0; i < cols; i++) {
+                    waterGrid[i] = [];
+                    riverCapacityGrid[i] = [];
+                    for (let j = 0; j < rows; j++) {
+                        waterGrid[i][j] = 0;
+                        riverCapacityGrid[i][j] = 0;
                     }
-                }
-            }
+          }
 
-            /**
-             * Draws the trail of points left by the pen.
-             */
-            function drawTrail() {
-                // Draw a fading trail behind the pen
-                p.noFill();
-                p.beginShape(); // Start drawing a polyline
+            ROADS = [
+                    { x: 0, y: p.height * 0.55, w: p.width, h: 30 },
+                    { x: 0, y: p.height * 0.75, w: p.width, h: 30 },
+                    { x: p.width * 0.25, y: p.height * 0.4, w: 25, h: p.height * 0.6 },
+                    { x: p.width * 0.75, y: p.height * 0.4, w: 25, h: p.height * 0.6 }
+                ];
+                roads = ROADS;
 
-                // Draw line segments connecting trail points
-                for (let i = 0; i < trailPoints.length - 1; i++) {
-                    const p1 = trailPoints[i];
-                    const p2 = trailPoints[i + 1];
+          createTown();
+                createRiver('medium');
+                setupEventListeners();
 
-                    // Calculate opacity based on point age (newer points are more opaque)
-                    const opacity = p.map(p1.age, 0, 50, TRAIL_OPACITY, 0);
-                    p.stroke(0, opacity);
+                p.windowResized = function () {
+                    p.resizeCanvas(p.windowWidth, p.windowHeight);
 
-                    // Draw line segment between consecutive points
-                    p.line(p1.x, p1.y, p2.x, p2.y);
-                }
-                p.endShape(); // Finish drawing the polyline
-            }
+            cols = Math.floor(p.width / GRID_SIZE);
+                    rows = Math.floor(p.height / GRID_SIZE);
 
-
-            // --- Controls ---
-            /**
-             * Sets the tremor level and updates the button state.
-             * @param {string} level - The tremor level ("low", "medium", or "high").
-             */
-            function setTremorLevel(level) {
-                // Reset animation state and noise offsets
-                restartAnimation();
-
-                // Update current tremor settings based on selected level
-                switch (level) {
-                    case 'low':
-                        currentTremor = { amplitude: 8, frequency: 0.03 };
-                        break;
-                    case 'medium':
-                        currentTremor = { amplitude: 12, frequency: 0.05 };
-                        break;
-                    case 'high':
-                        currentTremor = { amplitude: 16, frequency: 0.07 };
-                        break;
-                    default:
-                        console.error("Invalid tremor level:", level);
-                        return;
+            for (let i = 0; i < cols; i++) {
+                        waterGrid[i] = [];
+                        riverCapacityGrid[i] = [];
+                        for (let j = 0; j < rows; j++) {
+                            waterGrid[i][j] = 0;
+                            riverCapacityGrid[i][j] = 0;
+                        }
                 }
 
-                // Update active button state
-                currentTremorLevel = level;
-                updateButtonState();
-            }
+            ROADS = [
+                        { x: 0, y: p.height * 0.55, w: p.width, h: 30 },
+                        { x: 0, y: p.height * 0.75, w: p.width, h: 30 },
+                        { x: p.width * 0.25, y: p.height * 0.4, w: 25, h: p.height * 0.6 },
+                        { x: p.width * 0.75, y: p.height * 0.4, w: 25, h: p.height * 0.6 }
+                    ];
+                    roads = ROADS;
 
-            /**
-             * Restarts the animation from the beginning.
-             */
-            function restartAnimation() {
-                currentLetterIndex = 0;
-                currentPointIndex = 0;
-                animationProgress = 0;
-                frameCounter = 0;
-                isAnimating = true;
-                trailPoints = [];
-                noiseOffsetX = 0; // Reset noise offsets
-                noiseOffsetY = 1000;
-            }
+            createTown();
+                    createRiver(selectedDifficulty || 'medium');
 
-            /**
-             * Updates the visual state of the tremor level buttons.
-             */
-            function updateButtonState() {
-                // Remove "active" class from all buttons
-                document.querySelectorAll('#controls button').forEach(btn => btn.classList.remove('active'));
-
-                // Add "active" class to the button matching the current tremor level
-                document.getElementById(currentTremorLevel).classList.add('active');
-            }
+           if (gameStarted) {
+                        startNewGame(totalBarriers, selectedDifficulty);
+                    }
+                };
         };
 
-        // Initialize p5.js instance
-        new p5(sketch);
+        //function to create river path with different complexity based on difficulty
+            function createRiver(difficulty = 'medium') {
+                river = [];
+                riverPath = [];
+
+         let riverY = Math.floor(rows * 0.15);
+                let riverWidth = 15;
+                let sinAmplitude = 2;
+                let sinFrequency = 0.025;
+
+          if (difficulty === 'easy') {
+                    riverWidth = 12;
+                    sinAmplitude = 1;
+                    sinFrequency = 0.02;
+                    riverY = Math.floor(rows * 0.15);
+                } else if (difficulty === 'medium') {
+                    riverWidth = 15;
+                    sinAmplitude = 3;
+                    sinFrequency = 0.03;
+                    riverY = Math.floor(rows * 0.15);
+                } else if (difficulty === 'hard') {
+                    riverWidth = 22;
+                   sinAmplitude = 4;
+                    sinFrequency = 0.04;
+                    riverY = Math.floor(rows * 0.08);
+            }
+
+          for (let i = 0; i < cols; i++) {
+                    if (difficulty === 'hard') {
+                        riverY += p.sin(i * sinFrequency) * sinAmplitude;
+                        riverY += p.sin(i * sinFrequency * 2.5) * (sinAmplitude * 0.5);
+
+             let widthVariation = p.sin(i * 0.02) * 4;
+                       let currentWidth = riverWidth + widthVariation;
+
+            riverY = p.constrain(riverY, 5, Math.floor(rows * 0.25));
+
+          riverPath.push({ x: i, y: riverY, width: currentWidth });
+
+          for (let w = -currentWidth / 2; w <= currentWidth / 2; w++) {
+                            let distance = Math.abs(w) / (currentWidth / 2);
+                            let depth = Math.max(0.5, 1 - (distance * 0.7));
+
+            if (riverY + w >= 0 && riverY + w < rows) {
+                                river.push({ x: i, y: Math.floor(riverY + w), depth: depth });
+                            }
+                        }
+                    } else {
+                        riverY += p.sin(i * sinFrequency) * sinAmplitude;
+                        riverY = p.constrain(riverY, 10, Math.floor(rows * 0.3));
+
+          riverPath.push({ x: i, y: riverY });
+
+          for (let w = -riverWidth / 2; w <= riverWidth / 2; w++) {
+                            let distance = Math.abs(w) / (riverWidth / 2);
+                            let depth = Math.max(0.5, 1 - (distance * 0.7));
+
+                if (riverY + w >= 0 && riverY + w < rows) {
+                                river.push({ x: i, y: Math.floor(riverY + w), depth: depth });
+                            }
+                        }
+                    }
+            }
+
+          console.log(`Created ${difficulty} river with ${river.length} cells and ${riverPath.length} path points`);
+        }
+
+        //function to check if position is on road
+            function isOnRoad(x, y, w, h) {
+                for (let road of roads) {
+                    if (x < road.x + road.w && x + w > road.x &&
+                        y < road.y + road.h && y + h > road.y) {
+                        return true;
+                    }
+                }
+                return false;
+        }
+
+        //function to check if position is near river
+            function isNearRiver(x, y, w, h, minDistance = 80) {
+                for (let point of riverPath) {
+                    let riverX = point.x * GRID_SIZE;
+                    let riverY = point.y * GRID_SIZE;
+
+        let buildingCenterX = x + w / 2;
+                    let buildingCenterY = y + h / 2;
+
+            let distance = Math.sqrt(
+                        Math.pow(buildingCenterX - riverX, 2) +
+                       Math.pow(buildingCenterY - riverY, 2)
+                );
+
+            if (distance < minDistance) {
+                        return true;
+                    }
+                }
+                return false;
+        }
+
+        //function to check building overlap
+            function checkBuildingOverlap(x, y, w, h, excludeIndex = -1) {
+                for (let i = 0; i < buildings.length; i++) {
+                    if (i === excludeIndex) continue;
+
+          let building = buildings[i];
+                    if (x < building.x + building.w + 20 &&
+                        x + w > building.x - 20 &&
+                        y < building.y + building.h + 20 &&
+                        y + h > building.y - 20) {
+                        return true;
+                    }
+                }
+                return false;
+        }
+
+        //function to check if position is on building
+            function isOnBuilding(x, y, w, h) {
+                for (let building of buildings) {
+                    if (x < building.x + building.w && x + w > building.x &&
+                        y < building.y + building.h && y + h > building.y) {
+                        return true;
+                    }
+                }
+                return false;
+        }
+
+        //function to check if position is on river
+            function isOnRiver(gridX, gridY, width, height) {
+                let gridW = Math.ceil(width / GRID_SIZE);
+                let gridH = Math.ceil(height / GRID_SIZE);
+
+         for (let i = gridX; i < gridX + gridW; i++) {
+                    for (let j = gridY; j < gridY + gridH; j++) {
+                        if (i >= 0 && i < cols && j >= 0 && j < rows) {
+                            if (riverCapacityGrid[i][j] > 0) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+        }
+
+        //function to create town with buildings
+            function createTown() {
+                buildings = [];
+
+          let buildingData = [
+                    { x: p.width * 0.08, y: p.height * 0.42, w: 60, h: 80, type: 'house', style: 'classic' },
+                    { x: p.width * 0.18, y: p.height * 0.44, w: 70, h: 85, type: 'commercial', style: 'modern' },
+                    { x: p.width * 0.35, y: p.height * 0.43, w: 65, h: 75, type: 'house', style: 'classic' },
+                    { x: p.width * 0.45, y: p.height * 0.45, w: 80, h: 90, type: 'commercial', style: 'modern' },
+                    { x: p.width * 0.08, y: p.height * 0.62, w: 70, h: 70, type: 'house', style: 'classic' },
+                    { x: p.width * 0.32, y: p.height * 0.64, w: 90, h: 60, type: 'industrial', style: 'modern' }
+            ];
+
+          buildingData.forEach((data, index) => {
+                    let placed = false;
+                    let attempts = 0;
+                    let originalX = data.x;
+                    let originalY = data.y;
+
+            while (!placed && attempts < 50) {
+                        if (!isOnRoad(data.x, data.y, data.w, data.h) &&
+                           !isNearRiver(data.x, data.y, data.w, data.h, 100) &&
+                            !checkBuildingOverlap(data.x, data.y, data.w, data.h)) {
+                            buildings.push(new Building(data.x, data.y, data.w, data.h, data.type, data.style));
+                            placed = true;
+                        } else {
+                            if (attempts < 25) {
+                                data.x = originalX + p.random(-50, 150);
+                            } else {
+                                data.y = originalY + p.random(20, 100);
+                                data.x = originalX + p.random(-50, 150);
+                            }
+                            attempts++;
+                        }
+                    }
+                });
+
+         console.log(`Successfully placed ${buildings.length} buildings`);
+        }
+
+        p.draw = () => {
+                p.fill(colors.grass);
+                p.rect(0, 0, p.width, p.height);
+
+          if (!gameStarted) return;
+
+         frameCounter++;
+
+      drawRiverBed();
+                drawRoads();
+                drawVegetation();
+
+      if (waterFlowing) {
+                    drawWater();
+            }
+
+          if (frameCounter % 2 === 0) {
+                    particles = particles.filter(p => p.life > 0);
+                    particles.forEach(particle => {
+                        particle.update();
+                        particle.draw();
+                    });
+           }
+
+           buildings.forEach(building => {
+                    if (waterFlowing && frameCounter % 3 === 0) {
+                        building.checkFlooding();
+                    }
+                    building.draw();
+                });
+
+        barriers.forEach(barrier => barrier.draw());
+
+          if (!gameOver && waterFlowing) {
+                    updateWater();
+                    checkGameState();
+                    updateWaterLevel();
+                    updateTimer();
+            }
+
+          updateUI();
+
+      if (barriersLeft > 0 && !gameOver && !waterFlowing) {
+                    drawBarrierPreview();
+            }
+
+          if (waterFlowing) {
+                    time += p.deltaTime * 0.001;
+                }
+        };
+
+        //function to draw river bed
+            function drawRiverBed() {
+                river.forEach(cell => {
+                    let x = cell.x * GRID_SIZE;
+                    let y = cell.y * GRID_SIZE;
+
+         let bedColor = p.lerpColor(p.color('#2a2a2a'), p.color('#404040'), cell.depth);
+                    p.fill(bedColor);
+                    p.rect(x, y, GRID_SIZE, GRID_SIZE);
+
+        if (p.random() < 0.08) {
+                        p.fill(0, 0, 0, 30);
+                        p.circle(x + GRID_SIZE / 2, y + GRID_SIZE / 2, GRID_SIZE * 0.4);
+                    }
+                });
+
+       river.forEach(cell => {
+                    if (cell.depth < 0.7) {
+                        let x = cell.x * GRID_SIZE;
+                        let y = cell.y * GRID_SIZE;
+                        p.fill('#5d5347');
+                        p.rect(x, y, GRID_SIZE, GRID_SIZE / 3);
+                    }
+                });
+        }
+
+        //function to draw roads
+            function drawRoads() {
+                roads.forEach(road => {
+                    if (road.w > road.h) {
+                       for (let x = road.x; x < road.x + road.w; x += GRID_SIZE) {
+                            let segmentWidth = Math.min(GRID_SIZE, road.x + road.w - x);
+                            if (!isAreaOccupiedByRiver(x, road.y, segmentWidth, road.h)) {
+                                p.fill(colors.road);
+                                p.rect(x, road.y, segmentWidth, road.h);
+                            }
+                        }
+                    } else {
+                       for (let y = road.y; y < road.y + road.h; y += GRID_SIZE) {
+                            let segmentHeight = Math.min(GRID_SIZE, road.y + road.h - y);
+                            if (!isAreaOccupiedByRiver(road.x, y, road.w, segmentHeight)) {
+                                p.fill(colors.road);
+                                p.rect(road.x, y, road.w, segmentHeight);
+                            }
+                        }
+                    }
+                });
+
+         p.stroke(colors.roadLine);
+                p.strokeWeight(2);
+                p.drawingContext.setLineDash([15, 8]);
+
+        roads.forEach(road => {
+                    if (road.w > road.h) {
+                       for (let x = road.x; x < road.x + road.w; x += 20) {
+                            let segmentX = x;
+                            let segmentEndX = Math.min(x + 20, road.x + road.w);
+                            if (!isAreaOccupiedByRiver(segmentX, road.y, segmentEndX - segmentX, road.h)) {
+                                p.line(segmentX, road.y + road.h / 2, segmentEndX, road.y + road.h / 2);
+                            }
+                        }
+                    } else {
+                       for (let y = road.y; y < road.y + road.h; y += 20) {
+                            let segmentY = y;
+                            let segmentEndY = Math.min(y + 20, road.y + road.h);
+                            if (!isAreaOccupiedByRiver(road.x, segmentY, road.w, segmentEndY - segmentY)) {
+                                p.line(road.x + road.w / 2, segmentY, road.x + road.w / 2, segmentEndY);
+                            }
+                        }
+                    }
+                });
+
+      p.drawingContext.setLineDash([]);
+                p.noStroke();
+        }
+
+        //function to draw trees and vegetation
+            function drawVegetation() {
+                let vegetation = [
+                    { x: p.width * 0.05, y: p.height * 0.5, size: 20 },
+                    { x: p.width * 0.88, y: p.height * 0.52, size: 25 },
+                    { x: p.width * 0.62, y: p.height * 0.38, size: 18 },
+                    { x: p.width * 0.15, y: p.height * 0.82, size: 22 },
+                    { x: p.width * 0.28, y: p.height * 0.58, size: 16 },
+                    { x: p.width * 0.68, y: p.height * 0.72, size: 20 },
+                    { x: p.width * 0.05, y: p.height * 0.72, size: 24 },
+                    { x: p.width * 0.42, y: p.height * 0.38, size: 19 }
+            ];
+
+          vegetation.forEach(tree => {
+                    if (!isOnRoad(tree.x - tree.size / 2, tree.y - tree.size / 2, tree.size, tree.size) &&
+                        !isNearRiver(tree.x, tree.y, tree.size, tree.size, 40)) {
+                        p.fill(0, 0, 0, 40);
+                        p.ellipse(tree.x + 2, tree.y + 2, tree.size + 4);
+
+           p.fill('#1b4d1b');
+                        p.circle(tree.x, tree.y, tree.size);
+
+            p.fill('#2d6b2d');
+                        p.circle(tree.x - tree.size / 4, tree.y - tree.size / 4, tree.size / 2);
+
+              p.fill('#3d7b3d');
+                        for (let i = 0; i < 3; i++) {
+                            let angle = (i / 3) * p.TWO_PI;
+                            let px = tree.x + p.cos(angle) * tree.size / 3;
+                            let py = tree.y + p.sin(angle) * tree.size / 3;
+                            p.circle(px, py, tree.size / 5);
+                        }
+                    }
+                });
+        }
+
+        //function to draw water effects
+            function drawWater() {
+                for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        if (waterGrid[i][j] > 0.01) {
+                            let x = i * GRID_SIZE;
+                            let y = j * GRID_SIZE;
+                            let waterLevel = waterGrid[i][j];
+
+            let waterColor = p.lerpColor(
+                                p.color(colors.shallowWater),
+                               p.color(colors.deepWater),
+                               Math.min(1, waterLevel / 3)
+                            );
+                            p.fill(waterColor);
+                            p.rect(x, y, GRID_SIZE, GRID_SIZE);
+
+                if (waterLevel > 0.3) {
+                                p.fill(255, 255, 255, 40);
+                                p.rect(x + GRID_SIZE * 0.6, y, GRID_SIZE * 0.4, GRID_SIZE);
+
+                  if (p.random() < 0.01 && particles.length < 50) {
+                                    particles.push(new WaterParticle(x + p.random(GRID_SIZE), y + p.random(GRID_SIZE)));
+                                }
+                       }
+
+                 if (riverFilled && waterLevel > 0.1 && riverCapacityGrid[i][j] === 0) {
+                                p.fill(255, 255, 255, 80);
+                                p.circle(x + GRID_SIZE / 2, y + GRID_SIZE / 2, GRID_SIZE * 1.0);
+                            }
+                        }
+                    }
+                }
+        }
+
+        //function to check if river is filled
+            function checkRiverFilled() {
+                let riverCellsFilled = 0;
+                let totalRiverCells = 0;
+
+        river.forEach(cell => {
+                    if (cell.x >= 0 && cell.x < cols && cell.y >= 0 && cell.y < rows) {
+                        totalRiverCells++;
+                        let capacity = riverCapacityGrid[cell.x][cell.y];
+                        let currentWater = waterGrid[cell.x][cell.y];
+
+             if (currentWater >= capacity * 0.3 || isBarrierAt(cell.x, cell.y)) {
+                            riverCellsFilled++;
+                        }
+                    }
+                });
+
+         return riverCellsFilled / totalRiverCells > 0.15;
+        }
+
+        //function to update water simulation
+            function updateWater() {
+                waterFront += waterSpeed * 10;
+
+         riverFilled = checkRiverFilled();
+
+      for (let i = 0; i < Math.min(waterFront, riverPath.length); i++) {
+                    let pathPoint = riverPath[i];
+
+          river.forEach(cell => {
+                        if (cell.x === pathPoint.x && cell.x >= 0 && cell.x < cols && cell.y >= 0 && cell.y < rows) {
+                            if (!isBarrierAt(cell.x, cell.y)) {
+                                let capacity = riverCapacityGrid[cell.x][cell.y];
+                                let addedWater = cell.depth * waterSpeed * 12;
+
+              waterGrid[cell.x][cell.y] = Math.min(capacity, waterGrid[cell.x][cell.y] + addedWater);
+                                totalWaterReleased += addedWater;
+                            }
+                        }
+                    });
+            }
+
+          let newWaterGrid = [];
+
+        for (let i = 0; i < cols; i++) {
+                    newWaterGrid[i] = [];
+                    for (let j = 0; j < rows; j++) {
+                        newWaterGrid[i][j] = waterGrid[i][j] * 0.997;
+                    }
+          }
+
+            for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        if (waterGrid[i][j] > 0.005) {
+                            let currentWater = waterGrid[i][j];
+                            let isRiverCell = riverCapacityGrid[i][j] > 0;
+                            let riverCapacity = riverCapacityGrid[i][j];
+
+                let neighbors = [];
+
+            if (isRiverCell && !riverFilled) {
+                                neighbors = [
+                                    { x: i + 1, y: j, weight: 1.5 },
+                                    { x: i + 1, y: j + 1, weight: 0.4 },
+                                    { x: i + 1, y: j - 1, weight: 0.4 }
+                                ];
+                            } else {
+                                neighbors = [
+                                    { x: i + 1, y: j, weight: 1.2 },
+                                    { x: i - 1, y: j, weight: 1.2 },
+                                    { x: i, y: j + 1, weight: 2.0 },
+                                    { x: i, y: j - 1, weight: 0.8 },
+                                    { x: i + 1, y: j + 1, weight: 1.4 },
+                                    { x: i - 1, y: j + 1, weight: 1.4 },
+                                    { x: i + 1, y: j - 1, weight: 0.7 },
+                                    { x: i - 1, y: j - 1, weight: 0.7 }
+                                ];
+                      }
+
+                  neighbors.forEach(n => {
+                                if (n.x >= 0 && n.x < cols && n.y >= 0 && n.y < rows) {
+                                    if (!isBarrierAt(n.x, n.y)) {
+                                        let heightDiff = 1.0;
+                                        let flow = currentWater * n.weight * 0.5 * heightDiff;
+
+                      if (n.y > j) {
+                                            flow *= 1.8;
+                          }
+
+                                if (isNearBarrier(n.x, n.y)) {
+                                            flow *= 0.8;
+                      }
+
+                                    if (flow > 0.001) {
+                                            newWaterGrid[n.x][n.y] = Math.min(25, newWaterGrid[n.x][n.y] + flow);
+                                        }
+                                    }
+                                }
+                });
+
+                        if (!isRiverCell || currentWater < riverCapacity * 0.6) {
+                                newWaterGrid[i][j] *= 0.85;
+                            }
+                        }
+                    }
+          }
+
+            waterGrid = newWaterGrid;
+
+      let waterCells = 0;
+                let totalCells = cols * rows;
+
+      for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        if (waterGrid[i][j] > 0.05) {
+                            waterCells++;
+                        }
+                    }
+          }
+
+            screenCoverage = waterCells / totalCells;
+        }
+
+        //function to update water level display
+            function updateWaterLevel() {
+                let progressPercent = Math.min(100, screenCoverage * 100);
+                document.getElementById('waterPercent').textContent = progressPercent.toFixed(0) + '%';
+
+          let statusElement = document.getElementById('riverState');
+                if (!riverFilled) {
+                    statusElement.textContent = 'Filling Fast';
+                    statusElement.style.color = '#ffeb3b';
+                } else {
+                    statusElement.textContent = 'MASSIVE OVERFLOW!';
+                    statusElement.style.color = '#f44336';
+                }
+        }
+
+        //function to update timer display
+            function updateTimer() {
+                let timeRemaining = Math.max(0, 10 - time);
+                document.getElementById('timeRemaining').textContent = timeRemaining.toFixed(1);
+
+          if (timeRemaining <= 3) {
+                    document.getElementById('timerDisplay').style.color = '#f44336';
+                    document.getElementById('timerDisplay').style.fontWeight = 'bold';
+                }
+        }
+
+        //function to check if barrier exists at position
+            function isBarrierAt(gridX, gridY) {
+                for (let barrier of barriers) {
+                    let gridW = Math.ceil(barrier.width / GRID_SIZE);
+                    let gridH = Math.ceil(barrier.height / GRID_SIZE);
+
+            if (gridX >= barrier.gridX && gridX < barrier.gridX + gridW &&
+                        gridY >= barrier.gridY && gridY < barrier.gridY + gridH) {
+                        return true;
+                    }
+                }
+                return false;
+        }
+
+        //function to check if position is near barrier
+            function isNearBarrier(gridX, gridY) {
+                for (let barrier of barriers) {
+                    let gridW = Math.ceil(barrier.width / GRID_SIZE);
+                    let gridH = Math.ceil(barrier.height / GRID_SIZE);
+                    let centerX = barrier.gridX + gridW / 2;
+                    let centerY = barrier.gridY + gridH / 2;
+
+            let distance = Math.abs(gridX - centerX) + Math.abs(gridY - centerY);
+                    if (distance < Math.max(gridW, gridH) + 2) {
+                        return true;
+                    }
+                }
+                return false;
+        }
+
+        //function to draw barrier preview
+            function drawBarrierPreview() {
+                let gridX = Math.floor(p.mouseX / GRID_SIZE);
+                let gridY = Math.floor(p.mouseY / GRID_SIZE);
+                let width = barrierRotation === 'horizontal' ? GRID_SIZE * 12 : GRID_SIZE * 3;
+                let height = barrierRotation === 'horizontal' ? GRID_SIZE * 3 : GRID_SIZE * 12;
+                let gridW = Math.ceil(width / GRID_SIZE);
+                let gridH = Math.ceil(height / GRID_SIZE);
+
+      let canPlace = true;
+                let reason = '';
+
+      if (gridX < 0 || gridX + gridW > cols || gridY < 0 || gridY + gridH > rows) {
+                    canPlace = false;
+                    reason = 'Out of bounds';
+                } else {
+                    for (let barrier of barriers) {
+                        let barrierGridW = Math.ceil(barrier.width / GRID_SIZE);
+                        let barrierGridH = Math.ceil(barrier.height / GRID_SIZE);
+
+          if (!(gridX >= barrier.gridX + barrierGridW || gridX + gridW <= barrier.gridX ||
+                            gridY >= barrier.gridY + barrierGridH || gridY + gridH <= barrier.gridY)) {
+                            canPlace = false;
+                            reason = 'Overlaps barrier';
+                            break;
+                        }
+            }
+
+                if (canPlace && isOnBuilding(gridX * GRID_SIZE, gridY * GRID_SIZE, width, height)) {
+                        canPlace = false;
+                        reason = 'Cannot place on building';
+            }
+
+                if (canPlace && isOnRiver(gridX, gridY, width, height)) {
+                        canPlace = false;
+                        reason = 'Cannot place on river';
+                    }
+          }
+
+            p.fill(canPlace ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 0, 0, 0.4)');
+                p.stroke(canPlace ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 0, 0, 0.9)');
+                p.strokeWeight(2);
+                p.rect(gridX * GRID_SIZE, gridY * GRID_SIZE, width, height, 3);
+                p.noStroke();
+
+      if (!canPlace && reason) {
+                    p.fill(255, 255, 255, 200);
+                    p.textAlign(p.CENTER);
+                    p.textSize(12);
+                    p.text(reason, gridX * GRID_SIZE + width / 2, gridY * GRID_SIZE - 5);
+                }
+        }
+
+        //function to check game over conditions
+            function checkGameState() {
+                // Check if 10 seconds have passed since water started flowing
+                if (time >= 10 && !gameOver) {
+                    gameOver = true;
+                    document.getElementById('gameOver').style.display = 'block';
+
+        let safeBuildingsCount = buildings.filter(b => !b.flooded).length;
+                    let successRate = (safeBuildingsCount / buildings.length) * 100;
+
+        document.getElementById('result').innerHTML =
+                        `<strong style="color: #ff9800;">Time's Up!</strong><br>
+              10 seconds have passed since the water started flowing!<br>
+              You managed to save <strong>${safeBuildingsCount}</strong> out of ${buildings.length} buildings!<br>
+              <span style="font-size: 16px; opacity: 0.8;">Success Rate: ${successRate.toFixed(0)}%</span>`;
+
+        if (successRate > 75) {
+                        document.getElementById('result').innerHTML +=
+                            `<br><span style="font-size: 14px; color: #ffeb3b; margin-top: 10px; display: block;">
+                Excellent strategy! You're a master defender!</span>`;
+                    } else if (successRate > 50) {
+                        document.getElementById('result').innerHTML +=
+                            `<br><span style="font-size: 14px; color: #ffeb3b; margin-top: 10px; display: block;">
+                Good work! Try different barrier placements next time.</span>`;
+                    } else {
+                        document.getElementById('result').innerHTML +=
+                            `<br><span style="font-size: 14px; color: #ffeb3b; margin-top: 10px; display: block;">
+                You need to place barriers more strategically!</span>`;
+                    }
+                }
+        }
+
+        //function to update user interface
+            function updateUI() {
+                document.getElementById('barriers').textContent = barriersLeft;
+                let safeCount = buildings.filter(b => !b.flooded).length;
+                let totalCount = buildings.length;
+
+          document.getElementById('safe').textContent = safeCount;
+                document.getElementById('total').textContent = totalCount;
+
+          let safeElement = document.getElementById('safe');
+                if (safeCount > totalCount * 0.75) {
+                    safeElement.style.color = '#4CAF50';
+                } else if (safeCount > totalCount * 0.5) {
+                    safeElement.style.color = '#ff9800';
+                } else {
+                    safeElement.style.color = '#f44336';
+                }
+            }
+
+            p.keyPressed = () => {
+                if ((p.key === 'r' || p.key === 'R') && !waterFlowing && gameStarted) {
+                    barrierRotation = barrierRotation === 'horizontal' ? 'vertical' : 'horizontal';
+                    console.log('Barrier rotation:', barrierRotation);
+                }
+        };
+
+        p.mousePressed = () => {
+                if (barriersLeft > 0 && !gameOver && gameStarted && !waterFlowing) {
+                    let gridX = Math.floor(p.mouseX / GRID_SIZE);
+                    let gridY = Math.floor(p.mouseY / GRID_SIZE);
+                    let width = barrierRotation === 'horizontal' ? GRID_SIZE * 12 : GRID_SIZE * 3;
+                    let height = barrierRotation === 'horizontal' ? GRID_SIZE * 3 : GRID_SIZE * 12;
+                    let gridW = Math.ceil(width / GRID_SIZE);
+                    let gridH = Math.ceil(height / GRID_SIZE);
+
+            if (gridX >= 0 && gridX + gridW <= cols && gridY >= 0 && gridY + gridH <= rows) {
+                        let canPlace = true;
+
+              for (let barrier of barriers) {
+                            let barrierGridW = Math.ceil(barrier.width / GRID_SIZE);
+                            let barrierGridH = Math.ceil(barrier.height / GRID_SIZE);
+
+                if (!(gridX >= barrier.gridX + barrierGridW || gridX + gridW <= barrier.gridX ||
+                                gridY >= barrier.gridY + barrierGridH || gridY + gridH <= barrier.gridY)) {
+                                canPlace = false;
+                                break;
+                            }
+                    }
+
+              if (canPlace && isOnBuilding(gridX * GRID_SIZE, gridY * GRID_SIZE, width, height)) {
+                            canPlace = false;
+                    }
+
+              if (canPlace && isOnRiver(gridX, gridY, width, height)) {
+                            canPlace = false;
+                    }
+
+              if (canPlace) {
+                            barriers.push(new Barrier(p.mouseX, p.mouseY, barrierRotation));
+                            barriersLeft--;
+
+                for (let i = 0; i < 6; i++) {
+                                if (particles.length < 50) {
+                                    particles.push(new WaterParticle(
+                                        gridX * GRID_SIZE + p.random(width),
+                                        gridY * GRID_SIZE + p.random(height)
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                } else if (waterFlowing && !gameOver) {
+                    console.log("No more barriers can be placed - water is flowing!");
+                }
+            };
+        });
     </script>
 </body>
 

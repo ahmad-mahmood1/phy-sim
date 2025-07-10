@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Canal Water Flow Simulation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-weight: normal;
+            text-align: center;
+        }
+
+        .info-card {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            max-width: 60vw;
+            text-align: center;
+            font-size: 0.9em;
+            line-height: 1.5;
+            border: 1px solid #555;
+        }
+
+        #simulation-container {
+            position: relative;
+            width: 60vw;
+            height: 70vh;
+            max-width: 1200px;
+            border: 2px solid #555;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #static-canvas {
+            background-color: #e0e0e0;
+        }
+
+        #particles-canvas {
+            filter: url('#particles-filter');
+            pointer-events: none;
+        }
+
+        .svg-filters {
+            position: absolute;
+            width: 0;
+            height: 0;
+        }
+
+        #ui-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #ui-controls button {
+            padding: 10px 15px;
+            font-size: 16px;
+            font-family: 'Roboto Mono', monospace;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.3s;
+        }
+
+        #ui-controls button:hover {
+            background-color: #45a049;
+        }
+
+        #ui-controls button.open {
+            background-color: #f44336;
+        }
+
+        #ui-controls button.open:hover {
+            background-color: #d32f2f;
+        }
+
+        #status-display {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .status-item {
+            margin-bottom: 5px;
+        }
+
+        .status-item span {
+            min-width: 100px;
+            display: inline-block;
+        }
+
+        #torque-value.warning,
+        #integrity-status.warning {
+            color: #ffc107;
+            font-weight: bold;
+        }
+
+        #torque-value.danger,
+        #integrity-status.danger {
+            color: #ff4d4d;
+            font-weight: bold;
+        }
+
+        #integrity-status.ok {
+            color: #4dff4d;
+        }
+    </style>
+    <script type="importmap">
+            {
+              "imports": {
+                "matter-js": "https://cdn.jsdelivr.net/npm/matter-js@0.20.0/+esm"
+              }
+            }
+    </script>
+</head>
+
+<body>
+
+    <h1>Canal Flood Gate Torque Simulation</h1>
+
+    <!-- New Explanatory Text Card -->
+    <div class="info-card">
+        As the floodgate closes, it blocks the water's path, causing the water level and pressure to rise. This
+        increased pressure creates significant resistance, requiring a higher torque to continue closing the gate, which
+        is reflected in the slower gate speed.
+    </div>
+
+    <div id="simulation-container">
+        <canvas id="static-canvas"></canvas>
+        <canvas id="particles-canvas"></canvas>
+
+        <div id="ui-controls">
+            <button id="gate-control-btn">Close Gate</button>
+        </div>
+        <div id="status-display">
+            <div class="status-item"><span>Hydrostatic Resistance Torque:</span> <span id="torque-value">0.00</span> kNm
+            </div>
+            <div class="status-item"><span>Integrity:</span> <span id="integrity-status" class="ok">OK</span></div>
+        </div>
+    </div>
+
+    <div class="svg-filters">
+        <svg xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <filter id="particles-filter">
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur" />
+                    <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7"
+                        result="goo" />
+                    <feBlend in="SourceGraphic" in2="goo" />
+                </filter>
+            </defs>
+        </svg>
+    </div>
+
+
+    <script type="module">
+        import Matter from 'matter-js';
+
+        const { Engine, Runner, World, Bodies, Composite, Body, Events } = Matter;
+
+        const staticCanvas = document.getElementById('static-canvas');
+        const staticCtx = staticCanvas.getContext('2d');
+        const particlesCanvas = document.getElementById('particles-canvas');
+        const particlesCtx = particlesCanvas.getContext('2d');
+        const gateControlBtn = document.getElementById('gate-control-btn');
+        const torqueValueSpan = document.getElementById('torque-value');
+        const integrityStatusSpan = document.getElementById('integrity-status');
+
+        const engine = Engine.create();
+        const world = engine.world;
+        const runner = Runner.create();
+
+        let staticBodies = [];
+        let particles = [];
+        let gate;
+        let hingePoint = { x: 0, y: 0 };
+        let isGateClosing = false;
+        let isGateOpening = false;
+
+        const DANGER_TORQUE_THRESHOLD = 1500;
+        const WARNING_TORQUE_THRESHOLD = 1000;
+        const PIXELS_PER_METER = 50;
+        const WATER_DENSITY = 1000;
+        const GRAVITY = 9.81;
+
+        function drawScene() {
+            staticCtx.clearRect(0, 0, staticCanvas.width, staticCanvas.height);
+            const wallTopY = staticCanvas.height / 2;
+            const floorTopY = staticCanvas.height - 40;
+            const stoneWidth = 50;
+            const stoneHeight = 30;
+            const stoneColors = ['#dcdcdc', '#d3d3d3', '#c0c0c0', '#c8c8c8'];
+            staticCtx.lineWidth = 1;
+            staticCtx.strokeStyle = '#b0b0b0';
+            for (let y = floorTopY; y > wallTopY; y -= stoneHeight) {
+                for (let x = 0; x < staticCanvas.width; x += stoneWidth) {
+                    const colorIndex = Math.floor((x / stoneWidth + y / stoneHeight)) % stoneColors.length;
+                    staticCtx.fillStyle = stoneColors[colorIndex];
+                    staticCtx.beginPath();
+                    staticCtx.ellipse(x + stoneWidth / 2, y - stoneHeight / 2, stoneWidth / 2, stoneHeight / 2, 0, 0, 2 * Math.PI);
+                    staticCtx.fill();
+                    staticCtx.stroke();
+                }
+            }
+            staticCtx.fillStyle = '#8a8a8a';
+            staticCtx.strokeStyle = '#333';
+            staticCtx.lineWidth = 4;
+            staticBodies.forEach(body => {
+                if (body.isStatic) {
+                    staticCtx.fillStyle = body.isGate ? '#6c757d' : '#8a8a8a';
+                    staticCtx.beginPath();
+                    const vertices = body.vertices;
+                    staticCtx.moveTo(vertices[0].x, vertices[0].y);
+                    for (let i = 1; i < vertices.length; i++) {
+                        staticCtx.lineTo(vertices[i].x, vertices[i].y);
+                    }
+                    staticCtx.lineTo(vertices[0].x, vertices[0].y);
+                    staticCtx.fill();
+                    staticCtx.stroke();
+                    if (body.isGate) {
+                        staticCtx.fillStyle = '#495057';
+                        const rivetRadius = 4;
+                        const rivetSpacing = 50;
+                        const gateLength = body.gateLength;
+                        for (let i = rivetSpacing; i < gateLength - rivetSpacing; i += rivetSpacing) {
+                            const localX = i - gateLength / 2;
+                            const worldX = body.position.x + (localX * Math.cos(body.angle));
+                            const worldY = body.position.y + (localX * Math.sin(body.angle));
+                            staticCtx.beginPath();
+                            staticCtx.arc(worldX, worldY, rivetRadius, 0, 2 * Math.PI);
+                            staticCtx.fill();
+                        }
+                    }
+                }
+            });
+            staticCtx.fillStyle = '#343a40';
+            staticCtx.beginPath();
+            staticCtx.arc(hingePoint.x, hingePoint.y, 12, 0, 2 * Math.PI);
+            staticCtx.fill();
+            staticCtx.fillStyle = '#adb5bd';
+            staticCtx.beginPath();
+            staticCtx.arc(hingePoint.x, hingePoint.y, 6, 0, 2 * Math.PI);
+            staticCtx.fill();
+        }
+
+        function drawParticles() {
+            particlesCtx.clearRect(0, 0, particlesCanvas.width, particlesCanvas.height);
+            particlesCtx.beginPath();
+            for (let i = 0; i < particles.length; i++) {
+                const particle = particles[i];
+                const vertices = particle.vertices;
+                particlesCtx.moveTo(vertices[0].x, vertices[0].y);
+                for (let j = 1; j < vertices.length; j++) {
+                    particlesCtx.lineTo(vertices[j].x, vertices[j].y);
+                }
+                particlesCtx.lineTo(vertices[0].x, vertices[0].y);
+            }
+            particlesCtx.fillStyle = 'rgba(100, 150, 255, 0.9)';
+            particlesCtx.fill();
+        }
+
+        function update() {
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i];
+                if (p.position.x > particlesCanvas.width + 50) {
+                    Body.setPosition(p, { x: -50, y: staticCanvas.height * 0.8 });
+                    Body.setVelocity(p, { x: 0, y: 0 });
+                }
+            }
+            drawScene();
+            drawParticles();
+            requestAnimationFrame(update);
+        }
+
+        function createParticle(x, y) {
+            const particle = Bodies.circle(x, y, 7, { friction: 0.0001, restitution: 0.6, density: 0.01 }); // Changed
+            particles.push(particle);
+            Composite.add(world, particle);
+        }
+
+        function setup() {
+            const container = document.getElementById('simulation-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            staticCanvas.width = width;
+            staticCanvas.height = height;
+            particlesCanvas.width = width;
+            particlesCanvas.height = height;
+            Composite.clear(world, false);
+            particles = [];
+            staticBodies = [];
+            const floorThickness = 40;
+            const floor = Bodies.rectangle(width / 2, height - floorThickness / 2, width, floorThickness, { isStatic: true });
+            staticBodies.push(floor);
+            const gateLength = height * 0.44; // Changed
+            const gateThickness = 20;
+            hingePoint = { x: 0, y: height / 2 };
+            gate = Bodies.rectangle(hingePoint.x + gateLength / 2, hingePoint.y, gateLength, gateThickness, { isStatic: true, angle: 0, isGate: true });
+
+            gate.gateLength = gateLength;
+
+            staticBodies.push(gate);
+            Composite.add(world, staticBodies);
+            const fillHeight = height * 0.45;
+            const fillWidth = width;
+            const particleRadius = 8;
+            const cols = Math.floor(fillWidth / (particleRadius * 2));
+            const rows = Math.floor(fillHeight / (particleRadius * 2));
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const x = col * particleRadius * 2 + particleRadius + (Math.random() - 0.5) * 5;
+                    const y = height - floorThickness - (row * particleRadius * 2) - particleRadius;
+                    createParticle(x, y);
+                }
+            }
+            world.gravity.y = 0.5;
+            world.gravity.x = 0.5;
+        }
+
+        Events.on(engine, 'beforeUpdate', (event) => {
+            let highestUpstreamY = staticCanvas.height;
+            particles.forEach(p => {
+                const particleAngle = Math.atan2(p.position.y - hingePoint.y, p.position.x - hingePoint.x);
+                if (particleAngle > gate.angle && particleAngle < Math.PI / 2) {
+                    if (p.position.y < highestUpstreamY) {
+                        highestUpstreamY = p.position.y;
+                    }
+                }
+            });
+
+            const waterLevelY = highestUpstreamY;
+            const gateBottomY = hingePoint.y + gate.gateLength * Math.sin(gate.angle);
+            const submergedHeight = Math.max(0, gateBottomY - waterLevelY);
+
+            let calculatedTorque = 0;
+            if (submergedHeight > 0 && gate.angle > 0.01) {
+                const submergedHeightMeters = submergedHeight / PIXELS_PER_METER;
+                const gateWidthMeters = 5;
+
+                const totalForce = 0.5 * WATER_DENSITY * GRAVITY * gateWidthMeters * Math.pow(submergedHeightMeters, 2);
+
+                const centerOfPressureY = waterLevelY + (2 / 3) * submergedHeight;
+                const leverArmPixels = centerOfPressureY - hingePoint.y;
+                const leverArmMeters = leverArmPixels / PIXELS_PER_METER;
+
+                calculatedTorque = totalForce * leverArmMeters;
+            }
+
+            const displayTorque = calculatedTorque / 1000;
+            torqueValueSpan.textContent = displayTorque.toFixed(2);
+
+            if (displayTorque > DANGER_TORQUE_THRESHOLD) {
+                torqueValueSpan.className = 'danger';
+                integrityStatusSpan.textContent = 'DANGER';
+                integrityStatusSpan.className = 'danger';
+            } else if (displayTorque > WARNING_TORQUE_THRESHOLD) {
+                torqueValueSpan.className = 'warning';
+                integrityStatusSpan.textContent = 'WARNING';
+                integrityStatusSpan.className = 'warning';
+            } else {
+                torqueValueSpan.className = '';
+                integrityStatusSpan.textContent = 'OK';
+                integrityStatusSpan.className = 'ok';
+            }
+
+            const baseClosingSpeed = 0.01;
+            const baseOpeningSpeed = 0.015;
+            const resistanceFactor = 0.00000002;
+            const assistanceFactor = 0.000000015;
+            const gateAnimationSpeed = 0.005;
+
+            if (isGateClosing) {
+                const speed = Math.max(0.001, baseClosingSpeed - (calculatedTorque * resistanceFactor));
+                const rotationAmount = speed;
+                if (gate.angle + rotationAmount >= Math.PI / 2) {
+                    const finalRotation = (Math.PI / 2) - gate.angle;
+                    Body.rotate(gate, finalRotation, hingePoint);
+                    isGateClosing = false;
+                    gateControlBtn.textContent = 'Open Gate';
+                    gateControlBtn.classList.add('open');
+                } else {
+                    Body.rotate(gate, rotationAmount, hingePoint);
+                }
+            } else if (isGateOpening) {
+                const speed = baseOpeningSpeed + (calculatedTorque * assistanceFactor);
+                const rotationAmount = -speed;
+                if (gate.angle + rotationAmount <= 0) {
+                    const finalRotation = -gate.angle;
+                    Body.rotate(gate, finalRotation, hingePoint);
+                    isGateOpening = false;
+                    gateControlBtn.textContent = 'Close Gate';
+                    gateControlBtn.classList.remove('open');
+                } else {
+                    Body.rotate(gate, rotationAmount, hingePoint);
+                }
+            }
+        });
+
+        gateControlBtn.addEventListener('click', () => {
+            if (isGateClosing || isGateOpening) return;
+            if (gate.angle >= Math.PI / 2) {
+                isGateOpening = true;
+            } else {
+                isGateClosing = true;
+            }
+        });
+
+        window.addEventListener('resize', setup);
+        setup();
+        Runner.run(runner, engine);
+        update();
+
+    </script>
+</body>
+
+</html>
