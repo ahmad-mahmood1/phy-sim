@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uranus Orbit Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column; /* Stack title and main content vertically */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #0c0c1a;
+            font-family: 'Roboto Mono', monospace;
+            color: #f0f0f0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .page-title {
+            color: #aaddff;
+            font-weight: normal;
+            text-shadow: 0 0 8px #66ccff;
+            margin: 0 0 15px 0; /* Add some margin at the bottom */
+            padding: 0;
+            font-size: 2em;
+            text-align: center;
+        }
+
+        #main-content {
+            display: flex;
+            flex-wrap: nowrap; /* Prevent wrapping */
+            justify-content: center;
+            align-items: center;
+            gap: 30px; /* Adds space between the info and the canvas */
+            width: 100%;
+            flex-grow: 1; /* Allow content to fill remaining vertical space */
+            min-height: 0; /* Fix for flexbox overflow issues */
+        }
+
+        #info-column {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            width: 300px;
+            flex-shrink: 0; /* Prevent this column from shrinking */
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 1px solid #333;
+            box-shadow: 0 0 20px rgba(0, 128, 255, 0.3);
+            flex-grow: 1; /* Allow canvas to take up remaining space */
+            height: 100%; /* Make canvas container fill vertical space */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Info box styling */
+        .info-card {
+            background-color: rgba(20, 20, 40, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        #info-box h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #66ccff;
+            font-size: 18px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+        #info-box p {
+            margin: 8px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+        #info-box span {
+            font-weight: bold;
+            color: #ffffff;
+        }
+
+        /* Season info box styling */
+        #season-info-box h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #99ddff;
+        }
+        #season-info-box p {
+            margin-bottom: 10px;
+        }
+        #season-info-box ul {
+            padding-left: 20px;
+            margin: 0;
+        }
+        #season-info-box li {
+            margin-bottom: 8px;
+        }
+        .color-swatch {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            vertical-align: middle;
+            margin: 0 4px;
+            border: 1px solid #888;
+        }
+        .warm { background-color: #FFE6B4; }
+        .cold { background-color: #6495ED; }
+        .base { background-color: #ADD8E6; }
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <h1 class="page-title">Uranus Orbit Simulation</h1>
+    <div id="main-content">
+        <div id="info-column">
+            <!-- The info box for orbital data -->
+            <div id="info-box" class="info-card">
+                <h2>Uranus Orbital Data</h2>
+                <p>Year: <span><span id="year-display">0.0</span> / <span id="total-year-display">84</span></span></p>
+                <p>Temperature: <span id="temp-display">-224 °C</span></p>
+                <p>Season: <span id="season-display">Equinox</span></p>
+            </div>
+            <!-- Card for explaining seasons -->
+            <div id="season-info-box" class="info-card">
+                <h2>Seasons on Uranus</h2>
+                <p>Due to its extreme 98° tilt, Uranus experiences seasons like no other planet. Each season lasts for about 21 Earth years.</p>
+                <ul>
+                    <li><strong>Solstice:</strong> One pole faces the Sun for 21 years of continuous daylight (<span class="color-swatch warm"></span> warm color), while the other is in total darkness (<span class="color-swatch cold"></span> cold color).</li>
+                    <li><strong>Equinox:</strong> The Sun shines over the equator, bringing dynamic weather. The planet's color is more neutral (<span class="color-swatch base"></span>).</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- The p5 canvas will be created inside this container -->
+        <div id="canvas-container">
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Configuration ---
+            const ORBIT_SPEED = 0.005; // Controls the speed of the simulation
+            const URANUS_YEAR = 84; // Earth years
+            const AXIAL_TILT_DEGREES = 98; // Uranus's axial tilt
+            
+            // --- Simulation State ---
+            let orbitalAngle = 0; // Current angle of Uranus in its orbit
+            
+            // --- Colors ---
+            let sunColor, uranusBaseColor, uranusWarmColor, uranusColdColor;
+
+            // --- Dimensions ---
+            let canvasSize, orbitRadiusX, orbitRadiusY, sunRadius, uranusRadius;
+
+            p.setup = () => {
+                const canvasContainer = document.getElementById('canvas-container');
+                // Calculate size based on the container's dimensions
+                const size = Math.min(canvasContainer.clientWidth, canvasContainer.clientHeight) * 0.95;
+                canvasSize = size;
+                p.createCanvas(canvasSize, canvasSize).parent('canvas-container');
+
+                // Define dimensions relative to canvas size
+                orbitRadiusX = canvasSize * 0.4;
+                orbitRadiusY = canvasSize * 0.35;
+                sunRadius = canvasSize * 0.08;
+                uranusRadius = canvasSize * 0.035;
+
+                // Define colors
+                sunColor = p.color(255, 204, 0);
+                uranusBaseColor = p.color(173, 216, 230); // Light blue
+                uranusWarmColor = p.color(255, 230, 180); // Pale yellow for "warm" pole
+                uranusColdColor = p.color(100, 149, 237); // Deeper blue for "cold" pole
+                
+                document.getElementById('total-year-display').textContent = URANUS_YEAR;
+            };
+
+            p.draw = () => {
+                p.background(12, 12, 26); // Deep space blue
+                
+                p.translate(p.width / 2, p.height / 2);
+
+                orbitalAngle += ORBIT_SPEED;
+                if (orbitalAngle > p.TWO_PI) {
+                    orbitalAngle = 0; // Reset after a full orbit
+                }
+
+                const uranusX = orbitRadiusX * p.cos(orbitalAngle);
+                const uranusY = orbitRadiusY * p.sin(orbitalAngle);
+                
+                drawOrbitPath();
+                drawSun();
+                drawUranus(uranusX, uranusY);
+                drawSeasonalLabels();
+
+                updateInfoBox();
+            };
+            
+            function drawOrbitPath() {
+                p.noFill();
+                p.stroke(255, 255, 255, 50);
+                p.strokeWeight(1);
+                p.ellipse(0, 0, orbitRadiusX * 2, orbitRadiusY * 2);
+            }
+
+            function drawSun() {
+                p.noStroke();
+                for (let i = sunRadius * 2; i > 0; i -= 4) {
+                    p.fill(255, 204, 0, 15);
+                    p.ellipse(0, 0, i, i);
+                }
+                p.fill(sunColor);
+                p.ellipse(0, 0, sunRadius, sunRadius);
+            }
+
+            function drawUranus(x, y) {
+                p.push();
+                p.translate(x, y);
+
+                const tiltAngle = p.radians(AXIAL_TILT_DEGREES - 90);
+                const sunVector = p.createVector(-x, -y).normalize();
+                const northPoleVector = p.createVector(p.cos(tiltAngle), p.sin(tiltAngle));
+                
+                const alignment = p5.Vector.dot(sunVector, northPoleVector);
+
+                let uranusColor;
+                if (alignment > 0) {
+                    uranusColor = p.lerpColor(uranusBaseColor, uranusWarmColor, alignment);
+                } else {
+                    uranusColor = p.lerpColor(uranusBaseColor, uranusColdColor, -alignment);
+                }
+
+                p.noStroke();
+                p.fill(uranusColor);
+                p.ellipse(0, 0, uranusRadius * 2, uranusRadius * 2);
+                
+                p.stroke(0, 100, 255, 200);
+                p.strokeWeight(3);
+                p.rotate(tiltAngle);
+                p.line(-uranusRadius * 1.2, 0, uranusRadius * 1.2, 0);
+
+                p.pop();
+            }
+            
+            function drawSeasonalLabels() {
+                p.fill(255, 150);
+                p.noStroke();
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(12);
+
+                // Using a newline character (\n) to split the text into two lines
+                p.text("Autumnal\nEquinox", orbitRadiusX + 45, 0);
+                p.text("Vernal\nEquinox", -orbitRadiusX - 45, 0);
+                p.text("Summer Solstice", 0, -orbitRadiusY - 20);
+                p.text("Winter Solstice", 0, orbitRadiusY + 20);
+            }
+
+            function updateInfoBox() {
+                const currentYear = (orbitalAngle / p.TWO_PI) * URANUS_YEAR;
+                const tempFluctuation = p.cos(orbitalAngle * 2) * 10;
+                const baseTemp = -214;
+                const currentTemp = baseTemp - tempFluctuation;
+
+                const angleDeg = p.degrees(orbitalAngle) % 360;
+                let season = "";
+                if (angleDeg < 45 || angleDeg > 315) season = "Autumnal Equinox";
+                else if (angleDeg < 135) season = "Winter Solstice";
+                else if (angleDeg < 225) season = "Vernal Equinox";
+                else season = "Summer Solstice";
+
+                document.getElementById('year-display').textContent = currentYear.toFixed(1);
+                document.getElementById('temp-display').textContent = `${currentTemp.toFixed(1)} °C`;
+                document.getElementById('season-display').textContent = season;
+            }
+
+            p.windowResized = () => {
+                const canvasContainer = document.getElementById('canvas-container');
+                const size = Math.min(canvasContainer.clientWidth, canvasContainer.clientHeight) * 0.95;
+                canvasSize = size;
+                p.resizeCanvas(canvasSize, canvasSize);
+
+                orbitRadiusX = canvasSize * 0.4;
+                orbitRadiusY = canvasSize * 0.35;
+                sunRadius = canvasSize * 0.08;
+                uranusRadius = canvasSize * 0.035;
+            };
+        };
+
+        new p5(sketch);
+
+    </script>
+</body>
+
+</html>
