@@ -1,122 +1,155 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Uranus Orbit Simulation</title>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-            }
-        }
-    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Earth's Axial Tilt Simulation</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"
+      }
+    }
+  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #000;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      display: block;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    }
+    .info-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: #fff;
+      background-color: rgba(0, 0, 0, 0.7);
+      padding: 15px;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    .info-panel p {
+      margin: 8px 0;
+    }
+  </style>
 </head>
 <body>
-    <script type="module">
-        import p5 from 'p5';
+  <div class="info-panel">
+    <h3>Earth's Axial Tilt Simulation</h3>
+    <p>Years passed: <span id="years">0</span></p>
+    <p>Axial tilt: <span id="tilt">0</span>°</p>
+    <p>Northern Hemisphere Season: <span id="season">Spring</span></p>
+  </div>
+  <script type="module">
+    import 'p5';
 
-        // Uranus orbital parameters
-        const uranus = {
-            semiMajorAxis: 2872500000, // km
-            eccentricity: 0.047257, // eccentricity of Uranus' orbit
-            axialTilt: 98 // degrees
-        };
+    const sketch = (p) => {
+      // Simulation constants
+      const ORBIT_RADIUS = 200;
+      const SUN_RADIUS = 30;
+      const EARTH_RADIUS = 20;
+      const ORBIT_ECCENTRICITY = 0.2;
+      const TILT_AMPLITUDE = (24.5 - 22.1) / 2;
+      const TILT_PERIOD = 41000;
+      const SEASON_TRANSITION_THRESHOLD = 0.2;
 
-        // Orbital period of Uranus in years
-        const orbitalPeriod = 84;
+      // Simulation variables
+      let angle = 0;
+      let yearsPassed = 0;
+      let tiltOffset = 0;
+      let tilt = 22.1;
+      let season = "Northern Spring";
 
-        // Temperature variation parameters (simplified)
-        const tempMin = -224; // °C
-        const tempMax = -204; // °C
+      p.setup = () => {
+        p.createCanvas(600, 600, p.WEBGL);
+        p.noStroke();
+      };
 
-        // Season names
-        const seasons = ['Northern Summer', 'Northern Autumn', 'Northern Winter', 'Northern Spring'];
+      p.draw = () => {
+        p.background(0);
 
-        // Function to calculate Uranus' position at a given year
-        function calculatePosition(year) {
-            const angle = (year / orbitalPeriod) * 2 * Math.PI;
-            const radius = uranus.semiMajorAxis * (1 - uranus.eccentricity**2) / (1 + uranus.eccentricity * Math.cos(angle));
-            const x = radius * Math.cos(angle);
-            const y = radius * Math.sin(angle);
-            return { x, y };
+        // Draw sun
+        p.push();
+        p.fill(255, 204, 0);
+        p.sphere(SUN_RADIUS);
+        p.pop();
+
+        // Update and draw earth
+        updateEarth();
+        drawEarth();
+
+        // Update info panel
+        document.getElementById('years').textContent = Math.floor(yearsPassed);
+        document.getElementById('tilt').textContent = tilt.toFixed(1);
+        document.getElementById('season').textContent = season;
+      };
+
+      function updateEarth() {
+        // Update angle (position in orbit)
+        angle += 0.01;
+        if (angle > p.TWO_PI) {
+          angle -= p.TWO_PI;
+          yearsPassed += 1;
         }
 
-        // Function to calculate temperature at a given year
-        function calculateTemperature(year) {
-            const angle = (year / orbitalPeriod) * 2 * Math.PI;
-            return tempMin + (tempMax - tempMin) * (1 + Math.sin(angle)) / 2;
+        // Calculate position using elliptical orbit formula
+        const r = ORBIT_RADIUS * (1 - ORBIT_ECCENTRICITY * ORBIT_ECCENTRICITY) / (1 + ORBIT_ECCENTRICITY * p.cos(angle));
+        const x = r * p.cos(angle);
+        const z = r * p.sin(angle);
+
+        // Update tilt using sine wave
+        tiltOffset = (yearsPassed / TILT_PERIOD) * p.TWO_PI;
+        tilt = 22.1 + TILT_AMPLITUDE * p.sin(tiltOffset);
+
+        // Determine season based on tilt and position
+        const tiltRad = p.radians(tilt);
+        const earthTilt = p.sin(angle + tiltRad);
+
+        if (earthTilt > SEASON_TRANSITION_THRESHOLD) {
+          season = "Northern Summer";
+        } else if (earthTilt < -SEASON_TRANSITION_THRESHOLD) {
+          season = "Northern Winter";
+        } else if (p.cos(angle + tiltRad) > 0) {
+          season = "Northern Spring";
+        } else {
+          season = "Northern Autumn";
         }
+      }
 
-        // Function to determine the current season
-        function determineSeason(year) {
-            const seasonIndex = Math.floor((year / orbitalPeriod) * 4) % 4;
-            return seasons[seasonIndex];
-        }
+      function drawEarth() {
+        p.push();
+        // Position earth in orbit
+        p.rotateY(angle);
+        p.translate(ORBIT_RADIUS, 0, 0);
 
-        // p5.js sketch
-        const sketch = (p) => {
-            let year = 0;
-            let position;
-            let temperature;
-            let season;
+        // Apply tilt
+        p.rotateX(p.radians(tilt));
 
-            p.setup = () => {
-                p.createCanvas(800, 800);
-                p.angleMode(p.DEGREES);
-            };
+        // Draw earth
+        p.fill(100, 149, 237);
+        p.sphere(EARTH_RADIUS);
 
-            p.draw = () => {
-                p.background(220);
+        // Draw tilt axis
+        p.push();
+        p.rotateX(p.HALF_PI);
+        p.stroke(255);
+        p.strokeWeight(1);
+        p.line(0, 0, 0, 0, EARTH_RADIUS * 2, 0);
+        p.pop();
 
-                // Draw the Sun
-                p.fill(255, 204, 0);
-                p.ellipse(p.width / 2, p.height / 2, 50, 50);
+        p.pop();
+      }
+    };
 
-                // Calculate Uranus' position
-                position = calculatePosition(year);
-                temperature = calculateTemperature(year);
-                season = determineSeason(year);
-
-                // Draw Uranus' orbit
-                p.noFill();
-                p.stroke(0);
-                p.strokeWeight(1);
-                p.ellipse(p.width / 2, p.height / 2, uranus.semiMajorAxis / 1000000 * 2, uranus.semiMajorAxis / 1000000 * 2);
-
-                // Draw Uranus
-                p.fill(0, 128, 255);
-                p.stroke(0);
-                p.strokeWeight(1);
-                p.ellipse(position.x / 1000000 + p.width / 2, position.y / 1000000 + p.height / 2, 20, 20);
-
-                // Draw the four seasonal points
-                const seasonalPoints = [
-                    calculatePosition(orbitalPeriod / 4),
-                    calculatePosition(orbitalPeriod / 2),
-                    calculatePosition(orbitalPeriod * 3 / 4),
-                    calculatePosition(0)
-                ];
-                p.fill(255, 0, 0);
-                for (let i = 0; i < seasonalPoints.length; i++) {
-                    p.ellipse(seasonalPoints[i].x / 1000000 + p.width / 2, seasonalPoints[i].y / 1000000 + p.height / 2, 5, 5);
-                }
-
-                // Display the current year, temperature, and season
-                p.fill(0);
-                p.noStroke();
-                p.textSize(24);
-                p.text(`Year: ${year.toFixed(2)}`, 10, 30);
-                p.text(`Temperature: ${temperature.toFixed(2)}°C`, 10, 60);
-                p.text(`Season: ${season}`, 10, 90);
-
-                // Update the year
-                year = (year + 0.1) % orbitalPeriod;
-            };
-        };
-
-        // Create a new p5 instance
-        new p5(sketch);
-    </script>
+    new window.p5(sketch);
+  </script>
 </body>
 </html>

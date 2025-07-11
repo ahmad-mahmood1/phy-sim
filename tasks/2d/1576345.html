@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column; /* Arrange content vertically */
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: 'Roboto Mono', monospace;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+
+        /* Heading Style */
+        h1 {
+            color: #efefef;
+            margin-bottom: 2rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-align: center;
+        }
+
+        /* Wrapper to manage layout */
+        #simulation-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem; /* Space between all items */
+            width: 100%;
+        }
+        
+        /* Panel for the cards on the left */
+        #info-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem; /* Space between the cards */
+            width: 280px;
+            flex-shrink: 0;
+        }
+
+        /* New wrapper for the canvas and its slider */
+        #canvas-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem; /* Space between canvas and slider */
+        }
+
+        #canvas-container {
+            border: 2px solid #555;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.7);
+            background-color: #000;
+            flex-shrink: 0; 
+        }
+
+        /* Shared style for all cards */
+        .card {
+            padding: 1.5rem;
+            background-color: #2c2c2c;
+            border: 1px solid #444;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.6;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        #description-card {
+             width: 280px;
+             flex-shrink: 0;
+        }
+
+        .card h3 {
+            margin-top: 0;
+            color: #a0e0ff;
+        }
+
+        /* Slider controls styling */
+        #controls-card {
+            padding: 1rem 1.5rem;
+        }
+        #controls-card label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+        #speed-slider {
+            width: 100%;
+        }
+
+        /* Responsive layout for smaller screens */
+        @media (max-width: 900px) {
+            h1 {
+                font-size: 1.5rem;
+                margin-bottom: 1rem;
+            }
+            #simulation-wrapper {
+                flex-direction: column; /* Stack all items vertically */
+            }
+            .card {
+                width: 85%;
+                margin: 0 auto;
+                text-align: center;
+            }
+            #info-panel, #description-card {
+                width: 100%;
+            }
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <!-- Main Heading -->
+    <h1>Earth's Axial Tilt & Seasonal Shift</h1>
+
+    <!-- Main wrapper for layout -->
+    <main id="simulation-wrapper">
+        <!-- Left-side panel for info -->
+        <div id="info-panel">
+            <div id="values-card" class="card"></div>
+            <!-- New card for describing seasonal effects -->
+            <div id="seasonal-effects-card" class="card">
+                <h3>Seasonal Effects</h3>
+                <p>Visual cues on the Earth model represent the changing seasons:</p>
+                <ul>
+                    <li><strong>Temperature:</strong> Landmasses shift from icy blue-white (winter) to reddish-brown (summer).</li>
+                    <li><strong>Ice Caps:</strong> Polar ice grows in the hemisphere experiencing winter and shrinks in summer.</li>
+                    <li><strong>Clouds:</strong> A persistent cloud layer drifts over the planet, simulating weather.</li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Middle section for canvas and its controls -->
+        <div id="canvas-section">
+            <div id="canvas-container"></div>
+            <div id="controls-card" class="card">
+                <label for="speed-slider">Simulation Speed: <span id="speed-value">1x</span></label>
+                <input type="range" id="speed-slider" min="1" max="4" value="1">
+            </div>
+        </div>
+
+        <!-- Right-side card for description -->
+        <div id="description-card" class="card">
+            <h3>About the Simulation</h3>
+            <p>This model shows Earth's obliquity cycle, a 41,000-year shift in its axial tilt.</p>
+            <ul>
+                <li><strong>Max Tilt (~24.5°):</strong> Leads to more extreme seasons (hotter summers, colder winters).</li>
+                <li><strong>Min Tilt (~22.1°):</strong> Results in milder seasons (cooler summers, warmer winters).</li>
+            </ul>
+            <p>This cycle is a key factor in Earth's long-term climate patterns, including ice ages.</p>
+        </div>
+    </main>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation Constants ---
+            const ORBIT_SPEED = 0.005;
+            const PRECESSION_SPEED = 0.0001;
+            const MIN_TILT = 22.1;
+            const MAX_TILT = 24.5;
+            const TILT_RANGE = MAX_TILT - MIN_TILT;
+            const TILT_CYCLE_DURATION = 41000;
+
+            // --- Simulation State ---
+            let orbitAngle = 0;
+            let precessionTime = 0;
+            let currentTilt = 0;
+            let cloudOffset = 0;
+            let clouds = [];
+
+            // --- DOM Elements ---
+            let valuesCard, speedSlider, speedValueDisplay;
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                const canvasSize = Math.min(p.windowWidth, p.windowHeight) * 0.65;
+                p.createCanvas(canvasSize, canvasSize, container);
+                p.angleMode(p.RADIANS);
+
+                valuesCard = document.getElementById('values-card');
+                speedSlider = p.select('#speed-slider');
+                speedValueDisplay = p.select('#speed-value');
+
+                const controlsCard = p.select('#controls-card');
+                controlsCard.style('width', `${canvasSize}px`);
+
+                speedSlider.input(() => {
+                    speedValueDisplay.html(`${speedSlider.value()}x`);
+                });
+
+                // Initialize cloud positions
+                for (let i = 0; i < 15; i++) {
+                    clouds.push({
+                        x: p.random(-p.width, p.width),
+                        y: p.random(-p.height / 2, p.height / 2),
+                        size: p.random(15, 40),
+                        speed: p.random(0.1, 0.3)
+                    });
+                }
+            };
+
+            p.draw = () => {
+                p.background(0);
+
+                const speedMultiplier = speedSlider.value();
+                orbitAngle += ORBIT_SPEED * speedMultiplier;
+                precessionTime += PRECESSION_SPEED * speedMultiplier;
+                cloudOffset += 0.1 * speedMultiplier;
+
+                const tiltCycleProgress = p.sin(precessionTime);
+                const tiltInDegrees = MIN_TILT + (TILT_RANGE / 2) * (1 + tiltCycleProgress);
+                currentTilt = p.radians(tiltInDegrees);
+
+                const centerX = p.width / 2;
+                const centerY = p.height / 2;
+                const orbitRadiusX = p.width * 0.4;
+                const orbitRadiusY = p.height * 0.3;
+                const sunRadius = p.width * 0.1;
+                const earthRadius = p.width * 0.04;
+
+                drawOrbitAndSun(centerX, centerY, orbitRadiusX, orbitRadiusY, sunRadius);
+
+                const earthX = centerX + orbitRadiusX * p.cos(orbitAngle);
+                const earthY = centerY + orbitRadiusY * p.sin(orbitAngle);
+
+                p.push();
+                p.translate(earthX, earthY);
+                
+                const axisLength = earthRadius * 2.2;
+                
+                drawTiltVisuals(tiltInDegrees, currentTilt, earthRadius, axisLength);
+
+                p.rotate(currentTilt);
+
+                drawEarthWithSeasons(earthRadius, tiltInDegrees);
+
+                p.stroke(255, 0, 0);
+                p.strokeWeight(3);
+                p.line(0, -axisLength, 0, axisLength);
+                p.noStroke();
+                p.fill(255);
+                p.ellipse(0, -axisLength, 8, 8);
+
+                p.pop();
+
+                const season = getSeason(orbitAngle, currentTilt);
+                updateInfo(tiltInDegrees, season);
+            };
+
+            function drawOrbitAndSun(cx, cy, orx, ory, sr) {
+                p.noFill();
+                p.stroke(50);
+                p.strokeWeight(1);
+                p.ellipse(cx, cy, orx * 2, ory * 2);
+                p.noStroke();
+                p.fill(255, 204, 0);
+                p.ellipse(cx, cy, sr * 2);
+            }
+
+            function drawTiltVisuals(tiltDeg, tiltRad, r, axisLen) {
+                p.stroke(100);
+                p.strokeWeight(1);
+                p.drawingContext.setLineDash([3, 3]);
+                p.line(0, -axisLen, 0, axisLen);
+                p.drawingContext.setLineDash([]);
+                p.noFill();
+                p.stroke(255, 255, 0, 200);
+                p.strokeWeight(1.5);
+                p.arc(0, 0, r * 1.5, r * 1.5, -p.HALF_PI, -p.HALF_PI + tiltRad);
+                p.noStroke();
+                p.fill(255, 255, 0);
+                p.textSize(10);
+                p.textAlign(p.LEFT, p.CENTER);
+                const textRadius = r * 1.1;
+                const textAngle = -p.HALF_PI + tiltRad / 2;
+                p.text(`${tiltDeg.toFixed(1)}°`, textRadius * p.cos(textAngle) + 8, textRadius * p.sin(textAngle));
+            }
+
+            function drawEarthWithSeasons(earthRadius, tiltInDegrees) {
+                // --- Calculate Seasonal Factor ---
+                // Determines which hemisphere is tilted towards the sun
+                // -1: Northern Winter / Southern Summer
+                // +1: Northern Summer / Southern Winter
+                const seasonalFactor = p.sin(orbitAngle);
+                const tiltIntensity = p.map(tiltInDegrees, MIN_TILT, MAX_TILT, 0.8, 1.2);
+
+                p.push();
+                // Clip all drawing to the Earth's circle
+                p.drawingContext.save();
+                p.drawingContext.beginPath();
+                p.drawingContext.arc(0, 0, earthRadius, 0, p.TWO_PI);
+                p.drawingContext.clip();
+
+                // Draw Base Earth (Oceans)
+                p.noStroke();
+                p.fill(0, 105, 148);
+                p.ellipse(0, 0, earthRadius * 2);
+
+                // --- Draw Landmasses with Temperature Color ---
+                // More prominent colors for seasons
+                const summerColor = p.color(180, 80, 20); // Intense reddish-brown for hot
+                const winterColor = p.color(210, 230, 255); // Brighter icy blue-white for cold
+                const normalColor = p.color(34, 139, 34); // Normal green
+
+                // Northern hemisphere color
+                const northColor = p.lerpColor(normalColor, seasonalFactor > 0 ? summerColor : winterColor, p.abs(seasonalFactor));
+                // Southern hemisphere color
+                const southColor = p.lerpColor(normalColor, seasonalFactor < 0 ? summerColor : winterColor, p.abs(seasonalFactor));
+
+                // Draw continents, coloring them based on hemisphere
+                drawContinents(earthRadius, northColor, southColor);
+                
+                // --- Draw Ice Caps ---
+                p.fill(255, 255, 255, 220);
+                // Northern ice cap grows during northern winter (seasonalFactor approaches -1)
+                const northIceSize = p.constrain(p.map(seasonalFactor, 1, -1, 0, earthRadius * 1.5) * tiltIntensity, 0, earthRadius * 1.2);
+                if (northIceSize > 2) p.ellipse(0, -earthRadius, northIceSize * 2, northIceSize);
+                // Southern ice cap grows during southern winter (seasonalFactor approaches 1)
+                const southIceSize = p.constrain(p.map(seasonalFactor, -1, 1, 0, earthRadius * 1.5) * tiltIntensity, 0, earthRadius * 1.2);
+                if (southIceSize > 2) p.ellipse(0, earthRadius, southIceSize * 2, southIceSize);
+
+                // --- Draw Clouds ---
+                drawClouds(earthRadius);
+
+                p.drawingContext.restore();
+                p.pop();
+
+                // Draw Earth outline
+                p.stroke(173, 216, 230);
+                p.strokeWeight(1);
+                p.noFill();
+                p.ellipse(0, 0, earthRadius * 2);
+            }
+
+            function drawContinents(r, northColor, southColor) {
+                p.noStroke();
+                // Continent 1 (mostly northern)
+                p.fill(northColor);
+                p.beginShape();
+                p.vertex(r * 0.2, -r * 0.7); p.vertex(r * 0.8, -r * 0.4);
+                p.vertex(r * 0.6, r * 0.5); p.vertex(-r * 0.2, r * 0.6);
+                p.vertex(-r * 0.6, 0);
+                p.endShape(p.CLOSE);
+                // Continent 2 (northern)
+                p.beginShape();
+                p.vertex(-r * 0.4, -r * 0.8); p.vertex(-r * 0.9, -r * 0.6);
+                p.vertex(-r * 0.7, -r * 0.3);
+                p.endShape(p.CLOSE);
+                // Continent 3 (southern)
+                p.fill(southColor);
+                p.beginShape();
+                p.vertex(-r*0.5, r*0.3); p.vertex(r*0.3, r*0.8);
+                p.vertex(r*0.5, r*0.4);
+                p.endShape(p.CLOSE);
+            }
+            
+            function drawClouds(r) {
+                p.noStroke();
+                p.fill(255, 255, 255, 60); // Very transparent clouds
+                for (let cloud of clouds) {
+                    let x = (cloud.x + cloudOffset * cloud.speed) % (r * 4) - r * 2;
+                    p.ellipse(x, cloud.y, cloud.size, cloud.size * 0.6);
+                }
+            }
+
+            function getSeason(angle, tilt) {
+                const normalizedAngle = (angle % p.TWO_PI + p.TWO_PI) % p.TWO_PI;
+                if (normalizedAngle > p.PI * 1.75 || normalizedAngle <= p.PI * 0.25) {
+                    return tilt > 0 ? "Northern Winter" : "Northern Summer";
+                } else if (normalizedAngle > p.PI * 0.25 && normalizedAngle <= p.PI * 0.75) {
+                    return "Northern Spring";
+                } else if (normalizedAngle > p.PI * 0.75 && normalizedAngle <= p.PI * 1.25) {
+                    return tilt > 0 ? "Northern Summer" : "Northern Winter";
+                } else {
+                    return "Northern Autumn";
+                }
+            }
+
+            function updateInfo(tilt, season) {
+                const yearsPassed = (precessionTime / (p.TWO_PI * PRECESSION_SPEED)) * TILT_CYCLE_DURATION / 2;
+                valuesCard.innerHTML = `
+                    <strong>Simulation Data</strong><br>
+                    --------------------------<br>
+                    Simulated Years: ${p.floor(yearsPassed).toLocaleString()}<br>
+                    Axial Tilt: ${tilt.toFixed(2)}°<br>
+                    N. Hemisphere: <span style="color: #66ccff;">${season}</span>
+                `;
+            }
+
+            p.windowResized = () => {
+                const canvasSize = Math.min(p.windowWidth, p.windowHeight) * 0.65;
+                p.resizeCanvas(canvasSize, canvasSize);
+                const controlsCard = p.select('#controls-card');
+                controlsCard.style('width', `${canvasSize}px`);
+            };
+        }
+        
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>
