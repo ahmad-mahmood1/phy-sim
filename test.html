@@ -1,103 +1,255 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Thermal Conduction Simulation</title>
-  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-  <script type="importmap">
-  {
-    "imports": {
-      "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Molecule Simulation</title>
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.7.0/+esm"
+        }
     }
-  }
-  </script>
+    </script>
+    <style>
+        body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
+        .controls { margin-bottom: 10px; display: flex; gap: 20px; align-items: center; }
+        button { padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #1976D2; }
+        label { font-weight: bold; }
+    </style>
 </head>
 <body>
-  <script type="module">
-    import p5 from 'p5';
+    <div class="controls">
+        <label for="temperature">Temperature:</label>
+        <input type="range" id="temperature" min="0" max="100" value="50">
+        <span id="tempValue">50</span>
+        <button id="reset">Reset</button>
+    </div>
+    <div id="canvas-container"></div>
+    <script type="module">
+        import p5 from "p5";
 
-    new p5((p) => {
-      // Skin layer parameters (thickness in mm, thermal conductivity in W/m·K)
-      const layers = [
-        { name: 'Epidermis', thickness: 0.05, conductivity: 0.21 },
-        { name: 'Dermis', thickness: 1.5, conductivity: 0.37 },
-        { name: 'Subcutaneous Fat', thickness: 4.0, conductivity: 0.21 },
-        { name: 'Muscle', thickness: 10.0, conductivity: 0.49 }
-      ];
-      const totalThickness = layers.reduce((sum, layer) => sum + layer.thickness, 0);
-      const scale = 50; // pixels per mm
-      const dt = 0.1; // time step
+        // Main sketch function
+        const sketch = (p) => {
+            // Constants
+            const MOLECULE_SIZE = 20;
+            const BOND_DISTANCE = MOLECULE_SIZE * 0.7;
+            const H_BOND_DISTANCE = MOLECULE_SIZE * 1.2;
+            const BOND_COLOR = p.color(30, 144, 255);
+            const H_BOND_COLOR = p.color(100, 149, 237, 150);
+            const MAX_VELOCITY = 3;
+            const MOLECULE_COUNT = 25;
+            
+            // Angle between hydrogens in a water molecule
+            const H_O_H_ANGLE = p.radians(104.5);
+            
+            // Variables
+            let molecules = [];
+            let temperature = 50;
+            let temperatureSlider, temperatureValue, resetButton;
 
-      let tempCore = 37;
-      let tempExternal = 20;
-      let temperatures = [];
-      let slider;
+            // Setup function
+            p.setup = () => {
+                const canvas = p.createCanvas(p.windowWidth - 40, p.windowHeight - 120);
+                canvas.parent('canvas-container');
+                
+                // Initialize UI controls
+                temperatureSlider = document.getElementById('temperature');
+                temperatureValue = document.getElementById('tempValue');
+                resetButton = document.getElementById('reset');
+                
+                // Event listeners
+                temperatureSlider.addEventListener('input', () => {
+                    temperature = parseInt(temperatureSlider.value);
+                    temperatureValue.textContent = temperature;
+                });
+                
+                resetButton.addEventListener('click', resetSimulation);
+                
+                // Initialize molecules
+                initializeMolecules();
+            };
 
-      p.setup = () => {
-        p.createCanvas(800, 600);
-        slider = p.createSlider(0, 50, tempExternal);
-        slider.position(50, p.height - 40);
-        slider.style('width', '200px');
-        initializeTemperatures();
-      };
+            // Initialize molecules with random positions
+            function initializeMolecules() {
+                molecules = [];
+                for (let i = 0; i < MOLECULE_COUNT; i++) {
+                    const x = p.random(p.width);
+                    const y = p.random(p.height);
+                    molecules.push(new WaterMolecule(x, y));
+                }
+            }
 
-      p.draw = () => {
-        p.background(240);
-        tempExternal = slider.value();
-        updateTemperatures();
-        drawLayers();
-        drawLegend();
-      };
+            // Reset simulation
+            function resetSimulation() {
+                initializeMolecules();
+            }
 
-      function initializeTemperatures() {
-        temperatures = layers.map(() => tempCore);
-      }
+            // Main draw function
+            p.draw = () => {
+                p.background(240);
+                
+                // Update and display molecules
+                for (let i = 0; i < molecules.length; i++) {
+                    molecules[i].update(temperature);
+                    molecules[i].display();
+                }
+                
+                // Check for hydrogen bonding between molecules
+                for (let i = 0; i < molecules.length; i++) {
+                    for (let j = i + 1; j < molecules.length; j++) {
+                        molecules[i].checkHydrogenBond(molecules[j]);
+                    }
+                }
+            };
 
-      function updateTemperatures() {
-        // Update temperatures based on heat conduction between layers
-        for (let i = 0; i < layers.length; i++) {
-          let top = i > 0 ? temperatures[i - 1] : tempExternal;
-          let bottom = i < layers.length - 1 ? temperatures[i + 1] : tempCore;
-          let k = layers[i].conductivity;
-          let tempNew = temperatures[i] + dt * k * (top + bottom - 2 * temperatures[i]);
-          temperatures[i] = tempNew;
-        }
-      }
+            // Handle window resizing
+            p.windowResized = () => {
+                p.resizeCanvas(p.windowWidth - 40, p.windowHeight - 120);
+            };
 
-      function drawLayers() {
-        let yOffset = 100;
-        let xOffset = 100;
-        for (let i = 0; i < layers.length; i++) {
-          let layer = layers[i];
-          let h = layer.thickness * scale;
-          let temp = temperatures[i];
-          let c = p.map(temp, tempExternal, tempCore, 0, 255);
-          p.fill(c, 255 - c, 255);
-          p.stroke(0);
-          p.rect(xOffset, yOffset, 400, h);
-          p.fill(0);
-          p.noStroke();
-          p.textSize(14);
-          p.textAlign(p.LEFT, p.TOP);
-          p.text(`${layer.name}: ${temp.toFixed(1)}°C`, xOffset + 10, yOffset + 10);
-          yOffset += h;
-        }
-        p.textSize(18);
-        p.text(`Core Temperature: ${tempCore}°C`, xOffset, yOffset + 20);
-        p.text(`External Temperature: ${tempExternal}°C`, xOffset, yOffset + 50);
-      }
+            // Water Molecule class
+            class WaterMolecule {
+                constructor(x, y) {
+                    this.position = p.createVector(x, y);
+                    this.velocity = p.createVector(p.random(-1, 1), p.random(-1, 1));
+                    this.hydrogens = [];
+                    this.bonds = [];
+                    this.hydrogenBonds = [];
+                    
+                    // Calculate hydrogen positions
+                    const angleOffset = -H_O_H_ANGLE / 2;
+                    for (let i = 0; i < 2; i++) {
+                        const angle = angleOffset + H_O_H_ANGLE * i;
+                        const hX = p.cos(angle) * MOLECULE_SIZE / 3;
+                        const hY = p.sin(angle) * MOLECULE_SIZE / 3;
+                        this.hydrogens.push(p.createVector(hX, hY));
+                    }
+                    
+                    // Create covalent bonds
+                    this.bonds.push(new Bond(this.position, this.hydrogens[0]));
+                    this.bonds.push(new Bond(this.position, this.hydrogens[1]));
+                }
 
-      function drawLegend() {
-        p.textSize(16);
-        p.textAlign(p.LEFT, p.TOP);
-        p.fill(0);
-        p.text('Thermal Conductivity:', 550, 100);
-        for (let i = 0; i < layers.length; i++) {
-          p.text(`${layers[i].name}: ${layers[i].conductivity} W/m·K`, 550, 130 + i * 30);
-        }
-      }
-    });
-  </script>
+                // Update molecule state
+                update(temp) {
+                    // Apply thermal motion
+                    const thermalForce = p.createVector(p.random(-1, 1), p.random(-1, 1)).mult(temp / 100);
+                    this.velocity.add(thermalForce);
+                    this.velocity.limit(MAX_VELOCITY);
+                    this.position.add(this.velocity);
+                    
+                    // Boundary checking
+                    if (this.position.x < 0 || this.position.x > p.width) this.velocity.x *= -1;
+                    if (this.position.y < 0 || this.position.y > p.height) this.velocity.y *= -1;
+                    
+                    // Update bonds
+                    this.bonds.forEach(bond => bond.update(this.position));
+                    
+                    // Update hydrogen bonds
+                    this.hydrogenBonds.forEach(bond => bond.update(this.position));
+                    
+                    // Remove broken hydrogen bonds
+                    this.hydrogenBonds = this.hydrogenBonds.filter(bond => bond.isActive());
+                }
+
+                // Display molecule
+                display() {
+                    // Draw oxygen atom
+                    p.fill(200, 0, 0);
+                    p.noStroke();
+                    p.ellipse(this.position.x, this.position.y, MOLECULE_SIZE);
+                    
+                    // Draw hydrogen atoms
+                    p.fill(0, 0, 200);
+                    this.hydrogens.forEach(hydrogen => {
+                        const pos = p5.Vector.add(this.position, hydrogen);
+                        p.ellipse(pos.x, pos.y, MOLECULE_SIZE / 2);
+                    });
+                    
+                    // Draw covalent bonds
+                    this.bonds.forEach(bond => bond.display(BOND_COLOR));
+                    
+                    // Draw hydrogen bonds
+                    this.hydrogenBonds.forEach(bond => bond.display(H_BOND_COLOR));
+                }
+
+                // Check for hydrogen bonding with another molecule
+                checkHydrogenBond(other) {
+                    // Check each hydrogen of this molecule with each oxygen of other molecule
+                    for (let i = 0; i < this.hydrogens.length; i++) {
+                        const hPos = p5.Vector.add(this.position, this.hydrogens[i]);
+                        const dist = p5.Vector.dist(hPos, other.position);
+                        
+                        if (dist < H_BOND_DISTANCE && p.random() < 0.1 * (1 - temperature/100)) {
+                            // Form a hydrogen bond
+                            const bond = new Bond(hPos, other.position);
+                            this.hydrogenBonds.push(bond);
+                            other.hydrogenBonds.push(bond);
+                        }
+                    }
+                }
+            }
+
+            // Bond class
+            class Bond {
+                constructor(start, end) {
+                    this.start = start.copy();
+                    this.end = end.copy();
+                    this.active = true;
+                }
+
+                // Update bond positions
+                update(oxygenPos) {
+                    if (!this.active) return;
+                    
+                    this.start = oxygenPos.copy();
+                }
+
+                // Display bond
+                display(color) {
+                    if (!this.active) return;
+                    
+                    p.push();
+                    p.stroke(color);
+                    p.strokeWeight(2);
+                    
+                    // Draw dashed line for hydrogen bonds
+                    if (color === H_BOND_COLOR) {
+                        const d = p5.Vector.dist(this.start, this.end);
+                        const dashLength = 5;
+                        const numDashes = Math.floor(d / (dashLength * 2));
+                        
+                        for (let i = 0; i < numDashes; i++) {
+                            const t1 = i / numDashes;
+                            const t2 = (i + 0.5) / numDashes;
+                            const start = p5.Vector.lerp(this.start, this.end, t1);
+                            const end = p5.Vector.lerp(this.start, this.end, t2);
+                            p.line(start.x, start.y, end.x, end.y);
+                        }
+                    } else {
+                        p.line(this.start.x, this.start.y, this.end.x, this.end.y);
+                    }
+                    
+                    p.pop();
+                }
+
+                // Check if bond is still active
+                isActive() {
+                    return this.active;
+                }
+
+                // Break the bond
+                break() {
+                    this.active = false;
+                }
+            }
+        };
+
+        // Create the p5 instance
+        new p5(sketch);
+    </script>
 </body>
 </html>
