@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Specific Heat Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+            background-color: #f0f4f8;
+        }
+        .control-panel label {
+            font-weight: 700;
+        }
+        .output-panel span {
+            font-weight: 700;
+            color: #1d4ed8;
+        }
+        #canvas-container {
+            border: 2px solid #374151;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            background-color: #ffffff;
+            /* Ensure container itself doesn't add extra space */
+            line-height: 0;
+        }
+        button {
+            transition: all 0.2s ease-in-out;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .info-panel h3 {
+            font-weight: 700;
+            color: #1f2937;
+        }
+        .info-panel p {
+            color: #4b5563;
+        }
+        .grid {
+            align-items: start; /* Align items to the top of the grid row */
+        }
+
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+        }
+    }
+    </script>
+</head>
+
+<body class="flex flex-col items-center justify-center min-h-screen p-4 bg-gray-100">
+
+    <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Specific Heat Virtual Lab</h1>
+
+    <div class="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+        <!-- Controls -->
+        <div id="controls-panel" class="control-panel lg:col-span-1 bg-white p-6 rounded-lg shadow-md border border-gray-200">
+            <h2 class="text-xl font-bold mb-4 border-b pb-2">Experiment Controls</h2>
+            
+            <div class="mb-6">
+                <label for="material-select" class="block text-sm font-medium text-gray-700 mb-2">1. Select Material:</label>
+                <select id="material-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                    <option value="iron">Iron</option>
+                    <option value="copper">Copper</option>
+                    <option value="aluminum">Aluminum</option>
+                    <option value="lead">Lead</option>
+                </select>
+            </div>
+
+            <div class="mb-6">
+                <label for="mass-slider" class="block text-sm font-medium text-gray-700 mb-2">2. Set Mass (<span id="mass-value">500</span> g):</label>
+                <input type="range" id="mass-slider" min="100" max="1000" value="500" step="10" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+
+            <div class="mb-6">
+                <label for="heat-slider" class="block text-sm font-medium text-gray-700 mb-2">3. Supply Heat (<span id="heat-value">10000</span> J):</label>
+                <input type="range" id="heat-slider" min="1000" max="50000" value="10000" step="1000" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+
+            <div class="flex space-x-4 mt-4">
+                <button id="start-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700">Start Experiment</button>
+                <button id="reset-btn" class="w-full bg-gray-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-700">Reset</button>
+            </div>
+        </div>
+
+        <!-- Simulation -->
+        <div id="canvas-container" class="lg:col-span-2 rounded-lg overflow-hidden">
+            <!-- p5.js canvas will be inserted here -->
+        </div>
+
+        <!-- Info Panel -->
+        <div class="info-panel lg:col-span-1 lg:row-span-2 bg-white p-6 rounded-lg shadow-md border border-gray-200 h-fit">
+            <h2 class="text-xl font-bold mb-4 border-b pb-2">Understanding the Simulation</h2>
+            <div class="flex flex-col gap-6 text-sm">
+                <div>
+                    <h3 class="mb-2">Effect of Material</h3>
+                    <p>Materials with a high specific heat (like Aluminum) require more energy to change temperature. For the same heat supplied, their final temperature will be lower than materials with low specific heat (like Lead).</p>
+                </div>
+                <div>
+                    <h3 class="mb-2">Effect of Mass</h3>
+                    <p>A larger mass contains more particles to heat up. Therefore, increasing the mass means more heat energy is needed for the same temperature change. The block's size in the flask reflects its mass.</p>
+                </div>
+                <div>
+                    <h3 class="mb-2">Effect of Heat Supplied</h3>
+                    <p>Increasing the supplied heat (Joules) puts more energy into the material. This directly results in a greater change in temperature (ΔT), leading to a higher final temperature.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Output Display -->
+        <div class="output-panel lg:col-span-3 bg-white p-6 rounded-lg shadow-md border border-gray-200">
+             <h2 class="text-xl font-bold mb-4 border-b pb-2">Results</h2>
+             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                <div>
+                    <p class="text-sm text-gray-600">Initial Temperature</p>
+                    <p class="text-2xl"><span>25.0</span> °C</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-600">Final Temperature</p>
+                    <p id="final-temp-display" class="text-2xl"><span>--</span> °C</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-600">Calculated Specific Heat (c)</p>
+                    <p id="specific-heat-display" class="text-2xl"><span>--</span> J/kg°C</p>
+                </div>
+             </div>
+             <div class="mt-4 text-center text-sm text-gray-500 italic">
+                 Formula: c = Q / (m * ΔT)
+             </div>
+        </div>
+    </div>
+    
+    <script type="module">
+        import p5 from 'p5';
+
+        // --- DOM ELEMENT REFERENCES ---
+        const container = document.getElementById('canvas-container');
+        const controlsPanel = document.getElementById('controls-panel');
+        const materialSelect = document.getElementById('material-select');
+        const massSlider = document.getElementById('mass-slider');
+        const heatSlider = document.getElementById('heat-slider');
+        const massValueSpan = document.getElementById('mass-value');
+        const heatValueSpan = document.getElementById('heat-value');
+        const startBtn = document.getElementById('start-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const finalTempDisplay = document.getElementById('final-temp-display').querySelector('span');
+        const specificHeatDisplay = document.getElementById('specific-heat-display').querySelector('span');
+
+        // --- MATERIAL PROPERTIES ---
+        // Specific heat values in J/kg°C
+        const materials = {
+            iron: { name: 'Iron', specificHeat: 450, color: [128, 128, 128] },
+            copper: { name: 'Copper', specificHeat: 385, color: [184, 115, 51] },
+            aluminum: { name: 'Aluminum', specificHeat: 900, color: [211, 211, 211] },
+            lead: { name: 'Lead', specificHeat: 128, color: [100, 100, 120] }
+        };
+
+        const sketch = (p) => {
+            // --- STATE VARIABLES ---
+            let currentMaterial = materials.iron;
+            let massKg = 0.5; // Mass in kg (default 500g)
+            let heatJoules = 10000; // Heat in Joules
+            
+            let initialTemp = 25.0; // °C
+            let finalTemp = 25.0; // °C
+            let currentTemp = 25.0; // °C
+            
+            let isSimulating = false;
+            let simulationProgress = 0; // 0 to 1
+            let animationStartTime;
+            const animationDuration = 2000; // 2 seconds
+
+            p.setup = () => {
+                const canvasWidth = container.clientWidth;
+                // Set canvas height to match the controls panel height
+                const canvasHeight = controlsPanel.clientHeight;
+                p.createCanvas(canvasWidth, canvasHeight);
+                p.noStroke();
+                
+                // Initialize UI
+                updateUI();
+                
+                // --- EVENT LISTENERS ---
+                materialSelect.addEventListener('change', (e) => {
+                    currentMaterial = materials[e.target.value];
+                    resetSimulation();
+                });
+
+                massSlider.addEventListener('input', (e) => {
+                    massKg = parseFloat(e.target.value) / 1000; // Convert g to kg
+                    massValueSpan.textContent = e.target.value;
+                    resetSimulation();
+                });
+
+                heatSlider.addEventListener('input', (e) => {
+                    heatJoules = parseInt(e.target.value);
+                    heatValueSpan.textContent = e.target.value;
+                    resetSimulation();
+                });
+
+                startBtn.addEventListener('click', startSimulation);
+                resetBtn.addEventListener('click', resetSimulation);
+            };
+
+            p.draw = () => {
+                p.background(255);
+                
+                // Update simulation state if running
+                if (isSimulating) {
+                    const elapsedTime = p.millis() - animationStartTime;
+                    simulationProgress = p.min(elapsedTime / animationDuration, 1);
+                    currentTemp = p.lerp(initialTemp, finalTemp, simulationProgress);
+
+                    if (simulationProgress >= 1) {
+                        isSimulating = false;
+                        currentTemp = finalTemp;
+                        calculateAndDisplaySpecificHeat();
+                    }
+                }
+                
+                // --- DRAWING FUNCTIONS ---
+                drawScene();
+                drawThermometer();
+                drawLabels();
+            };
+            
+            p.windowResized = () => {
+                const canvasWidth = container.clientWidth;
+                const canvasHeight = controlsPanel.clientHeight;
+                p.resizeCanvas(canvasWidth, canvasHeight);
+            };
+
+            function drawScene() {
+                // Define max dimensions for scaling. The flask will be sized to hold the largest block.
+                const maxBlockWidth = p.width * 0.4;
+                const maxBlockHeight = maxBlockWidth * 0.6;
+
+                // Flask is a constant size, based on max block size
+                const flaskWidth = maxBlockWidth + 20;
+                const flaskHeight = maxBlockHeight + 20;
+                const flaskX = p.width * 0.25;
+                const flaskY = p.height * 0.85 - flaskHeight; // Adjusted Y position for new canvas height
+
+                // Calculate current block size based on mass.
+                // Map mass (0.1kg to 1.0kg) to a visual scale (e.g., 50% to 100% of max size).
+                const scale = p.map(massKg, 0.1, 1.0, 0.5, 1.0);
+                const blockWidth = maxBlockWidth * scale;
+                const blockHeight = maxBlockHeight * scale;
+                
+                // Center the block at the bottom of the flask
+                const blockX = flaskX + (flaskWidth - blockWidth) / 2;
+                const blockY = flaskY + flaskHeight - blockHeight - 5; // -5 for a small margin from the bottom
+
+                // Draw elements in order: heater, flask, then block inside
+                drawHeater(flaskX, flaskY, flaskWidth, flaskHeight);
+                drawFlask(flaskX, flaskY, flaskWidth, flaskHeight);
+                drawMaterialBlock(blockX, blockY, blockWidth, blockHeight);
+            }
+
+            function drawFlask(x, y, w, h) {
+                p.push();
+                p.stroke(180, 180, 200, 150); // Translucent glass color
+                p.strokeWeight(3);
+                p.fill(220, 220, 240, 50); // Slight tint for the glass
+                
+                // Main body of the flask
+                p.rect(x, y, w, h, 3); // Slightly rounded corners for the flask
+                
+                // Top opening (erase part of the top line)
+                p.erase();
+                p.rect(x + 2, y-1, w - 4, 3);
+                p.noErase();
+                p.pop();
+            }
+
+            function drawMaterialBlock(x, y, w, h) {
+                // Color heats up during simulation
+                const baseColor = p.color(currentMaterial.color);
+                const hotColor = p.color(255, 50, 50);
+                const currentColor = p.lerpColor(baseColor, hotColor, simulationProgress * 0.5);
+                
+                p.fill(currentColor);
+                p.stroke(50);
+                p.strokeWeight(2);
+                p.rect(x, y, w, h, 5);
+            }
+            
+            function drawHeater(flaskX, flaskY, flaskWidth, flaskHeight) {
+                const heaterY = flaskY + flaskHeight + 15;
+                const heaterWidth = flaskWidth;
+                const heaterX = flaskX;
+
+                p.strokeWeight(4);
+                p.stroke(100);
+                p.noFill();
+                
+                // Heater glows when simulating
+                if (isSimulating) {
+                    const glowAlpha = p.map(p.sin(p.frameCount * 0.2), -1, 1, 100, 255);
+                    p.stroke(255, 100, 0, glowAlpha);
+                }
+
+                // Simple coil shape
+                p.beginShape();
+                for (let x = heaterX; x < heaterX + heaterWidth; x+=5) {
+                    const yOffset = p.sin((x - heaterX) * 0.1) * 10;
+                    p.vertex(x, heaterY + yOffset);
+                }
+                p.endShape();
+            }
+
+            function drawThermometer() {
+                const x = p.width * 0.85;
+                const y = p.height * 0.85; // Adjusted Y position
+                const h = p.height * 0.7; // Adjusted height
+                
+                // Glass tube
+                p.stroke(150);
+                p.strokeWeight(2);
+                p.fill(240);
+                p.rect(x - 5, y - h, 10, h, 5);
+                
+                // Bulb
+                p.fill(255, 0, 0);
+                p.noStroke();
+                p.ellipse(x, y, 30, 30);
+                
+                // Mercury level
+                // Estimate max possible temp for scaling, prevents mercury from flying off the screen
+                const maxTemp = initialTemp + (50000 / (0.1 * 128)); 
+                const mercuryHeight = p.map(currentTemp, 0, maxTemp, 0, h * 0.9);
+                p.rect(x - 2.5, y - mercuryHeight, 5, mercuryHeight);
+            }
+            
+            function drawLabels() {
+                p.fill(0);
+                p.noStroke();
+                p.textAlign(p.CENTER);
+                p.textSize(16);
+                p.text(`${currentMaterial.name}`, p.width * 0.45, p.height * 0.15);
+                
+                p.textAlign(p.LEFT);
+                p.textSize(14);
+                p.text(`Temp: ${currentTemp.toFixed(1)} °C`, p.width * 0.83, p.height * 0.1);
+            }
+
+            // --- LOGIC FUNCTIONS ---
+            function startSimulation() {
+                if (isSimulating) return;
+
+                // Q = mcΔT  =>  ΔT = Q / (m * c)
+                const tempChange = heatJoules / (massKg * currentMaterial.specificHeat);
+                finalTemp = initialTemp + tempChange;
+
+                isSimulating = true;
+                animationStartTime = p.millis();
+                startBtn.disabled = true;
+                
+                // Clear previous results
+                finalTempDisplay.textContent = '--';
+                specificHeatDisplay.textContent = '--';
+            }
+            
+            function resetSimulation() {
+                isSimulating = false;
+                simulationProgress = 0;
+                currentTemp = initialTemp;
+                finalTemp = initialTemp;
+                startBtn.disabled = false;
+                updateUI();
+            }
+
+            function calculateAndDisplaySpecificHeat() {
+                const tempChange = finalTemp - initialTemp;
+                finalTempDisplay.textContent = finalTemp.toFixed(1);
+                if (tempChange > 0) {
+                    // c = Q / (m * ΔT)
+                    const calculatedSpecificHeat = heatJoules / (massKg * tempChange);
+                    specificHeatDisplay.textContent = calculatedSpecificHeat.toFixed(1);
+                }
+            }
+            
+            function updateUI() {
+                finalTempDisplay.textContent = '--';
+                specificHeatDisplay.textContent = '--';
+            }
+        };
+
+        // --- p5 INSTANCE ---
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>

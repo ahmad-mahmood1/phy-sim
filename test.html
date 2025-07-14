@@ -2,154 +2,274 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Earth's Axial Tilt Simulation</title>
+  <title>Specific Heat Virtual Lab</title>
   <script type="importmap">
     {
       "imports": {
-        "p5": "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"
+        "p5": "https://cdn.skypack.dev/p5@1.4.0"
       }
     }
   </script>
   <style>
     body {
+      font-family: sans-serif;
       margin: 0;
       padding: 0;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
-      height: 100vh;
-      background-color: #000;
-      font-family: Arial, sans-serif;
+      gap: 10px;
+      background-color: #f4f4f4;
     }
-    canvas {
-      display: block;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-    }
-    .info-panel {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      color: #fff;
-      background-color: rgba(0, 0, 0, 0.7);
+    #controlPanel {
+      background: #fff;
       padding: 15px;
-      border-radius: 5px;
-      font-size: 14px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      width: 600px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
     }
-    .info-panel p {
-      margin: 8px 0;
+    label { display: block; font-weight: bold; margin-bottom: 2px; }
+    button { padding: 8px 16px; cursor: pointer; }
+    #canvas-container { width: 600px; height: 400px; }
+    #results {
+      font-size: 1.1em;
+      font-weight: bold;
+      margin-top: 5px;
     }
   </style>
 </head>
 <body>
-  <div class="info-panel">
-    <h3>Earth's Axial Tilt Simulation</h3>
-    <p>Years passed: <span id="years">0</span></p>
-    <p>Axial tilt: <span id="tilt">0</span>°</p>
-    <p>Northern Hemisphere Season: <span id="season">Spring</span></p>
+  <h1>Specific Heat Virtual Lab</h1>
+
+  <div id="controlPanel">
+    <div>
+      <label for="material">Material:</label>
+      <select id="material">
+        <option value="Iron">Iron</option>
+        <option value="Copper">Copper</option>
+        <option value="Lead">Lead</option>
+        <option value="Aluminum">Aluminum</option>
+      </select>
+    </div>
+    <div>
+      <label for="mass">Mass (kg):</label>
+      <input type="range" id="mass" min="0.1" max="10" step="0.1" value="1" />
+      <span id="massValue">1.0</span>
+    </div>
+    <div>
+      <label for="heat">Heat Supplied (J):</label>
+      <input type="range" id="heat" min="100" max="10000" step="100" value="1000" />
+      <span id="heatValue">1000</span>
+    </div>
+    <button id="startButton">Start</button>
+    <button id="resetButton">Reset</button>
   </div>
+
+  <div id="canvas-container"></div>
+  <div id="results"></div>
+
   <script type="module">
-    import 'p5';
+    import p5 from 'p5';
+
+    // Helper function to map a value from one range to another
+    function mapRange(value, in_min, in_max, out_min, out_max) {
+      return ((value - in_min) * (out_max - out_min)) / (in_max - in_min) + out_min;
+    }
 
     const sketch = (p) => {
-      // Simulation constants
-      const ORBIT_RADIUS = 200;
-      const SUN_RADIUS = 30;
-      const EARTH_RADIUS = 20;
-      const ORBIT_ECCENTRICITY = 0.2;
-      const TILT_AMPLITUDE = (24.5 - 22.1) / 2;
-      const TILT_PERIOD = 41000;
-      const SEASON_TRANSITION_THRESHOLD = 0.2;
+      // Simulation state variables
+      let initialTemperature = 25; // °C
+      let finalTemperature = 25;
+      let currentTemperature = 25;
+      let material = "Iron";
+      let mass = 1.0;
+      let heat = 1000;
+      let running = false;
+      let heatingAnimation = 0;
+      let specificHeatValue = 0;
 
-      // Simulation variables
-      let angle = 0;
-      let yearsPassed = 0;
-      let tiltOffset = 0;
-      let tilt = 22.1;
-      let season = "Northern Spring";
+      // Constants for animation timing
+      const HEAT_ANIMATION_DURATION = 1000; // milliseconds
+      const THERMOMETER_ANIMATION_DURATION = 3000; // milliseconds
 
-      p.setup = () => {
-        p.createCanvas(600, 600, p.WEBGL);
+      // Timer variables
+      let startTime = 0;
+      let thermometerStartTime = 0;
+
+      // Specific heat values for different materials (J/kg·°C)
+      const specificHeats = {
+        Iron: 449,
+        Copper: 385,
+        Lead: 129,
+        Aluminum: 897,
+      };
+
+      /**
+       * p5.js setup function.
+       * Initializes the canvas, attaches it to the DOM,
+       * and sets up initial UI event listeners.
+       */
+      p.setup = function () {
+        const canvas = p.createCanvas(600, 400);
+        canvas.parent('canvas-container');
+
+        // Event listeners for UI controls
+        document.getElementById('startButton').addEventListener('click', () => {
+          runSimulation();
+        });
+        document.getElementById('resetButton').addEventListener('click', () => {
+          resetSimulation();
+        });
+        document.getElementById('mass').addEventListener('input', (e) => {
+          mass = parseFloat(e.target.value);
+          document.getElementById('massValue').textContent = mass.toFixed(1);
+        });
+        document.getElementById('heat').addEventListener('input', (e) => {
+          heat = parseFloat(e.target.value);
+          document.getElementById('heatValue').textContent = heat;
+        });
+        document.getElementById('material').addEventListener('change', (e) => {
+          material = e.target.value;
+        });
+
+        p.textSize(14);
+        p.textAlign(p.LEFT, p.CENTER);
+      };
+
+      /**
+       * Calculates the final temperature using Q = mcΔT.
+       * The actual specific heat value from the lookup table
+       * is used for the calculation.
+       */
+      function calculateFinalTemperature() {
+        const deltaT = heat / (mass * specificHeats[material]);
+        finalTemperature = initialTemperature + deltaT;
+      }
+
+      /**
+       * Starts the simulation.
+       * Calculates final temperature, resets animation timers,
+       * and sets the simulation state to running.
+       */
+      function runSimulation() {
+        if (running) return;
+        calculateFinalTemperature();
+        currentTemperature = initialTemperature;
+        heatingAnimation = 0;
+        startTime = p.millis();
+        thermometerStartTime = p.millis();
+        specificHeatValue = 0; // Reset before calculation
+        running = true;
+        document.getElementById('results').textContent = '';
+      }
+
+      /**
+       * Resets the simulation to its initial state.
+       * Stops animations, resets temperature, and clears results.
+       */
+      function resetSimulation() {
+        running = false;
+        heatingAnimation = 0;
+        currentTemperature = initialTemperature;
+        finalTemperature = initialTemperature;
+        specificHeatValue = 0;
+        document.getElementById('results').textContent = '';
+      }
+
+      /**
+       * p5.js draw function.
+       * Main loop that continuously updates the simulation
+       * state and redraws the scene.
+       */
+      p.draw = function () {
+        p.background(240);
+
+        // Calculate elapsed time for animations
+        const elapsed = running ? p.millis() - startTime : 0;
+        const thermometerElapsed = running ? p.millis() - thermometerStartTime : 0;
+
+        // Draw the container (flask)
+        const containerX = 150;
+        const containerY = 100;
+        const containerWidth = 300;
+        const containerHeight = 250;
+        p.stroke(50);
+        p.strokeWeight(2);
+        p.noFill();
+        p.rect(containerX, containerY, containerWidth, containerHeight, 10);
+
+        // Draw the block of material
+        const blockSize = mapRange(mass, 0.1, 10, 10, 50);
+        const blockX = containerX + containerWidth / 2 - blockSize / 2;
+        const blockY = containerY + 50;
+        p.fill(200, 50, 50); // Default color
         p.noStroke();
-      };
+        p.rect(blockX, blockY, blockSize, blockSize);
 
-      p.draw = () => {
-        p.background(0);
-
-        // Draw sun
-        p.push();
-        p.fill(255, 204, 0);
-        p.sphere(SUN_RADIUS);
-        p.pop();
-
-        // Update and draw earth
-        updateEarth();
-        drawEarth();
-
-        // Update info panel
-        document.getElementById('years').textContent = Math.floor(yearsPassed);
-        document.getElementById('tilt').textContent = tilt.toFixed(1);
-        document.getElementById('season').textContent = season;
-      };
-
-      function updateEarth() {
-        // Update angle (position in orbit)
-        angle += 0.01;
-        if (angle > p.TWO_PI) {
-          angle -= p.TWO_PI;
-          yearsPassed += 1;
-        }
-
-        // Calculate position using elliptical orbit formula
-        const r = ORBIT_RADIUS * (1 - ORBIT_ECCENTRICITY * ORBIT_ECCENTRICITY) / (1 + ORBIT_ECCENTRICITY * p.cos(angle));
-        const x = r * p.cos(angle);
-        const z = r * p.sin(angle);
-
-        // Update tilt using sine wave
-        tiltOffset = (yearsPassed / TILT_PERIOD) * p.TWO_PI;
-        tilt = 22.1 + TILT_AMPLITUDE * p.sin(tiltOffset);
-
-        // Determine season based on tilt and position
-        const tiltRad = p.radians(tilt);
-        const earthTilt = p.sin(angle + tiltRad);
-
-        if (earthTilt > SEASON_TRANSITION_THRESHOLD) {
-          season = "Northern Summer";
-        } else if (earthTilt < -SEASON_TRANSITION_THRESHOLD) {
-          season = "Northern Winter";
-        } else if (p.cos(angle + tiltRad) > 0) {
-          season = "Northern Spring";
-        } else {
-          season = "Northern Autumn";
-        }
-      }
-
-      function drawEarth() {
-        p.push();
-        // Position earth in orbit
-        p.rotateY(angle);
-        p.translate(ORBIT_RADIUS, 0, 0);
-
-        // Apply tilt
-        p.rotateX(p.radians(tilt));
-
-        // Draw earth
-        p.fill(100, 149, 237);
-        p.sphere(EARTH_RADIUS);
-
-        // Draw tilt axis
-        p.push();
-        p.rotateX(p.HALF_PI);
-        p.stroke(255);
+        // Draw thermometer
+        const thermometerX = 500;
+        const thermometerY = 100;
+        const thermometerWidth = 20;
+        const thermometerHeight = 150;
+        p.stroke(50);
         p.strokeWeight(1);
-        p.line(0, 0, 0, 0, EARTH_RADIUS * 2, 0);
-        p.pop();
+        p.noFill();
+        p.rect(thermometerX, thermometerY, thermometerWidth, thermometerHeight, 5);
+        p.fill(255, 0, 0); // Thermometer fluid color
 
-        p.pop();
-      }
+        // Smoothly animate the thermometer fluid level based on elapsed time
+        if (running && thermometerElapsed <= THERMOMETER_ANIMATION_DURATION) {
+          currentTemperature = p.lerp(initialTemperature, finalTemperature, thermometerElapsed / THERMOMETER_ANIMATION_DURATION);
+          const t = p.constrain(currentTemperature, 0, 100); // Limit to 0–100°C
+          const fluidHeight = p.map(t, 0, 100, thermometerHeight, 0);
+          p.rect(thermometerX + 2, thermometerY + 2, thermometerWidth - 4, fluidHeight - 4);
+        } else if (running) {
+          currentTemperature = finalTemperature;
+          const t = p.constrain(currentTemperature, 0, 100);
+          const fluidHeight = p.map(t, 0, 100, thermometerHeight, 0);
+          p.rect(thermometerX + 2, thermometerY + 2, thermometerWidth - 4, fluidHeight - 4);
+        }
+
+        // Animate heating element below the container when simulation is running
+        if (running) {
+          const progress = p.min(elapsed / HEAT_ANIMATION_DURATION, 1.0);
+          heatingAnimation = progress;
+          p.fill(255, 200, 0, 150 * progress); // Glow effect
+          p.noStroke();
+          p.rect(containerX, containerY + containerHeight + 5, containerWidth, 10);
+        }
+
+        // Smoothly animate the block color based on the current temperature
+        const t = p.constrain(currentTemperature, 0, 100); // Limit temperature to 0–100°C
+        const r = p.map(t, 0, 100, 50, 200); // Red increases with temperature
+        const b = p.map(t, 0, 100, 200, 50); // Blue decreases with temperature
+        p.fill(r, 50, b);
+        p.noStroke();
+        p.rect(blockX, blockY, blockSize, blockSize);
+
+        // Draw text labels
+        p.fill(0);
+        p.noStroke();
+        p.text(`Material: ${material}`, 10, 20);
+        p.text(`Mass: ${mass.toFixed(1)} kg`, 10, 40);
+        p.text(`Heat: ${heat.toFixed(0)} J`, 10, 60);
+        p.text(`Temperature: ${currentTemperature.toFixed(1)} °C`, 10, 80);
+
+        // Update results display after simulation completes
+        if (running && thermometerElapsed > THERMOMETER_ANIMATION_DURATION) {
+          const deltaT = finalTemperature - initialTemperature;
+          specificHeatValue = heat / (mass * deltaT);
+          document.getElementById('results').textContent = `Final Temperature: ${finalTemperature.toFixed(1)} °C, Calculated Specific Heat: ${specificHeatValue.toFixed(0)} J/kg·°C`;
+          running = false;
+        }
+      };
     };
 
-    new window.p5(sketch);
+    new p5(sketch);
   </script>
 </body>
 </html>
