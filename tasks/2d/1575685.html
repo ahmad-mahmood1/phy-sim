@@ -26,6 +26,7 @@
             background-color: #ffffff;
             border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+            flex-wrap: wrap; /* Allow wrapping for smaller screens */
         }
 
         #simulation-wrapper {
@@ -33,6 +34,7 @@
             flex-direction: column;
             align-items: center;
             gap: 20px;
+            flex-grow: 1; /* Allow wrapper to grow */
         }
 
         .simulation-title {
@@ -225,16 +227,18 @@
 
         const sketch = (p) => {
             // Core simulation parameters
-            const coreBodyTemp = 37.0; // Core body temperature in Celsius
-            const timeFactor = 0.008; // Controls the speed of heat transfer simulation
-            const convectionFactor = 0.08; // Represents heat transfer rate to the air
+            let coreBodyTemp = 37.0; // Dynamic core body temperature
+            const targetBodyTemp = 37.0; // The body's target temperature
+            const timeFactor = 0.02; // Increased from 0.008 to speed up temp change
+            const convectionFactor = 0.08;
 
             let layers = [];
             let externalTempSlider;
             let tempValueDisplay;
             let skinBox;
+            let grainValues = [];
 
-            // Data for each skin layer. Thickness is a relative proportion.
+            // Data for each skin layer.
             const layerData = [
                 { name: 'Epidermis', thickness: 0.10, conductivity: 0.21 },
                 { name: 'Dermis', thickness: 0.20, conductivity: 0.37 },
@@ -247,8 +251,8 @@
                 const canvas = p.createCanvas(600, 400);
                 canvas.parent(canvasContainer);
                 p.textFont('Roboto Mono');
+                p.noiseSeed(Date.now());
 
-                // Define the bounding box for the skin layers section
                 skinBox = {
                     w: p.width * 0.5,
                     h: p.height * 0.8,
@@ -256,24 +260,30 @@
                     y: (p.height - p.height * 0.8) / 2
                 };
 
-                // --- Initialize Layers relative to the skinBox ---
+                for (let i = 0; i < p.width * p.height; i++) {
+                    grainValues.push(p.random(-10, 10));
+                }
+
                 let yPos = skinBox.y;
                 for (const data of layerData) {
                     const layerHeight = skinBox.h * data.thickness;
-                    layers.push({
+                    const layer = {
                         ...data,
                         y: yPos,
                         h: layerHeight,
-                        temp: coreBodyTemp // Initialize all layers to core body temperature
-                    });
+                        baseH: layerHeight, // Store original height
+                        temp: coreBodyTemp,
+                        details: []
+                    };
+                    generateLayerDetails(layer); 
+                    layers.push(layer);
                     yPos += layerHeight;
                 }
 
-                // --- Initialize UI Controls ---
                 const controlsContainer = document.getElementById('controls-container');
-                externalTempSlider = p.createSlider(-20, 100, 20, 1); // min, max, start, step
+                externalTempSlider = p.createSlider(-20, 100, 20, 1);
                 externalTempSlider.parent(controlsContainer);
-                externalTempSlider.style('width', '80%'); // Match CSS for consistency
+                externalTempSlider.style('width', '80%');
                 
                 tempValueDisplay = document.getElementById('temp-value');
             };
@@ -283,16 +293,42 @@
                 const externalTemp = externalTempSlider.value();
                 tempValueDisplay.textContent = `${externalTemp}°C`;
 
-                // --- Run Thermal Conduction Simulation ---
                 updateTemperatures(externalTemp);
 
-                // --- Draw Visualization ---
-                drawLayers();
+                p.push();
+                p.drawingContext.beginPath();
+                p.drawingContext.rect(skinBox.x, skinBox.y, skinBox.w, skinBox.h);
+                p.drawingContext.clip();
+
+                drawLayers(externalTemp);
+                addTextureGrain(); 
+                
+                p.pop();
+
                 drawLabels(externalTemp);
             };
             
             function updateTemperatures(externalTemp) {
                 let newTemps = layers.map(l => l.temp);
+                const isShivering = externalTemp < 5;
+                const isSweating = externalTemp > 30;
+                const shiveringHeatFactor = 0.015; 
+                const sweatingCoolFactor = 0.01;
+                const homeostasisFactor = 0.0001; // Rate at which body temp returns to target
+
+                // Update core body temperature based on overall skin temperature
+                const avgSkinTemp = layers.reduce((acc, l) => acc + l.temp, 0) / layers.length;
+                if (avgSkinTemp < targetBodyTemp - 1) {
+                    coreBodyTemp -= homeostasisFactor * (targetBodyTemp - avgSkinTemp);
+                } else if (avgSkinTemp > targetBodyTemp + 1) {
+                    coreBodyTemp += homeostasisFactor * (avgSkinTemp - targetBodyTemp);
+                } else {
+                    // Return to target temp
+                    if (coreBodyTemp < targetBodyTemp) coreBodyTemp += homeostasisFactor * 5;
+                    if (coreBodyTemp > targetBodyTemp) coreBodyTemp -= homeostasisFactor * 5;
+                }
+                coreBodyTemp = p.constrain(coreBodyTemp, 35, 39);
+
 
                 for (let i = 0; i < layers.length; i++) {
                     const layer = layers[i];
@@ -305,6 +341,13 @@
                     const flowToOutward = (layer.temp - tempOutward) * conductivityOutward;
                     
                     newTemps[i] += (flowFromInward - flowToOutward) * timeFactor;
+
+                    if (isShivering && layer.name === 'Muscle') {
+                        newTemps[i] += shiveringHeatFactor;
+                    }
+                    if (isSweating && layer.name === 'Epidermis') {
+                        newTemps[i] -= sweatingCoolFactor;
+                    }
                 }
 
                 for (let i = 0; i < layers.length; i++) {
@@ -312,75 +355,283 @@
                 }
             }
 
-            /**
-             * Draws the rectangles representing the skin layers inside the defined skinBox.
-             */
-            function drawLayers() {
-                for (const layer of layers) {
+            function generateLayerDetails(layer) {
+                p.randomSeed(0);
+                if (layer.name === 'Epidermis') {
+                    layer.basalCells = [];
+                    const yPos = layer.y + layer.h;
+                    for (let x = skinBox.x; x <= skinBox.x + skinBox.w; x += p.random(8, 15)) {
+                        layer.basalCells.push(x);
+                    }
+                }
+                if (layer.name === 'Epidermis' || layer.name === 'Dermis') {
+                    const cellCount = layer.name === 'Epidermis' ? 150 : 300;
+                    for (let i = 0; i < cellCount; i++) {
+                        layer.details.push({
+                            x: p.random(skinBox.x, skinBox.x + skinBox.w),
+                            y: p.random(layer.y, layer.y + layer.h),
+                            w: p.random(4, 8),
+                            h: p.random(4, 8)
+                        });
+                    }
+                }
+                if (layer.name === 'Dermis') {
+                    layer.vessels = [];
+                    for (let i = 0; i < 10; i++) {
+                        let vesselPath = [];
+                        let vx = p.random(skinBox.x, skinBox.x + skinBox.w);
+                        let vy = p.random(layer.y, layer.y + layer.h);
+                        vesselPath.push(p.createVector(vx, vy));
+                        for (let j = 0; j < p.random(3, 6); j++) {
+                           vx += p.random(-20, 20);
+                           vy += p.random(-5, 20);
+                           vx = p.constrain(vx, skinBox.x, skinBox.x + skinBox.w);
+                           vy = p.constrain(vy, layer.y, layer.y + layer.h);
+                           vesselPath.push(p.createVector(vx, vy));
+                        }
+                        layer.vessels.push({ path: vesselPath, weight: p.random(0.5, 1.5) });
+                    }
+                } else if (layer.name === 'Subcutaneous Fat') {
+                     for (let i = 0; i < 50; i++) {
+                        layer.details.push({
+                            x: p.random(skinBox.x, skinBox.x + skinBox.w),
+                            y: p.random(layer.y, layer.y + layer.h),
+                            w: p.random(20, 40),
+                            h: p.random(15, 30)
+                        });
+                    }
+                } else if (layer.name === 'Muscle') {
+                    for (let i = 0; i < 60; i++) {
+                        layer.details.push({
+                            x: p.random(skinBox.x, skinBox.x + skinBox.w),
+                            y: p.random(layer.y, layer.y + layer.h),
+                            w: p.random(40, 80),
+                            h: p.random(4, 7),
+                            tilt: p.random(-0.1, 0.1),
+                            alpha: p.random(10, 30)
+                        });
+                    }
+                }
+                 if (layer.name === 'Epidermis') {
+                    layer.pores = [];
+                    for(let i = 0; i < 40; i++) {
+                        layer.pores.push({
+                            x: p.random(skinBox.x + 2, skinBox.x + skinBox.w - 2),
+                            y: p.random(layer.y, layer.y + 5),
+                            baseSize: p.random(1, 2.5)
+                        });
+                    }
+                }
+            }
+            
+            function drawLayers(externalTemp) {
+                const isShivering = externalTemp < 5;
+                let yPos = skinBox.y;
+
+                for (let i = 0; i < layers.length; i++) {
+                    const layer = layers[i];
+                    
+                    // Muscle contraction/relaxation
+                    if(layer.name === 'Muscle') {
+                        const contraction = isShivering ? 1.05 : 1.0;
+                        layer.h = layer.baseH * contraction;
+                    } else if (i > 0 && layers[i-1].name === 'Muscle') {
+                        // Adjust layer above muscle
+                        layer.h = layer.baseH * (isShivering ? 0.95 : 1.0);
+                    } else {
+                         layer.h = layer.baseH;
+                    }
+                }
+                
+                // Recalculate Y positions
+                let currentY = skinBox.y;
+                for(const layer of layers) {
+                    layer.y = currentY;
+                    currentY += layer.h;
+                }
+
+
+                for (let i = 0; i < layers.length; i++) {
+                    const layer = layers[i];
                     const tempColor = mapTempToColor(layer.temp);
                     p.fill(tempColor);
                     p.noStroke();
                     p.rect(skinBox.x, layer.y, skinBox.w, layer.h);
+
+                    switch(layer.name) {
+                        case 'Epidermis':
+                            drawCellularLayer(layer, p.lerpColor(tempColor, p.color(210, 170, 140), 0.3));
+                            drawPores(layer, externalTemp);
+                            break;
+                        case 'Dermis':
+                            drawBloodVessels(layer, externalTemp);
+                            drawCellularLayer(layer, p.lerpColor(tempColor, p.color(220, 120, 120), 0.35));
+                            break;
+                        case 'Subcutaneous Fat':
+                            drawFatLayer(layer);
+                            break;
+                        case 'Muscle':
+                            drawMuscleLayer(layer, externalTemp);
+                            break;
+                    }
+                    
+                    if (i < layers.length - 1) {
+                       drawPartition(layers[i+1].y, layer.name === 'Epidermis');
+                    }
                 }
             }
 
-            /**
-             * Draws text labels outside the colored skin section for better visibility.
-             * @param {number} externalTemp - The current external temperature.
-             */
+            // --- Detail Drawing Functions ---
+
+            function drawCellularLayer(layer, cellColor) {
+                p.noStroke();
+                p.fill(cellColor);
+                for (const detail of layer.details) {
+                    p.ellipse(detail.x, detail.y, detail.w, detail.h);
+                }
+            }
+            
+            function drawPores(layer, externalTemp) {
+                const isSweating = externalTemp > 30;
+                const poreMultiplier = isSweating ? 2 : 1;
+
+                p.noStroke();
+                 for (const pore of layer.pores) {
+                    p.fill(0, 0, 0, 40);
+                    p.ellipse(pore.x, pore.y, pore.baseSize * poreMultiplier, pore.baseSize * poreMultiplier);
+                    if(isSweating && p.random() < 0.05) {
+                        p.fill(180, 200, 255, 100);
+                        p.ellipse(pore.x, pore.y, pore.baseSize * 3, pore.baseSize * 3);
+                    }
+                }
+            }
+            
+            function drawBloodVessels(layer, externalTemp) {
+                p.noFill();
+                const vesselMultiplier = p.map(externalTemp, 0, 25, 0.3, 1.2, true);
+
+                for (const vessel of layer.vessels) {
+                    p.strokeWeight(vessel.weight * vesselMultiplier);
+                    p.stroke(220, 20, 20, 100);
+                    p.beginShape();
+                    for(const v of vessel.path) {
+                        p.curveVertex(v.x, v.y);
+                    }
+                    p.endShape();
+                }
+            }
+
+            function drawFatLayer(layer) {
+                const tempColor = mapTempToColor(layer.temp);
+                const baseFatColor = p.color(255, 235, 150);
+                const fatCellColor = p.lerpColor(tempColor, baseFatColor, 0.6);
+                const fatOutlineColor = p.lerpColor(tempColor, p.color(240, 220, 150), 0.5);
+
+                p.stroke(fatOutlineColor);
+                p.strokeWeight(1);
+                p.fill(fatCellColor);
+                for (const detail of layer.details) {
+                    p.ellipse(detail.x, detail.y, detail.w, detail.h);
+                }
+            }
+
+            function drawMuscleLayer(layer, externalTemp) {
+                const tempColor = mapTempToColor(layer.temp);
+                const baseMuscleColor = p.color(180, 40, 40);
+                const muscleFiberColor = p.lerpColor(tempColor, baseMuscleColor, 0.7);
+                const isShivering = externalTemp < 5;
+
+                p.noStroke();
+                for (const fiber of layer.details) {
+                    p.fill(p.red(muscleFiberColor), p.green(muscleFiberColor), p.blue(muscleFiberColor), fiber.alpha);
+                    
+                    let shiverX = 0;
+                    let shiverY = 0;
+                    if (isShivering) {
+                        shiverX = p.random(-1, 1);
+                        shiverY = p.random(-1, 1);
+                    }
+
+                    p.push();
+                    p.translate(fiber.x + shiverX, fiber.y + shiverY);
+                    p.rotate(fiber.tilt);
+                    p.ellipse(0, 0, fiber.w, fiber.h);
+                    p.pop();
+                }
+            }
+            
+            function drawPartition(yPos, isBasal) {
+                p.noFill();
+                p.strokeWeight(isBasal ? 1.5 : 1);
+                p.stroke(0, 0, 0, isBasal ? 40 : 25);
+                
+                p.beginShape();
+                for (let x = skinBox.x; x <= skinBox.x + skinBox.w; x += 5) {
+                    const yOffset = p.map(p.noise(x * 0.05, yPos * 0.1), 0, 1, -2, 2);
+                    p.curveVertex(x, yPos + yOffset);
+                }
+                p.endShape();
+
+                if (isBasal) {
+                    p.noStroke();
+                    p.fill(0, 0, 0, 30);
+                    for (const x of layers[0].basalCells) {
+                        const yOffset = p.map(p.noise(x * 0.05, yPos * 0.1), 0, 1, -2, 2);
+                        p.ellipse(x, yPos + yOffset, 2, 2);
+                    }
+                }
+            }
+            
+            function addTextureGrain() {
+                p.loadPixels();
+                for (let y = Math.floor(skinBox.y); y < Math.floor(skinBox.y + skinBox.h); y++) {
+                    for (let x = Math.floor(skinBox.x); x < Math.floor(skinBox.x + skinBox.w); x++) {
+                        let i = (x + y * p.width);
+                        const grain = grainValues[i];
+                        p.pixels[i*4] += grain;
+                        p.pixels[i*4 + 1] += grain;
+                        p.pixels[i*4 + 2] += grain;
+                    }
+                }
+                p.updatePixels();
+            }
+
             function drawLabels(externalTemp) {
-                p.fill(50); // Dark grey color for all text for consistency
+                p.fill(50);
                 p.textSize(12);
 
-                // --- Draw Labels for each layer ---
                 for (const layer of layers) {
                     const labelY = layer.y + layer.h / 2;
-
-                    // Draw layer name to the left
                     p.textAlign(p.RIGHT, p.CENTER);
                     p.text(layer.name, skinBox.x - 15, labelY);
-                    
-                    // Draw temperature to the right
                     p.textAlign(p.LEFT, p.CENTER);
                     p.text(`${layer.temp.toFixed(2)}°C`, skinBox.x + skinBox.w + 15, labelY);
-                    
-                    // Draw connector lines
                     p.stroke(200);
                     p.strokeWeight(1);
                     p.line(skinBox.x - 10, labelY, skinBox.x, labelY);
                     p.line(skinBox.x + skinBox.w, labelY, skinBox.x + skinBox.w + 10, labelY);
                 }
 
-                // --- Draw general labels for environment and core ---
                 p.noStroke();
                 p.textAlign(p.CENTER, p.BOTTOM);
                 p.text(`External Environment: ${externalTemp.toFixed(1)}°C`, skinBox.x + skinBox.w / 2, skinBox.y - 5);
-                
                 p.textAlign(p.CENTER, p.TOP);
                 p.text(`Body Core: ${coreBodyTemp.toFixed(1)}°C`, skinBox.x + skinBox.w / 2, skinBox.y + skinBox.h + 5);
             }
 
-            /**
-             * Maps a temperature value to a color, creating a gradient from cold (blue)
-             * to neutral (skin tone) to hot (red).
-             * @param {number} temp - The temperature to map.
-             * @returns {p5.Color} The corresponding color.
-             */
             function mapTempToColor(temp) {
                 const minTemp = -10;
                 const maxTemp = 50;
-                const coldColor = p.color(66, 133, 244); // Google Blue
-                const bodyColor = p.color(255, 224, 192); // Neutral skin tone
-                const hotColor = p.color(219, 68, 55); // Google Red
+                const coldColor = p.color(66, 133, 244);
+                const bodyColor = p.color(255, 224, 192);
+                const hotColor = p.color(219, 68, 55);
                 
                 let mappedTemp;
-                if (temp < coreBodyTemp) {
-                    // Map from cold to body temperature
-                    mappedTemp = p.map(temp, minTemp, coreBodyTemp, 0, 1, true);
+                if (temp < targetBodyTemp) {
+                    mappedTemp = p.map(temp, minTemp, targetBodyTemp, 0, 1, true);
                     return p.lerpColor(coldColor, bodyColor, mappedTemp);
                 } else {
-                    // Map from body temperature to hot
-                    mappedTemp = p.map(temp, coreBodyTemp, maxTemp, 0, 1, true);
+                    mappedTemp = p.map(temp, targetBodyTemp, maxTemp, 0, 1, true);
                     return p.lerpColor(bodyColor, hotColor, mappedTemp);
                 }
             }
