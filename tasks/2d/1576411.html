@@ -37,11 +37,22 @@
         .parent-wrapper {
             display: flex;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
         }
 
         .canvas-container {
-            flex-basis: 70%;
+            flex: 3 1 700px; /* Flex-grow, flex-shrink, basis */
         }
+        
+        .info-panel {
+            flex: 1 1 300px; /* Flex-grow, flex-shrink, basis */
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            border-left: 5px solid #667eea;
+        }
+
 
         h1 {
             text-align: center;
@@ -145,15 +156,8 @@
             display: block;
             margin: 20px auto;
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-
-        .info-panel {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 15px;
-            margin-top: 20px;
-            border-left: 5px solid #667eea;
-            max-width: 300px;
+            width: 100%;
+            height: auto;
         }
 
         .reaction-info {
@@ -184,6 +188,12 @@
             margin: 10px 0;
             text-align: center;
             font-weight: bold;
+        }
+
+        @media (max-width: 1200px) {
+            .parent-wrapper {
+                flex-direction: column;
+            }
         }
 
         @media (max-width: 768px) {
@@ -218,7 +228,7 @@
                     <button id="add-magnesium">Add Magnesium</button>
                     <button id="reset">Reset</button>
                 </div>
-                <canvas id="simulation-canvas" width="700" height="600"></canvas>
+                <canvas id="simulation-canvas" width="700" height="350"></canvas>
             </div>
 
             <div class="info-panel">
@@ -227,13 +237,13 @@
 
                 <div class="reaction-info">
                     <div class="info-box">
-                        <h3>Cold Water (30-50°C)</h3>
-                        <p>Very slow reaction due to passivation. Magnesium hydroxide forms a protective layer that blocks further reaction.</p>
+                        <h3>Cold Water (30-40°C)</h3>
+                        <p>Very slow reaction due to passivation. A protective layer of Magnesium Hydroxide forms, represented by bubbles that stick to the metal, blocking further reaction.</p>
                     </div>
 
                     <div class="info-box">
-                        <h3>Warm Water (50-75°C)</h3>
-                        <p>Moderate reaction as the protective layer becomes more soluble, allowing continued reaction.</p>
+                        <h3>Warm Water (40-75°C)</h3>
+                        <p>Moderate reaction as the protective layer becomes more soluble, allowing continued reaction and release of hydrogen gas bubbles.</p>
                     </div>
 
                     <div class="info-box">
@@ -276,9 +286,9 @@
             setupCanvas() {
                 // Create walls for the test tube
                 const walls = [
-                    Bodies.rectangle(100, 400, 20, 300, { isStatic: true, render: { fillStyle: '#8B4513' } }),
-                    Bodies.rectangle(600, 400, 20, 300, { isStatic: true, render: { fillStyle: '#8B4513' } }),
-                    Bodies.rectangle(350, 540, 520, 20, { isStatic: true, render: { fillStyle: '#8B4513' } })
+                    Bodies.rectangle(100, 50, 20, 300, { isStatic: true, render: { fillStyle: '#8B4513' } }),
+                    Bodies.rectangle(600, 50, 20, 300, { isStatic: true, render: { fillStyle: '#8B4513' } }),
+                    Bodies.rectangle(350, 340, 520, 20, { isStatic: true, render: { fillStyle: '#8B4513' } })
                 ];
 
                 World.add(this.world, walls);
@@ -359,16 +369,64 @@
             }
 
             createBubble() {
-                if (!this.magnesiumBody || Math.random() > this.reactionRate) return;
+                if (!this.magnesiumBody) return;
 
+                const isPassivationTemperature = this.temperature < 40;
+                const stuckBubbles = this.bubbles.filter(b => b.stuck).length;
+                const maxStuckBubbles = 60; // Max bubbles for the passivation layer
+
+                // --- Special handling for creating the visual passivation layer ---
+                if (isPassivationTemperature) {
+                    // Only create new passivation bubbles if the layer isn't full
+                    if (stuckBubbles < maxStuckBubbles && Math.random() < 0.35) { // Increased chance to form layer faster
+                        const bubble = {
+                            life: Math.random() * 5 + 5, // Passivation bubbles last much longer
+                            radius: Math.random() * 2.5 + 1.5,
+                            color: `hsla(210, 100%, 90%, ${Math.random() * 0.4 + 0.4})`,
+                            stuck: true,
+                        };
+
+                        // Create a bubble stuck to the magnesium PERIMETER
+                        const w = 80; // magnesium width
+                        const h = 15; // magnesium height
+                        const perimeter = 2 * w + 2 * h;
+                        let p = Math.random() * perimeter;
+                        let relX, relY;
+
+                        if (p < w) { // Top edge
+                            relX = p - w / 2;
+                            relY = -h / 2;
+                        } else if (p < w + h) { // Right edge
+                            relX = w / 2;
+                            relY = (p - w) - h / 2;
+                        } else if (p < 2 * w + h) { // Bottom edge
+                            relX = (p - w - h) - w / 2;
+                            relY = h / 2;
+                        } else { // Left edge
+                            relX = -w / 2;
+                            relY = (p - 2 * w - h) - h / 2;
+                        }
+                        
+                        bubble.relativePos = { x: relX, y: relY };
+                        this.bubbles.push(bubble);
+                    }
+                    // If the layer is full, stop ALL bubble creation at this temperature.
+                    return; 
+                }
+
+                // --- Handling for actual reaction products (H2 gas) when temp is higher ---
+                if (Math.random() > this.reactionRate) return;
+
+                // Create a normal, free-floating hydrogen bubble for warmer temperatures
                 const bubble = {
+                    life: 1.0,
+                    radius: Math.random() * 5 + 2,
+                    color: `hsla(200, 100%, 80%, ${Math.random() * 0.5 + 0.5})`,
+                    stuck: false,
                     x: this.magnesiumBody.position.x + (Math.random() - 0.5) * 60,
                     y: this.magnesiumBody.position.y + 10,
                     vx: (Math.random() - 0.5) * 2,
-                    vy: -Math.random() * 3 - 1,
-                    radius: Math.random() * 5 + 2,
-                    life: 1.0,
-                    color: `hsla(200, 100%, 80%, ${Math.random() * 0.5 + 0.5})`
+                    vy: -Math.random() * 3 - 1, // Initial upward velocity
                 };
 
                 this.bubbles.push(bubble);
@@ -391,14 +449,42 @@
             }
 
             updateBubbles() {
+                const isPassivationTemperature = this.temperature < 40;
+
                 for (let i = this.bubbles.length - 1; i >= 0; i--) {
                     const bubble = this.bubbles[i];
-                    bubble.x += bubble.vx;
-                    bubble.y += bubble.vy;
-                    bubble.vy -= 0.1; // Buoyancy
-                    bubble.life -= 0.01;
 
-                    if (bubble.life <= 0 || bubble.y < 150) {
+                    // Check if a stuck bubble should be released because temperature increased
+                    if (bubble.stuck && !isPassivationTemperature) {
+                        bubble.stuck = false; // Release the bubble
+                        bubble.vx = (Math.random() - 0.5) * 2; // Give it some random horizontal velocity
+                        bubble.vy = -Math.random() * 2 - 1; // Give it upward velocity
+                        bubble.life = 1.0; // Reset its life to a normal bubble's lifespan
+                    }
+
+                    if (bubble.stuck && this.magnesiumBody) {
+                        // If bubble is "stuck", update its position relative to the moving magnesium body
+                        const angle = this.magnesiumBody.angle;
+                        const pos = this.magnesiumBody.position;
+                        const relX = bubble.relativePos.x;
+                        const relY = bubble.relativePos.y;
+
+                        // Apply rotation to the relative position to find the new absolute position
+                        bubble.x = pos.x + (relX * Math.cos(angle) - relY * Math.sin(angle));
+                        bubble.y = pos.y + (relX * Math.sin(angle) + relY * Math.cos(angle));
+                        
+                        bubble.life -= 0.002; // Make them disappear very slowly when stuck
+
+                    } else {
+                        // If it's a normal bubble, apply buoyancy
+                        bubble.x += bubble.vx;
+                        bubble.y += bubble.vy;
+                        bubble.vy -= 0.1; // Buoyancy effect
+                        bubble.life -= 0.01;
+                    }
+
+                    // Remove bubble if its life is over or it has floated off-screen
+                    if (bubble.life <= 0 || (!bubble.stuck && bubble.y < 150)) {
                         this.bubbles.splice(i, 1);
                     }
                 }
@@ -421,18 +507,20 @@
             render() {
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-                // Draw test tube
-                this.drawTestTube();
 
                 // Draw water
                 this.drawWater();
+
+                // Draw test tube
+                this.drawTestTube();
+             
 
                 // Draw magnesium
                 if (this.magnesiumBody) {
                     this.drawMagnesium();
                 }
 
-                // Draw bubbles
+                // Draw bubbles (both stuck and free)
                 this.drawBubbles();
 
                 // Draw hydroxide particles
@@ -444,14 +532,14 @@
 
             drawTestTube() {
                 this.ctx.fillStyle = '#8B4513';
-                this.ctx.fillRect(90, 250, 20, 300);
-                this.ctx.fillRect(590, 250, 20, 300);
-                this.ctx.fillRect(110, 530, 480, 20);
+                this.ctx.fillRect(90, 50, 20, 300);
+                this.ctx.fillRect(590, 50, 20, 300);
+                this.ctx.fillRect(110, 330, 480, 20);
             }
 
             drawWater() {
                 const waterLevel = 530;
-                const waterHeight = 270;
+                const waterHeight = 420;
 
                 // Create water gradient based on temperature
                 const gradient = this.ctx.createLinearGradient(0, waterLevel - waterHeight, 0, waterLevel);
@@ -482,12 +570,6 @@
                 // Draw magnesium strip
                 this.ctx.fillStyle = '#C0C0C0';
                 this.ctx.fillRect(-40, -7.5, 80, 15);
-
-                // Draw passivation layer if present
-                if (this.passivationLayer > 0.1) {
-                    this.ctx.fillStyle = `rgba(255, 255, 255, ${this.passivationLayer * 0.8})`;
-                    this.ctx.fillRect(-40, -7.5, 80, 15);
-                }
 
                 this.ctx.restore();
             }

@@ -1,275 +1,506 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Specific Heat Virtual Lab</title>
-  <script type="importmap">
-    {
-      "imports": {
-        "p5": "https://cdn.skypack.dev/p5@1.4.0"
-      }
-    }
-  </script>
-  <style>
-    body {
-      font-family: sans-serif;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      background-color: #f4f4f4;
-    }
-    #controlPanel {
-      background: #fff;
-      padding: 15px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      width: 600px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-    label { display: block; font-weight: bold; margin-bottom: 2px; }
-    button { padding: 8px 16px; cursor: pointer; }
-    #canvas-container { width: 600px; height: 400px; }
-    #results {
-      font-size: 1.1em;
-      font-weight: bold;
-      margin-top: 5px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magnesium Reaction Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #canvas {
+            border: 1px solid black;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: #ffffff;
+            padding: 10px;
+            border: 1px solid black;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "matter-js": "https://cdn.jsdelivr.net/npm/matter-js@0.19.0/+esm"
+            }
+        }
+    </script>
 </head>
 <body>
-  <h1>Specific Heat Virtual Lab</h1>
-
-  <div id="controlPanel">
-    <div>
-      <label for="material">Material:</label>
-      <select id="material">
-        <option value="Iron">Iron</option>
-        <option value="Copper">Copper</option>
-        <option value="Lead">Lead</option>
-        <option value="Aluminum">Aluminum</option>
-      </select>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <div id="controls">
+        <label for="temperature">Temperature (°C):</label>
+        <input type="range" id="temperature" min="30" max="100" value="30">
+        <span id="temperature-value">30</span>
+        <button id="add-magnesium">Add Magnesium</button>
+        <button id="reset">Reset</button>
     </div>
-    <div>
-      <label for="mass">Mass (kg):</label>
-      <input type="range" id="mass" min="0.1" max="10" step="0.1" value="1" />
-      <span id="massValue">1.0</span>
-    </div>
-    <div>
-      <label for="heat">Heat Supplied (J):</label>
-      <input type="range" id="heat" min="100" max="10000" step="100" value="1000" />
-      <span id="heatValue">1000</span>
-    </div>
-    <button id="startButton">Start</button>
-    <button id="resetButton">Reset</button>
-  </div>
 
-  <div id="canvas-container"></div>
-  <div id="results"></div>
+    <script type="module">
+        import Matter from 'matter-js';
 
-  <script type="module">
-    import p5 from 'p5';
+        const canvas = document.getElementById('canvas');
+        const temperatureInput = document.getElementById('temperature');
+        const temperatureValue = document.getElementById('temperature-value');
+        const addMagnesiumButton = document.getElementById('add-magnesium');
+        const resetButton = document.getElementById('reset');
 
-    // Helper function to map a value from one range to another
-    function mapRange(value, in_min, in_max, out_min, out_max) {
-      return ((value - in_min) * (out_max - out_min)) / (in_max - in_min) + out_min;
-    }
-
-    const sketch = (p) => {
-      // Simulation state variables
-      let initialTemperature = 25; // °C
-      let finalTemperature = 25;
-      let currentTemperature = 25;
-      let material = "Iron";
-      let mass = 1.0;
-      let heat = 1000;
-      let running = false;
-      let heatingAnimation = 0;
-      let specificHeatValue = 0;
-
-      // Constants for animation timing
-      const HEAT_ANIMATION_DURATION = 1000; // milliseconds
-      const THERMOMETER_ANIMATION_DURATION = 3000; // milliseconds
-
-      // Timer variables
-      let startTime = 0;
-      let thermometerStartTime = 0;
-
-      // Specific heat values for different materials (J/kg·°C)
-      const specificHeats = {
-        Iron: 449,
-        Copper: 385,
-        Lead: 129,
-        Aluminum: 897,
-      };
-
-      /**
-       * p5.js setup function.
-       * Initializes the canvas, attaches it to the DOM,
-       * and sets up initial UI event listeners.
-       */
-      p.setup = function () {
-        const canvas = p.createCanvas(600, 400);
-        canvas.parent('canvas-container');
-
-        // Event listeners for UI controls
-        document.getElementById('startButton').addEventListener('click', () => {
-          runSimulation();
-        });
-        document.getElementById('resetButton').addEventListener('click', () => {
-          resetSimulation();
-        });
-        document.getElementById('mass').addEventListener('input', (e) => {
-          mass = parseFloat(e.target.value);
-          document.getElementById('massValue').textContent = mass.toFixed(1);
-        });
-        document.getElementById('heat').addEventListener('input', (e) => {
-          heat = parseFloat(e.target.value);
-          document.getElementById('heatValue').textContent = heat;
-        });
-        document.getElementById('material').addEventListener('change', (e) => {
-          material = e.target.value;
+        // Initialize the physics engine
+        const engine = Matter.Engine.create();
+        const world = engine.world;
+        const render = Matter.Render.create({
+            canvas: canvas,
+            engine: engine,
+            options: {
+                width: 800,
+                height: 600,
+                wireframes: false,
+                background: '#f0f0f0'
+            }
         });
 
-        p.textSize(14);
-        p.textAlign(p.LEFT, p.CENTER);
-      };
+        // Add walls and container for water
+        const walls = [
+            Matter.Bodies.rectangle(400, 590, 800, 20, { isStatic: true }),
+            Matter.Bodies.rectangle(10, 300, 20, 600, { isStatic: true }),
+            Matter.Bodies.rectangle(790, 300, 20, 600, { isStatic: true }),
+            Matter.Bodies.rectangle(400, 20, 800, 40, { isStatic: true }) // Top wall with overflow
+        ];
+        Matter.World.add(world, walls);
 
-      /**
-       * Calculates the final temperature using Q = mcΔT.
-       * The actual specific heat value from the lookup table
-       * is used for the calculation.
-       */
-      function calculateFinalTemperature() {
-        const deltaT = heat / (mass * specificHeats[material]);
-        finalTemperature = initialTemperature + deltaT;
-      }
+        const waterContainer = Matter.Bodies.rectangle(400, 300, 700, 500, {
+            isStatic: true,
+            render: {
+                fillStyle: '#ADD8E6'
+            }
+        });
+        Matter.World.add(world, waterContainer);
 
-      /**
-       * Starts the simulation.
-       * Calculates final temperature, resets animation timers,
-       * and sets the simulation state to running.
-       */
-      function runSimulation() {
-        if (running) return;
-        calculateFinalTemperature();
-        currentTemperature = initialTemperature;
-        heatingAnimation = 0;
-        startTime = p.millis();
-        thermometerStartTime = p.millis();
-        specificHeatValue = 0; // Reset before calculation
-        running = true;
-        document.getElementById('results').textContent = '';
-      }
+        // State variables
+        let magnesiumStrips = [];
+        let bubbles = [];
+        let bubbleSources = [];
+        let temperature = 30;
+        let magnesiumCount = 0;
 
-      /**
-       * Resets the simulation to its initial state.
-       * Stops animations, resets temperature, and clears results.
-       */
-      function resetSimulation() {
-        running = false;
-        heatingAnimation = 0;
-        currentTemperature = initialTemperature;
-        finalTemperature = initialTemperature;
-        specificHeatValue = 0;
-        document.getElementById('results').textContent = '';
-      }
+        // Keep track of which strip generated which bubbles
+        const magnesiumBubbles = new Map();
 
-      /**
-       * p5.js draw function.
-       * Main loop that continuously updates the simulation
-       * state and redraws the scene.
-       */
-      p.draw = function () {
-        p.background(240);
-
-        // Calculate elapsed time for animations
-        const elapsed = running ? p.millis() - startTime : 0;
-        const thermometerElapsed = running ? p.millis() - thermometerStartTime : 0;
-
-        // Draw the container (flask)
-        const containerX = 150;
-        const containerY = 100;
-        const containerWidth = 300;
-        const containerHeight = 250;
-        p.stroke(50);
-        p.strokeWeight(2);
-        p.noFill();
-        p.rect(containerX, containerY, containerWidth, containerHeight, 10);
-
-        // Draw the block of material
-        const blockSize = mapRange(mass, 0.1, 10, 10, 50);
-        const blockX = containerX + containerWidth / 2 - blockSize / 2;
-        const blockY = containerY + 50;
-        p.fill(200, 50, 50); // Default color
-        p.noStroke();
-        p.rect(blockX, blockY, blockSize, blockSize);
-
-        // Draw thermometer
-        const thermometerX = 500;
-        const thermometerY = 100;
-        const thermometerWidth = 20;
-        const thermometerHeight = 150;
-        p.stroke(50);
-        p.strokeWeight(1);
-        p.noFill();
-        p.rect(thermometerX, thermometerY, thermometerWidth, thermometerHeight, 5);
-        p.fill(255, 0, 0); // Thermometer fluid color
-
-        // Smoothly animate the thermometer fluid level based on elapsed time
-        if (running && thermometerElapsed <= THERMOMETER_ANIMATION_DURATION) {
-          currentTemperature = p.lerp(initialTemperature, finalTemperature, thermometerElapsed / THERMOMETER_ANIMATION_DURATION);
-          const t = p.constrain(currentTemperature, 0, 100); // Limit to 0–100°C
-          const fluidHeight = p.map(t, 0, 100, thermometerHeight, 0);
-          p.rect(thermometerX + 2, thermometerY + 2, thermometerWidth - 4, fluidHeight - 4);
-        } else if (running) {
-          currentTemperature = finalTemperature;
-          const t = p.constrain(currentTemperature, 0, 100);
-          const fluidHeight = p.map(t, 0, 100, thermometerHeight, 0);
-          p.rect(thermometerX + 2, thermometerY + 2, thermometerWidth - 4, fluidHeight - 4);
+        // Add bubbles to a specific strip's bubble list
+        function addBubbleToStrip(bubble, strip) {
+            if (!magnesiumBubbles.has(strip)) {
+                magnesiumBubbles.set(strip, []);
+            }
+            magnesiumBubbles.get(strip).push(bubble);
         }
 
-        // Animate heating element below the container when simulation is running
-        if (running) {
-          const progress = p.min(elapsed / HEAT_ANIMATION_DURATION, 1.0);
-          heatingAnimation = progress;
-          p.fill(255, 200, 0, 150 * progress); // Glow effect
-          p.noStroke();
-          p.rect(containerX, containerY + containerHeight + 5, containerWidth, 10);
+        // Create magnesium strip with attached bubbles (passivation layer)
+        function createMagnesiumStrip() {
+            magnesiumCount++;
+            const x = Math.random() * 400 + 200;
+            const y = Math.random() * 400 + 100;
+
+            const magnesiumStrip = Matter.Bodies.rectangle(x, y, 50, 5, {
+                density: 0.05,
+                friction: 0.1,
+                frictionAir: 0.01,
+                restitution: 0.5,
+                render: {
+                    fillStyle: '#C0C0C0',
+                    strokeStyle: '#606060',
+                    lineWidth: 1
+                }
+            });
+
+            // Apply initial velocity in random direction
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 0.05 + Math.random() * 0.1;
+            Matter.Body.setVelocity(magnesiumStrip, {
+                x: Math.cos(angle) * speed,
+                y: Math.sin(angle) * speed
+            });
+
+            // Apply initial angular velocity
+            Matter.Body.setAngularVelocity(magnesiumStrip, (Math.random() - 0.5) * 0.05);
+
+            // Create bubbles for passivation layer (stuck to strip)
+            const passivationBubbles = [];
+            const bubblePositions = [
+                { x: 0, y: -2.5 },   // Top middle
+                { x: 0, y: 2.5 },    // Bottom middle
+                { x: -25, y: 0 },    // Left middle
+                { x: 25, y: 0 },     // Right middle
+                { x: -20, y: -2.5 }, // Top left
+                { x: 20, y: -2.5 },  // Top right
+                { x: -20, y: 2.5 },  // Bottom left
+                { x: 20, y: 2.5 }    // Bottom right
+            ];
+
+            bubblePositions.forEach(pos => {
+                const bubble = Matter.Bodies.circle(pos.x, pos.y, 2, {
+                    density: 0.0001,
+                    friction: 0,
+                    frictionAir: 0,
+                    restitution: 0.5,
+                    collisionFilter: { category: 0 },
+                    render: {
+                        fillStyle: 'rgba(255, 255, 255, 0.5)'
+                    }
+                });
+
+                // Make the bubble stick to the magnesium strip
+                bubble.isStuck = true;
+                bubble.stuckTo = magnesiumStrip;
+                Matter.Composite.add(world, bubble);
+                passivationBubbles.push(bubble);
+            });
+
+            // Store reference to strip and its bubbles
+            magnesiumBubbles.set(magnesiumStrip, passivationBubbles);
+            magnesiumStrips.push(magnesiumStrip);
+            Matter.World.add(world, magnesiumStrip);
+
+            return magnesiumStrip;
         }
 
-        // Smoothly animate the block color based on the current temperature
-        const t = p.constrain(currentTemperature, 0, 100); // Limit temperature to 0–100°C
-        const r = p.map(t, 0, 100, 50, 200); // Red increases with temperature
-        const b = p.map(t, 0, 100, 200, 50); // Blue decreases with temperature
-        p.fill(r, 50, b);
-        p.noStroke();
-        p.rect(blockX, blockY, blockSize, blockSize);
+        // Create freely floating bubble
+        function createBubble(x, y, size = 2, density = 0.0001) {
+            const bubble = Matter.Bodies.circle(x, y, size, {
+                density: density,
+                friction: 0,
+                frictionAir: 0,
+                restitution: 0.5,
+                render: {
+                    fillStyle: 'rgba(255, 255, 255, 0.7)'
+                }
+            });
 
-        // Draw text labels
-        p.fill(0);
-        p.noStroke();
-        p.text(`Material: ${material}`, 10, 20);
-        p.text(`Mass: ${mass.toFixed(1)} kg`, 10, 40);
-        p.text(`Heat: ${heat.toFixed(0)} J`, 10, 60);
-        p.text(`Temperature: ${currentTemperature.toFixed(1)} °C`, 10, 80);
-
-        // Update results display after simulation completes
-        if (running && thermometerElapsed > THERMOMETER_ANIMATION_DURATION) {
-          const deltaT = finalTemperature - initialTemperature;
-          specificHeatValue = heat / (mass * deltaT);
-          document.getElementById('results').textContent = `Final Temperature: ${finalTemperature.toFixed(1)} °C, Calculated Specific Heat: ${specificHeatValue.toFixed(0)} J/kg·°C`;
-          running = false;
+            Matter.World.add(world, bubble);
+            return bubble;
         }
-      };
-    };
 
-    new p5(sketch);
-  </script>
+        // Get points along the perimeter of a rectangle (for bubble creation)
+        function getRectPerimeterPoints(body, spacing = 8) {
+            const points = [];
+            const w = body.bounds.max.x - body.bounds.min.x;
+            const h = body.bounds.max.y - body.bounds.min.y;
+            const center = body.position;
+
+            // Top edge
+            for (let x = center.x - w/2; x <= center.x + w/2; x += spacing) {
+                points.push({ x, y: center.y - h/2 });
+            }
+
+            // Right edge
+            for (let y = center.y - h/2; y <= center.y + h/2; y += spacing) {
+                points.push({ x: center.x + w/2, y });
+            }
+
+            // Bottom edge
+            for (let x = center.x + w/2; x >= center.x - w/2; x -= spacing) {
+                points.push({ x, y: center.y + h/2 });
+            }
+
+            // Left edge
+            for (let y = center.y + h/2; y >= center.y - h/2; y -= spacing) {
+                points.push({ x: center.x - w/2, y });
+            }
+
+            return points;
+        }
+
+        // Check if a point is near the strip
+        function isNearStrip(point, strip) {
+            const stripBounds = strip.bounds;
+            const buffer = 5; // pixels around the strip to consider "near"
+
+            // Check if point is near the strip's bounds
+            return (
+                (point.x >= stripBounds.min.x - buffer && point.x <= stripBounds.max.x + buffer) &&
+                (point.y >= stripBounds.min.y - buffer && point.y <= stripBounds.max.y + buffer)
+            );
+        }
+
+        // Find the closest point on the strip to a given point
+        function findClosestPointOnStrip(point, strip) {
+            const stripBounds = strip.bounds;
+            let closestPoint = { x: point.x, y: point.y };
+            let minDistance = Infinity;
+
+            // Check if point is close to any of the strip's edges
+            // Top edge
+            if (Math.abs(point.y - stripBounds.min.y) < 10) {
+                closestPoint.y = stripBounds.min.y;
+                minDistance = Math.abs(point.y - stripBounds.min.y);
+            }
+
+            // Bottom edge
+            if (Math.abs(point.y - stripBounds.max.y) < 10 &&
+                Math.abs(point.y - stripBounds.max.y) < minDistance) {
+                closestPoint.y = stripBounds.max.y;
+                minDistance = Math.abs(point.y - stripBounds.max.y);
+            }
+
+            // Left edge
+            if (Math.abs(point.x - stripBounds.min.x) < 10 &&
+                Math.abs(point.x - stripBounds.min.x) < minDistance) {
+                closestPoint.x = stripBounds.min.x;
+                minDistance = Math.abs(point.x - stripBounds.min.x);
+            }
+
+            // Right edge
+            if (Math.abs(point.x - stripBounds.max.x) < 10 &&
+                Math.abs(point.x - stripBounds.max.x) < minDistance) {
+                closestPoint.x = stripBounds.max.x;
+                minDistance = Math.abs(point.x - stripBounds.max.x);
+            }
+
+            return closestPoint;
+        }
+
+        // Update the physics simulation
+        function update() {
+            Matter.Engine.update(engine);
+
+            // Handle stuck bubbles first
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+                const bubble = bubbles[i];
+
+                if (bubble.isStuck) {
+                    // If temperature exceeds 40, release all stuck bubbles
+                    if (temperature > 40) {
+                        bubble.isStuck = false;
+                        bubble.stuckTo = null;
+                        bubble.collisionFilter = { category: 1 };
+
+                        // Apply upward force to make it float
+                        Matter.Body.applyForce(bubble, bubble.position, {
+                            x: (Math.random() - 0.5) * 0.0005,
+                            y: -0.0005 - Math.random() * 0.0005
+                        });
+
+                        continue;
+                    }
+
+                    if (bubble.stuckTo && magnesiumStrips.includes(bubble.stuckTo)) {
+                        // Keep bubble attached to magnesium strip
+                        const offset = {
+                            x: bubble.position.x - bubble.stuckTo.position.x,
+                            y: bubble.position.y - bubble.stuckTo.position.y
+                        };
+
+                        // Apply offset in world coordinates instead of local
+                        Matter.Body.setPosition(bubble, {
+                            x: bubble.stuckTo.position.x + offset.x,
+                            y: bubble.stuckTo.position.y + offset.y
+                        });
+
+                        // Ensure the stuck bubble moves with the strip
+                        Matter.Body.setVelocity(bubble, bubble.stuckTo.velocity);
+                    } else {
+                        // If the strip was removed, release the bubble
+                        bubble.isStuck = false;
+                        bubble.stuckTo = null;
+                    }
+                }
+            }
+
+            // Generate new bubbles based on temperature
+            if (temperature < 40) {
+                // Low temperature - slow passivation
+                magnesiumStrips.forEach(strip => {
+                    if (!magnesiumBubbles.has(strip)) return;
+
+                    const stripBubbles = magnesiumBubbles.get(strip);
+                    // Count stuck bubbles only
+                    const stuckCount = stripBubbles.filter(b => b.isStuck).length;
+
+                    if (stuckCount < 20 && Math.random() < 0.02) {
+                        const perimeterPoints = getRectPerimeterPoints(strip);
+                        const availablePoints = perimeterPoints.filter(
+                            p => !stripBubbles.some(b =>
+                                Math.abs(b.position.x - p.x) < 5 &&
+                                Math.abs(b.position.y - p.y) < 5
+                            )
+                        );
+
+                        if (availablePoints.length > 0) {
+                            const point = availablePoints[Math.floor(Math.random() * availablePoints.length)];
+                            const bubble = createBubble(point.x, point.y, 1 + Math.random() * 1);
+
+                            // Make the bubble stick to the magnesium strip
+                            bubble.isStuck = true;
+                            bubble.stuckTo = strip;
+                            bubble.collisionFilter = { category: 0 };
+
+                            stripBubbles.push(bubble);
+                            bubbles.push(bubble);
+                        }
+                    }
+                });
+            } else {
+                // High temperature - vigorous reaction
+                magnesiumStrips.forEach(strip => {
+                    if (!magnesiumBubbles.has(strip)) return;
+
+                    if (Math.random() < 0.05) {
+                        // Get perimeter points of the strip
+                        const perimeterPoints = getRectPerimeterPoints(strip);
+                        const bubble = createBubble(
+                            perimeterPoints[Math.floor(Math.random() * perimeterPoints.length)].x,
+                            perimeterPoints[Math.floor(Math.random() * perimeterPoints.length)].y,
+                            1 + Math.random() * 2,
+                            0.00005
+                        );
+
+                        // Apply upward force to make it float
+                        Matter.Body.applyForce(bubble, bubble.position, {
+                            x: (Math.random() - 0.5) * 0.0005,
+                            y: -0.001 - Math.random() * 0.0005
+                        });
+
+                        // Add to tracking arrays
+                        magnesiumBubbles.get(strip).push(bubble);
+                        bubbles.push(bubble);
+                    }
+                });
+            }
+
+            // Update bubble behavior
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+                const bubble = bubbles[i];
+
+                // Skip stuck bubbles (already handled)
+                if (bubble.isStuck) continue;
+
+                // Apply buoyancy to non-stuck bubbles
+                if (bubble.position.y < waterContainer.bounds.max.y) {
+                    // Apply upward force to simulate buoyancy
+                    Matter.Body.applyForce(bubble, bubble.position, {
+                        x: (Math.random() - 0.5) * 0.0002,
+                        y: -0.0002 - Math.random() * 0.0002
+                    });
+                }
+
+                // Handle bubbles exiting the top of the container
+                if (bubble.position.y < 0) {
+                    // Remove the bubble from the world
+                    Matter.World.remove(world, bubble);
+                    bubbles.splice(i, 1);
+
+                    // Also remove from magnesiumBubbles tracking
+                    magnesiumBubbles.forEach((stripBubbles, strip) => {
+                        const index = stripBubbles.indexOf(bubble);
+                        if (index !== -1) {
+                            stripBubbles.splice(index, 1);
+                        }
+                    });
+
+                    continue;
+                }
+
+                // Remove bubbles that are out of bounds (other directions)
+                if (bubble.position.x < 0 || bubble.position.x > 800 || bubble.position.y > 600) {
+                    Matter.World.remove(world, bubble);
+                    bubbles.splice(i, 1);
+
+                    // Also remove from magnesiumBubbles tracking
+                    magnesiumBubbles.forEach((stripBubbles, strip) => {
+                        const index = stripBubbles.indexOf(bubble);
+                        if (index !== -1) {
+                            stripBubbles.splice(index, 1);
+                        }
+                    });
+                }
+            }
+
+            // Make magnesium strips float
+            magnesiumStrips.forEach(strip => {
+                // Apply upward force to simulate buoyancy
+                Matter.Body.applyForce(strip, strip.position, {
+                    x: 0,
+                    y: -0.0003
+                });
+
+                // Remove strips that exit the top of the container
+                if (strip.position.y < 0) {
+                    Matter.World.remove(world, strip);
+                    const index = magnesiumStrips.indexOf(strip);
+                    if (index !== -1) {
+                        magnesiumStrips.splice(index, 1);
+                    }
+
+                    // Remove all bubbles associated with this strip
+                    if (magnesiumBubbles.has(strip)) {
+                        const stripBubbles = magnesiumBubbles.get(strip);
+                        stripBubbles.forEach(bubble => {
+                            Matter.World.remove(world, bubble);
+                            const bubbleIndex = bubbles.indexOf(bubble);
+                            if (bubbleIndex !== -1) {
+                                bubbles.splice(bubbleIndex, 1);
+                            }
+                        });
+                        magnesiumBubbles.delete(strip);
+                    }
+                }
+            });
+        }
+
+        // Event listeners
+        temperatureInput.addEventListener('input', () => {
+            temperature = parseInt(temperatureInput.value);
+            temperatureValue.textContent = temperature;
+
+            // Release stuck bubbles if temperature exceeds 40
+            if (temperature > 40) {
+                bubbles.forEach(bubble => {
+                    if (bubble.isStuck) {
+                        bubble.isStuck = false;
+                        bubble.stuckTo = null;
+
+                        // Apply upward force to make it float
+                        Matter.Body.applyForce(bubble, bubble.position, {
+                            x: (Math.random() - 0.5) * 0.0005,
+                            y: -0.0005 - Math.random() * 0.0005
+                        });
+                    }
+                });
+            }
+        });
+
+        addMagnesiumButton.addEventListener('click', () => {
+            if (magnesiumCount < 5) {
+                createMagnesiumStrip();
+            }
+        });
+
+        resetButton.addEventListener('click', () => {
+            // Clear all bodies
+            magnesiumStrips.forEach(strip => Matter.World.remove(world, strip));
+            bubbles.forEach(bubble => Matter.World.remove(world, bubble));
+
+            // Reset arrays and counters
+            magnesiumStrips = [];
+            bubbles = [];
+            magnesiumBubbles.clear();
+            magnesiumCount = 0;
+
+            // Reset temperature
+            temperature = 30;
+            temperatureInput.value = "30";
+            temperatureValue.textContent = "30";
+        });
+
+        // Run the simulation
+        setInterval(update, 1000 / 60);
+        Matter.Engine.run(engine);
+        Matter.Render.run(render);
+    </script>
 </body>
 </html>
