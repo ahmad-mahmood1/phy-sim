@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uranus Shadow Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Basic styles for centering the canvas and setting a background */
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #0a0a14;
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        /* Container for the p5.js canvas with some decorative styling */
+        #canvas-container {
+            position: relative;
+            width: 90vw;
+            height: 90vw;
+            max-width: 800px;
+            max-height: 800px; 
+            border: 2px solid #4b5563;
+            border-radius: 1rem;
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.2);
+        }
+
+        /* Ensure the canvas fills its container */
+        canvas {
+            display: block;
+            border-radius: 1rem;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <!-- The canvas will be dynamically added here by p5.js -->
+    <div id="canvas-container">
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        /**
+         * The main sketch function that encapsulates the p5.js simulation.
+         * @param {p5} p - The p5.js instance.
+         */
+        const sketch = (p) => {
+
+            // --- Simulation Constants and Variables ---
+            let orbitalAngle = 0; // Current angle of Uranus in its orbit (in radians)
+            const axialTilt = 98 * (Math.PI / 180); // Uranus's extreme 98-degree axial tilt
+            const orbitalSpeed = 0.005; // Speed of the simulation
+
+            // Dynamic variables based on canvas size
+            let uranusRadius;
+            let orbitRadiusX;
+            let orbitRadiusY;
+
+            /**
+             * p5.js setup function, runs once at the start.
+             */
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(container.offsetWidth, container.offsetHeight);
+                canvas.parent(container); // Attach canvas to the container div
+
+                p.angleMode(p.RADIANS); // Use radians for all angle calculations
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textFont('Roboto Mono');
+
+                // Initialize sizes based on the canvas dimensions
+                updateSizes();
+            };
+
+            /**
+             * p5.js draw function, runs continuously in a loop.
+             */
+            p.draw = () => {
+                p.background(10, 10, 20); // Deep space color
+                p.translate(p.width / 2, p.height / 2); // Center the coordinate system
+
+                // Animate the orbit
+                orbitalAngle = (orbitalAngle + orbitalSpeed) % p.TWO_PI;
+
+                // --- Draw Orbital Path, Labels, and Sun ---
+                drawOrbit();
+                drawSeasonLabels(); // New function to draw static season labels
+                const { sunX, sunY } = drawSun();
+
+                // --- Draw Uranus and its features ---
+                p.push(); // Isolate transformations for Uranus
+
+                // 1. Draw the planet's body
+                p.fill(173, 216, 230, 200); // Translucent light blue for Uranus
+                p.stroke(200);
+                p.strokeWeight(1);
+                p.ellipse(0, 0, uranusRadius * 2);
+
+                // 2. Draw the shadow cast by the Sun
+                const lightAngle = p.atan2(sunY, sunX);
+                p.noStroke();
+                p.fill(0, 0, 0, 100); // Semi-transparent black for the shadow
+                p.arc(0, 0, uranusRadius * 2, uranusRadius * 2, lightAngle + p.HALF_PI, lightAngle - p.HALF_PI);
+
+                // 3. Draw the tilted axis of rotation
+                drawAxis();
+
+                // 4. Draw the equator, which is perpendicular to the axis
+                drawEquator();
+
+                p.pop(); // Restore original drawing state
+
+                // --- Display Text and Information ---
+                drawInfoText();
+            };
+            
+            /**
+             * Handles window resizing to make the simulation responsive.
+             */
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+                updateSizes();
+            };
+
+            // --- Helper Drawing Functions ---
+
+            function updateSizes() {
+                uranusRadius = p.height / 6;
+                orbitRadiusX = p.width / 2.5;
+                orbitRadiusY = p.height / 2.5;
+            }
+
+            function drawOrbit() {
+                p.noFill();
+                p.stroke(100, 100, 120, 150);
+                p.strokeWeight(1);
+                p.ellipse(0, 0, orbitRadiusX * 2, orbitRadiusY * 2);
+            }
+
+            function drawSun() {
+                const sunX = orbitRadiusX * p.cos(orbitalAngle);
+                const sunY = orbitRadiusY * p.sin(orbitalAngle);
+                p.fill(255, 255, 0);
+                p.noStroke();
+                // Add a glowing effect to the sun
+                p.drawingContext.shadowBlur = 20;
+                p.drawingContext.shadowColor = 'yellow';
+                p.ellipse(sunX, sunY, p.width / 35);
+                p.drawingContext.shadowBlur = 0; // Reset shadow
+                return { sunX, sunY };
+            }
+
+            function drawAxis() {
+                p.push();
+                p.rotate(axialTilt); // Apply the 98-degree tilt
+                p.stroke(255, 100, 100, 200); // Red for axis
+                p.strokeWeight(2);
+                p.drawingContext.setLineDash([5, 5]); // Dashed line style
+                p.line(0, -uranusRadius * 1.5, 0, uranusRadius * 1.5);
+                p.drawingContext.setLineDash([]); // Reset to solid line
+                p.noStroke();
+                p.fill(255, 100, 100);
+                p.text("N", 0, -uranusRadius * 1.7);
+                p.text("S", 0, uranusRadius * 1.7);
+                p.pop();
+            }
+
+            function drawEquator() {
+                p.push();
+                // The equator is 90 degrees (HALF_PI) from the main axis
+                p.rotate(axialTilt - p.HALF_PI);
+                p.noFill();
+                p.stroke(100, 100, 255, 200); // Blue for equator
+                p.strokeWeight(2);
+                p.drawingContext.setLineDash([10, 10]);
+                p.ellipse(0, 0, uranusRadius * 2);
+                p.drawingContext.setLineDash([]);
+                p.pop();
+            }
+            
+            /**
+             * Draws static labels for the seasons around the orbital path.
+             */
+            function drawSeasonLabels() {
+                p.textSize(p.width / 70);
+                p.fill(200);
+                p.noStroke();
+                
+                const labelOffset = p.width / 30; // Distance of label from orbit
+                const northPoleAngle = axialTilt - p.HALF_PI;
+
+                // --- Calculate positions for labels ---
+                const summerSolsticeAngle = northPoleAngle;
+                const winterSolsticeAngle = northPoleAngle + p.PI;
+                const springEquinoxAngle = northPoleAngle + p.HALF_PI;
+                const autumnEquinoxAngle = northPoleAngle - p.HALF_PI;
+
+                // --- Draw Labels ---
+                p.textAlign(p.CENTER, p.CENTER);
+                // Summer Solstice
+                let x = (orbitRadiusX + labelOffset) * p.cos(summerSolsticeAngle);
+                let y = (orbitRadiusY + labelOffset) * p.sin(summerSolsticeAngle);
+                p.text("N. Summer\nSolstice", x, y);
+
+                // Winter Solstice
+                x = (orbitRadiusX + labelOffset) * p.cos(winterSolsticeAngle);
+                y = (orbitRadiusY + labelOffset) * p.sin(winterSolsticeAngle);
+                p.text("N. Winter\nSolstice", x, y);
+
+                // Spring Equinox
+                x = (orbitRadiusX + labelOffset * 1.5) * p.cos(springEquinoxAngle);
+                y = (orbitRadiusY + labelOffset * 0.5) * p.sin(springEquinoxAngle);
+                p.text("Equinox", x, y);
+
+                // Autumn Equinox
+                x = (orbitRadiusX + labelOffset * 1.5) * p.cos(autumnEquinoxAngle);
+                y = (orbitRadiusY + labelOffset * 0.5) * p.sin(autumnEquinoxAngle);
+                p.text("Equinox", x, y);
+            }
+
+            function drawInfoText() {
+                // Display the main title and season text
+                p.fill(220);
+                p.noStroke();
+                p.textSize(p.width / 35);
+                p.textAlign(p.CENTER, p.TOP);
+                p.text("Uranus's Seasonal Shadows", 0, -p.height / 2 + 20);
+
+                // Display footer text
+                p.textSize(p.width / 70);
+                p.textAlign(p.CENTER, p.BOTTOM);
+                p.fill(180);
+                p.text("One full orbit represents a Uranian year (84 Earth years).", 0, p.height / 2 - 40);
+                p.text("At the solstices, one pole gets 42 years of continuous daylight.", 0, p.height / 2 - 20);
+            }
+        };
+
+        // Create the p5.js instance and attach it to the container
+        new p5(sketch, window.document.getElementById('canvas-container'));
+    </script>
+</body>
+
+</html>
