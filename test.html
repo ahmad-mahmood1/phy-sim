@@ -1,249 +1,359 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Uranus Season Simulator</title>
+    <title>2D Tunnel Stress Analysis</title>
     <style>
         body {
             margin: 0;
-            overflow: hidden;
-            background-color: #000;
-            color: #fff;
+            padding: 20px;
             font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
         }
-        canvas {
-            display: block;
-            margin: 20px auto;
-        }
-        #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background-color: rgba(0, 0, 0, 0.7);
-            padding: 10px;
-            border-radius: 5px;
-        }
-        #controls {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background-color: rgba(0, 0, 0, 0.7);
-            padding: 10px;
-            border-radius: 5px;
-        }
-        button {
-            background-color: #4CAF50;
-            border: none;
-            color: white;
-            padding: 8px 16px;
+
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            width: 600px;
             text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 14px;
-            margin: 4px 2px;
-            cursor: pointer;
-            border-radius: 4px;
         }
-        button:hover {
-            background-color: #3e8e41;
+
+        label {
+            font-weight: bold;
+            margin-right: 10px;
         }
+
         input[type="range"] {
-            width: 150px;
+            width: 300px;
             vertical-align: middle;
         }
-    </style>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://cdn.skypack.dev/p5@1.6.0"
-            }
+
+        .value-display {
+            display: inline-block;
+            width: 60px;
+            text-align: right;
+            margin-left: 10px;
         }
+
+        canvas {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+
+    <!-- Import map shim for browsers without native support -->
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+
+    <!-- Define all external dependencies in the import map -->
+    <script type="importmap">
+    {
+        "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+        }
+    }
     </script>
 </head>
+
 <body>
-    <div id="info">
-        <h2>Uranus Season Simulator</h2>
-        <p>Demonstrating the extreme seasons caused by Uranus' 98° axial tilt.</p>
-        <p>Each orbit represents one Uranian year (84 Earth years).</p>
+    <h1>2D Tunnel Stress Analysis</h1>
+    <div class="controls">
+        <label for="loadSlider">Vertical Load:</label>
+        <input type="range" id="loadSlider" min="0" max="100" value="0">
+        <span id="loadValue" class="value-display">0 N</span>
     </div>
-    <div id="controls">
-        <button id="pause-btn">Pause</button>
-        <button id="reset-btn">Reset</button><br>
-        <label for="speed-slider">Speed: </label>
-        <input type="range" id="speed-slider" min="0.1" max="2.0" value="0.5" step="0.1">
-        <span id="speed-value">0.5x</span>
-    </div>
+
     <div id="canvas-container"></div>
+
     <script type="module">
+        // Import dependencies
         import p5 from 'p5';
 
+        // Create a new p5 instance in instance mode
         const sketch = (p) => {
-            // Constants
-            const ORBIT_RADIUS = 300;
-            const SUN_SIZE = 20;
-            const URANUS_SIZE = 50;
-            const TILT_ANGLE = 98; // 98 degrees in radians
-            const ORBIT_PERIOD = 840; // Frames for one orbit (84 Earth years)
-            const DASH_LENGTH = 10;
-            const DASH_GAP = 5;
+            // Physics constants
+            const GRAVITY = 0.2;
+            const DAMPING = 0.92;
+            const SPRING_K = 0.12;
+            const MASS = 1;
+            const NUM_SEGMENTS = 12;
+            const TUNNEL_WIDTH = 400;
+            const TUNNEL_HEIGHT = 200;
+            const FIXED_POINTS = 2;
 
-            // Variables
-            let angle = 0;
-            let paused = false;
-            let speed = 0.5;
-            let showOrbit = true;
-            let showEquator = true;
-            let showLabels = true;
+            // Global variables
+            let particles = [];
+            let springs = [];
+            let tunnelBaseY;
+            let loadForce = 0;
+            let loadSlider;
+            let loadValueDisplay;
+            let crownParticle;
 
+            // Initialize the simulation
             p.setup = () => {
-                const canvas = p.createCanvas(800, 800);
+                const canvas = p.createCanvas(800, 600);
                 canvas.parent('canvas-container');
-                p.angleMode(p.DEGREES);
-                
-                // Set up controls
-                document.getElementById('pause-btn').addEventListener('click', () => {
-                    paused = !paused;
-                    document.getElementById('pause-btn').textContent = paused ? 'Play' : 'Pause';
-                });
-                
-                document.getElementById('reset-btn').addEventListener('click', () => {
-                    angle = 0;
-                });
-                
-                document.getElementById('speed-slider').addEventListener('input', (e) => {
-                    speed = parseFloat(e.target.value);
-                    document.getElementById('speed-value').textContent = speed + 'x';
-                });
-            };
 
-            p.draw = () => {
-                p.background(0);
-                
-                if (!paused) {
-                    angle += speed;
-                    if (angle >= 360) angle -= 360;
-                }
-                
-                p.translate(p.width/2, p.height/2);
-                
-                // Draw Uranus
-                p.push();
-                p.rotate(TILT_ANGLE);
-                drawUranus();
-                p.pop();
-                
-                // Draw orbit
-                if (showOrbit) {
-                    p.noFill();
-                    p.stroke(100);
-                    p.strokeWeight(1);
-                    p.ellipse(0, 0, ORBIT_RADIUS*2);
-                }
-                
-                // Draw sun
-                let sunX = ORBIT_RADIUS * p.cos(angle);
-                let sunY = ORBIT_RADIUS * p.sin(angle);
-                p.fill(255, 255, 0);
-                p.noStroke();
-                p.ellipse(sunX, sunY, SUN_SIZE);
-                
-                // Draw labels
-                if (showLabels) {
-                    drawLabels();
-                }
-            };
+                tunnelBaseY = p.height - 100;
+                const tunnelTopY = tunnelBaseY - TUNNEL_HEIGHT;
 
-            function drawUranus() {
-                // Draw shadow
-                p.fill(30);
-                p.noStroke();
-                p.arc(0, 0, URANUS_SIZE, URANUS_SIZE, 90, 270);
-                
-                // Draw planet
-                p.fill(173, 216, 230);
-                p.stroke(255);
-                p.strokeWeight(1);
-                p.ellipse(0, 0, URANUS_SIZE);
-                
-                // Draw equator
-                if (showEquator) {
-                    p.noFill();
-                    p.stroke(255, 0, 0);
-                    p.strokeWeight(2);
-                    p.strokeCap(p.ROUND);
-                    
-                    let equatorRadius = URANUS_SIZE * 0.9;
-                    let segments = 36;
-                    let dashAngle = (180 / segments) * (DASH_LENGTH / (2 * p.PI * equatorRadius / 360));
-                    let gapAngle = (180 / segments) * (DASH_GAP / (2 * p.PI * equatorRadius / 360));
-                    
-                    for (let i = 0; i < 360; i += (dashAngle + gapAngle) * 2) {
-                        p.arc(0, 0, equatorRadius, equatorRadius, i, i + dashAngle);
+                // Create fixed base particles (tunnel walls)
+                for (let i = 0; i < FIXED_POINTS; i++) {
+                    const x = p.map(i, 0, FIXED_POINTS - 1, p.width / 2 - TUNNEL_WIDTH / 2, p.width / 2 + TUNNEL_WIDTH / 2);
+                    particles.push(new Particle(x, tunnelBaseY, true));
+                }
+
+                // Create arch particles
+                for (let i = 0; i < NUM_SEGMENTS; i++) {
+                    const angle = p.map(i, 0, NUM_SEGMENTS - 1, p.PI, 0);
+                    const x = p.width / 2 + (TUNNEL_WIDTH / 2) * p.cos(angle);
+                    const y = tunnelTopY + (TUNNEL_HEIGHT / 2) * p.sin(angle);
+
+                    // Identify the crown particle (top center)
+                    const isCrown = i === Math.floor(NUM_SEGMENTS / 2);
+                    const particle = new Particle(x, y, false);
+
+                    if (isCrown) {
+                        crownParticle = particle;
                     }
+
+                    particles.push(particle);
                 }
-                
-                // Draw tilt axis
-                p.stroke(0, 255, 0);
-                p.strokeWeight(2);
-                let axisLength = URANUS_SIZE * 1.2;
-                let segments = 20;
-                let dashLen = axisLength / segments * 0.6;
-                let gapLen = axisLength / segments * 0.4;
-                
-                for (let i = -axisLength/2; i < axisLength/2; i += dashLen + gapLen) {
-                    p.line(0, i, 0, i + dashLen);
+
+                // Create springs between particles
+                for (let i = 0; i < particles.length - 1; i++) {
+                    springs.push(new Spring(particles[i], particles[i + 1]));
                 }
-                
-                // Draw poles
-                p.fill(255);
-                p.noStroke();
-                p.ellipse(0, -URANUS_SIZE/2, 5);
-                p.fill(0);
-                p.ellipse(0, URANUS_SIZE/2, 5);
+
+                // Close the tunnel by connecting the last particle to the first
+                springs.push(new Spring(particles[particles.length - 1], particles[FIXED_POINTS]));
+
+                // Setup load slider
+                loadSlider = document.getElementById('loadSlider');
+                loadValueDisplay = document.getElementById('loadValue');
+                loadSlider.addEventListener('input', updateLoad);
+            };
+
+            // Update the applied load
+            function updateLoad() {
+                loadForce = p.map(loadSlider.value, 0, 100, 0, 10);
+                loadValueDisplay.textContent = `${loadForce.toFixed(1)} N`;
             }
 
-            function drawLabels() {
-                p.fill(255);
-                p.noStroke();
-                p.textSize(14);
-                p.textAlign(p.CENTER);
-                
-                let labelAngle = angle + 180;
-                if (labelAngle >= 360) labelAngle -= 360;
-                
-                // Solstices and equinoxes
-                let points = [
-                    {angle: 0, text: "N. Summer\nSolstice"},
-                    {angle: 90, text: "Equinox"},
-                    {angle: 180, text: "N. Winter\nSolstice"},
-                    {angle: 270, text: "Equinox"}
-                ];
-                
-                for (let point of points) {
-                    let a = (point.angle + angle) % 360;
-                    let x = (ORBIT_RADIUS + 40) * p.cos(a);
-                    let y = (ORBIT_RADIUS + 40) * p.sin(a);
-                    p.text(point.text, x, y);
+            // Main animation loop
+            p.draw = () => {
+                p.background(240);
+
+                // Draw ground
+                p.stroke(100);
+                p.strokeWeight(2);
+                p.line(0, tunnelBaseY, p.width, tunnelBaseY);
+
+                // Update physics
+                for (const particle of particles) {
+                    particle.applyForce(0, loadForce);
+                    particle.update();
                 }
-                
-                // Current season label
-                let season = "";
-                if (labelAngle >= 337.5 || labelAngle < 22.5) season = "Northern Summer";
-                else if (labelAngle >= 22.5 && labelAngle < 67.5) season = "Fall Equinox";
-                else if (labelAngle >= 67.5 && labelAngle < 112.5) season = "Northern Winter";
-                else if (labelAngle >= 112.5 && labelAngle < 157.5) season = "Spring Equinox";
-                else if (labelAngle >= 157.5 && labelAngle < 202.5) season = "Northern Summer";
-                else if (labelAngle >= 202.5 && labelAngle < 247.5) season = "Fall Equinox";
-                else if (labelAngle >= 247.5 && labelAngle < 292.5) season = "Northern Winter";
-                else season = "Spring Equinox";
-                
-                p.fill(255, 255, 0);
-                p.text("Current Season: " + season, 0, -ORBIT_RADIUS - 30);
+
+                // Update springs
+                for (const spring of springs) {
+                    spring.update();
+                }
+
+                // Draw springs
+                for (const spring of springs) {
+                    spring.display();
+                }
+
+                // Draw particles
+                for (const particle of particles) {
+                    particle.display();
+                }
+
+                // Draw load indicator
+                p.noStroke();
+                p.fill(0);
+                p.textSize(14);
+                p.text(`Load: ${loadForce.toFixed(1)} N`, p.width - 100, 30);
+
+                // Display strain visualization key
+                displayStrainKey();
+            };
+
+            // Display strain visualization key
+            function displayStrainKey() {
+                const keyX = 20;
+                const keyY = 20;
+                const keyWidth = 150;
+                const keyHeight = 80;
+
+                // Draw key background
+                p.fill(255);
+                p.stroke(200);
+                p.strokeWeight(1);
+                p.rect(keyX, keyY, keyWidth, keyHeight);
+
+                p.noStroke();
+                p.fill(0);
+                p.textSize(12);
+                p.textAlign(p.LEFT, p.TOP);
+
+                const lineSpacing = 15;
+                let yPos = keyY + 10;
+
+                p.text("Strain Visualization:", keyX + 10, yPos);
+                yPos += lineSpacing * 2;
+
+                // Color indicators
+                p.fill(255, 0, 0);
+                p.rect(keyX + 10, yPos, 20, 10);
+                p.fill(0);
+                p.text("Tension", keyX + 40, yPos + 8);
+                yPos += lineSpacing;
+
+                p.fill(0, 0, 255);
+                p.rect(keyX + 10, yPos, 20, 10);
+                p.fill(0);
+                p.text("Compression", keyX + 40, yPos + 8);
+                yPos += lineSpacing;
+
+                p.fill(128);
+                p.rect(keyX + 10, yPos, 20, 10);
+                p.fill(0);
+                p.text("Neutral", keyX + 40, yPos + 8);
+            }
+
+            // Particle class
+            class Particle {
+                constructor(x, y, fixed) {
+                    this.position = p.createVector(x, y);
+                    this.prevPosition = p.createVector(x, y);
+                    this.acceleration = p.createVector(0, 0);
+                    this.fixed = fixed;
+                    this.mass = MASS;
+                    this.radius = fixed ? 8 : 6;
+                }
+
+                applyForce(x, y) {
+                    if (!this.fixed) {
+                        this.acceleration.add(x, y);
+                    }
+                }
+
+                update() {
+                    if (!this.fixed) {
+                        // Apply gravity
+                        this.acceleration.add(0, GRAVITY);
+
+                        // Verlet integration
+                        const temp = this.position.copy();
+                        const velocity = p5.Vector.sub(this.position, this.prevPosition).mult(DAMPING);
+                        this.position.add(velocity).add(this.acceleration.copy().mult(0.5));
+                        this.prevPosition = temp;
+                        this.acceleration.mult(0);
+                    }
+                }
+
+                display() {
+                    p.noStroke();
+                    p.fill(this.fixed ? 50 : 100);
+                    p.ellipse(this.position.x, this.position.y, this.radius * 2);
+                }
+            }
+
+            // Spring class
+            class Spring {
+                constructor(p1, p2) {
+                    this.p1 = p1;
+                    this.p2 = p2;
+                    this.restLength = p5.Vector.dist(p1.position, p2.position);
+                    this.k = SPRING_K;
+                }
+
+                update() {
+                    const force = p5.Vector.sub(this.p2.position, this.p1.position);
+                    const currentLength = force.mag();
+                    const x = currentLength - this.restLength;
+
+                    // Calculate spring force (Hooke's Law)
+                    force.normalize().mult(this.k * x);
+
+                    // Apply forces to particles
+                    if (!this.p1.fixed) {
+                        this.p1.applyForce(force.x, force.y);
+                    }
+                    if (!this.p2.fixed) {
+                        this.p2.applyForce(-force.x, -force.y);
+                    }
+                }
+
+                display() {
+                    const force = p5.Vector.sub(this.p2.position, this.p1.position);
+                    const currentLength = force.mag();
+                    const strain = (currentLength - this.restLength) / this.restLength;
+
+                    // Map strain to color
+                    let r, g, b;
+
+                    if (strain > 0.05) {
+                        // Red for tension
+                        const intensity = p.constrain(p.map(strain, 0.05, 0.5, 0, 255), 0, 255);
+                        r = 255;
+                        g = p.max(0, 128 - intensity);
+                        b = g;
+                    } else if (strain < -0.05) {
+                        // Blue for compression
+                        const intensity = p.constrain(p.map(-strain, 0.05, 0.5, 0, 255), 0, 255);
+                        b = 255;
+                        g = p.max(0, 128 - intensity);
+                        r = g;
+                    } else {
+                        // Neutral gray
+                        r = g = b = 128;
+                    }
+
+                    p.stroke(r, g, b);
+                    p.strokeWeight(3);
+                    p.line(this.p1.position.x, this.p1.position.y, this.p2.position.x, this.p2.position.y);
+
+                    // Draw strain indicator
+                    const midX = (this.p1.position.x + this.p2.position.x) / 2;
+                    const midY = (this.p1.position.y + this.p2.position.y) / 2;
+                    const angle = p.atan2(this.p2.position.y - this.p1.position.y, this.p2.position.x - this.p1.position.x);
+
+                    p.push();
+                    p.translate(midX, midY);
+                    p.rotate(angle);
+
+                    const barLength = p.map(p.abs(strain), 0, 0.5, 0, 20);
+                    const barHeight = 4;
+
+                    p.noStroke();
+                    if (strain > 0) {
+                        p.fill(255, 0, 0);
+                        p.rect(0, -barHeight / 2, barLength, barHeight);
+                    } else if (strain < 0) {
+                        p.fill(0, 0, 255);
+                        p.rect(-barLength, -barHeight / 2, barLength, barHeight);
+                    }
+
+                    p.pop();
+                }
             }
         };
 
+        // Create a new p5 instance with the sketch
         new p5(sketch);
     </script>
 </body>
+
 </html>
