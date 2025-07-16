@@ -29,9 +29,17 @@
         button {
             transition: all 0.2s ease-in-out;
         }
-        button:hover {
+        button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        input[type="range"]:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
         }
         .info-panel h3 {
             font-weight: 700;
@@ -76,7 +84,7 @@
 
             <div class="mb-6">
                 <label for="mass-slider" class="block text-sm font-medium text-gray-700 mb-2">2. Set Mass (<span id="mass-value">500</span> g):</label>
-                <input type="range" id="mass-slider" min="100" max="1000" value="500" step="10" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <input type="range" id="mass-slider" min="150" max="1000" value="500" step="10" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
             </div>
 
             <div class="mb-6">
@@ -177,6 +185,41 @@
             let animationStartTime;
             const animationDuration = 2000; // 2 seconds
 
+            let sparks = []; // Array to hold spark particles
+
+            // --- Spark Particle Class (defined inside sketch for p5 instance access) ---
+            class Spark {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    // Start with an upward velocity, and slight horizontal randomness
+                    this.vx = p.random(-0.5, 0.5);
+                    this.vy = p.random(-2, -4);
+                    this.alpha = 255; // Opacity
+                    this.size = p.random(2, 5);
+                    // Yellow to white sparks
+                    this.color = p.color(255, p.random(180, 255), 50); 
+                }
+
+                isFinished() {
+                    return this.alpha <= 0;
+                }
+
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.vy += 0.05; // Gravity effect
+                    this.alpha -= 5; // Fade out
+                }
+
+                show() {
+                    p.noStroke();
+                    // Use the components of the p5.Color object correctly
+                    p.fill(p.red(this.color), p.green(this.color), p.blue(this.color), this.alpha);
+                    p.ellipse(this.x, this.y, this.size);
+                }
+            }
+
             p.setup = () => {
                 const canvasWidth = container.clientWidth;
                 // Set canvas height to match the controls panel height
@@ -222,6 +265,11 @@
                         isSimulating = false;
                         currentTemp = finalTemp;
                         calculateAndDisplaySpecificHeat();
+                        // --- Re-enable controls now that the experiment is done ---
+                        startBtn.disabled = false;
+                        materialSelect.disabled = false;
+                        massSlider.disabled = false;
+                        heatSlider.disabled = false;
                     }
                 }
                 
@@ -246,20 +294,21 @@
                 const flaskWidth = maxBlockWidth + 20;
                 const flaskHeight = maxBlockHeight + 20;
                 const flaskX = p.width * 0.25;
-                const flaskY = p.height * 0.85 - flaskHeight; // Adjusted Y position for new canvas height
-
+                const flaskY = p.height * 0.70 - flaskHeight; // Adjusted Y position to move flask up
+                const heaterY = p.height * 0.75 - flaskHeight; // Adjusted Y position to move heater up
+                
                 // Calculate current block size based on mass.
-                // Map mass (0.1kg to 1.0kg) to a visual scale (e.g., 50% to 100% of max size).
-                const scale = p.map(massKg, 0.1, 1.0, 0.5, 1.0);
+                // Map mass (0.15kg to 1.0kg) to a visual scale (e.g., 50% to 100% of max size).
+                const scale = p.map(massKg, 0.15, 1.0, 0.5, 1.0);
                 const blockWidth = maxBlockWidth * scale;
                 const blockHeight = maxBlockHeight * scale;
                 
                 // Center the block at the bottom of the flask
                 const blockX = flaskX + (flaskWidth - blockWidth) / 2;
-                const blockY = flaskY + flaskHeight - blockHeight - 5; // -5 for a small margin from the bottom
+                const blockY = flaskY + flaskHeight - blockHeight - 5; // -5 for a small margin
 
                 // Draw elements in order: heater, flask, then block inside
-                drawHeater(flaskX, flaskY, flaskWidth, flaskHeight);
+                drawHeater(flaskX, heaterY, flaskWidth, flaskHeight);
                 drawFlask(flaskX, flaskY, flaskWidth, flaskHeight);
                 drawMaterialBlock(blockX, blockY, blockWidth, blockHeight);
             }
@@ -270,8 +319,7 @@
                 p.strokeWeight(3);
                 p.fill(220, 220, 240, 50); // Slight tint for the glass
                 
-                // Main body of the flask
-                p.rect(x, y, w, h, 3); // Slightly rounded corners for the flask
+                p.rect(x, y, w, h, 3); // Main body
                 
                 // Top opening (erase part of the top line)
                 p.erase();
@@ -281,7 +329,6 @@
             }
 
             function drawMaterialBlock(x, y, w, h) {
-                // Color heats up during simulation
                 const baseColor = p.color(currentMaterial.color);
                 const hotColor = p.color(255, 50, 50);
                 const currentColor = p.lerpColor(baseColor, hotColor, simulationProgress * 0.5);
@@ -293,27 +340,72 @@
             }
             
             function drawHeater(flaskX, flaskY, flaskWidth, flaskHeight) {
-                const heaterY = flaskY + flaskHeight + 15;
-                const heaterWidth = flaskWidth;
-                const heaterX = flaskX;
+                // --- Draw Bunsen Burner ---
+                const burnerY = flaskY + flaskHeight + 5;
+                const burnerTubeWidth = 15;
+                const burnerTubeHeight = 40;
+                const burnerBaseWidth = 60;
+                const burnerBaseHeight = 15;
 
-                p.strokeWeight(4);
-                p.stroke(100);
-                p.noFill();
-                
-                // Heater glows when simulating
+                const burnerTubeX = flaskX + (flaskWidth - burnerTubeWidth) / 2;
+                const burnerBaseX = flaskX + (flaskWidth - burnerBaseWidth) / 2;
+
+                // Base
+                p.fill(80);
+                p.noStroke();
+                p.rect(burnerBaseX, burnerY + burnerTubeHeight, burnerBaseWidth, burnerBaseHeight, 3);
+
+                // Tube
+                p.fill(120);
+                p.rect(burnerTubeX, burnerY, burnerTubeWidth, burnerTubeHeight);
+
+                // --- Draw Flame if Simulating ---
                 if (isSimulating) {
-                    const glowAlpha = p.map(p.sin(p.frameCount * 0.2), -1, 1, 100, 255);
-                    p.stroke(255, 100, 0, glowAlpha);
-                }
+                    const flameX = burnerTubeX + burnerTubeWidth / 2;
+                    const flameY = burnerY;
+                    
+                    // Add new sparks/particles periodically
+                    if (p.frameCount % 2 === 0) {
+                       let s = new Spark(flameX, flameY);
+                       sparks.push(s);
+                    }
+                    
+                    // Update and draw sparks
+                    for (let i = sparks.length - 1; i >= 0; i--) {
+                        sparks[i].update();
+                        sparks[i].show();
+                        if (sparks[i].isFinished()) {
+                            sparks.splice(i, 1);
+                        }
+                    }
+                    
+                    // Draw the main flame body using layered, noisy shapes
+                    p.noStroke();
+                    let time = p.frameCount * 0.1;
+                    
+                    // Draw multiple layers for a volumetric effect
+                    for (let i = 0; i < 10; i++) {
+                        let noiseFactorX = p.noise(time + i * 10, time + 20);
+                        let noiseFactorY = p.noise(time + i * 20, time + 30);
+                        
+                        let flameHeight = p.map(i, 0, 9, 100, 20); // Taller, thinner flames on top
+                        let flameWidth = p.map(i, 0, 9, 50, 10);
+                        
+                        let offsetX = p.map(noiseFactorX, 0, 1, -15, 15);
+                        let offsetY = p.map(noiseFactorY, 0, 1, 0, -flameHeight);
 
-                // Simple coil shape
-                p.beginShape();
-                for (let x = heaterX; x < heaterX + heaterWidth; x+=5) {
-                    const yOffset = p.sin((x - heaterX) * 0.1) * 10;
-                    p.vertex(x, heaterY + yOffset);
+                        // Color fades from blue/white to orange/red
+                        let fromColor = p.color(200, 220, 255, 50); // Inner blueish-white
+                        let toColor = p.color(255, 150, 0, 50);   // Outer orange
+                        let interColor = p.lerpColor(fromColor, toColor, i / 9);
+                        
+                        p.fill(interColor);
+                        p.ellipse(flameX + offsetX, flameY + offsetY, flameWidth, flameHeight);
+                    }
+                } else {
+                    // Clear sparks when not simulating
+                    sparks = [];
                 }
-                p.endShape();
             }
 
             function drawThermometer() {
@@ -334,7 +426,7 @@
                 
                 // Mercury level
                 // Estimate max possible temp for scaling, prevents mercury from flying off the screen
-                const maxTemp = initialTemp + (50000 / (0.1 * 128)); 
+                const maxTemp = initialTemp + (50000 / (0.15 * 128)); 
                 const mercuryHeight = p.map(currentTemp, 0, maxTemp, 0, h * 0.9);
                 p.rect(x - 2.5, y - mercuryHeight, 5, mercuryHeight);
             }
@@ -361,7 +453,12 @@
 
                 isSimulating = true;
                 animationStartTime = p.millis();
+                
+                // --- Disable all controls during simulation ---
                 startBtn.disabled = true;
+                materialSelect.disabled = true;
+                massSlider.disabled = true;
+                heatSlider.disabled = true;
                 
                 // Clear previous results
                 finalTempDisplay.textContent = '--';
@@ -373,7 +470,13 @@
                 simulationProgress = 0;
                 currentTemp = initialTemp;
                 finalTemp = initialTemp;
+
+                // --- Enable all controls ---
                 startBtn.disabled = false;
+                materialSelect.disabled = false;
+                massSlider.disabled = false;
+                heatSlider.disabled = false;
+
                 updateUI();
             }
 
