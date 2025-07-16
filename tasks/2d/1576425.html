@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P5.js 2D Side-View Ocean Waves</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a1a;
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #555;
+            box-shadow: 0 0 20px rgba(0, 150, 255, 0.5);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #title-container {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        #title {
+            font-size: 1.5em;
+            color: #ffffff;
+            text-shadow: 0 0 5px #000;
+        }
+        #subtitle {
+            font-size: 0.9em;
+            color: #aaa;
+        }
+
+        #controls-container {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .tide-button {
+            background-color: #006994; /* A shade of blue */
+            color: white;
+            border: 1px solid #00405c;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Roboto Mono', monospace;
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+
+        .tide-button:hover {
+            background-color: #007ba7; /* Lighter blue on hover */
+        }
+
+        .tide-button.active {
+            background-color: #0099cc;
+            box-shadow: 0 0 10px rgba(0, 150, 255, 0.7);
+            border-color: #00bfff;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="title-container">
+        <div id="title">2D Side-View Ocean Wave Simulation</div>
+        <div id="subtitle">Side view of flowing water with clouds</div>
+    </div>
+    <div id="controls-container">
+        <button id="high-tide-btn" class="tide-button">High Tide</button>
+        <button id="medium-tide-btn" class="tide-button active">Medium Tide</button>
+        <button id="low-tide-btn" class="tide-button">Low Tide</button>
+    </div>
+    <div id="canvas-container">
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        /**
+         * P5.js sketch to simulate a 2D side-view of ocean waves.
+         * The top half is the sky with clouds, and the bottom half shows waves animated with Perlin noise.
+         * @param {p5} p - The p5 instance.
+         */
+        const sketch = (p) => {
+
+            let yTimeOffset = 0; // Time dimension for Perlin noise (vertical wave motion)
+            let xTimeOffset = 0; // Time dimension for horizontal flow
+            let waveAmplitude = 50; // Max height of the waves, can be changed by buttons
+            const noiseScale = 0.002; // How "zoomed in" we are on the noise field
+            const flowSpeed = 3.5; // How fast the water flows from left to right
+
+            let clouds = [];
+
+            // --- Cloud Class ---
+            class Cloud {
+                constructor(x, y, size) {
+                    this.x = x;
+                    this.y = y;
+                    this.size = size;
+                    this.speed = p.random(0.2, 0.8);
+                }
+
+                move() {
+                    this.x += this.speed;
+                    // If cloud moves off-screen, wrap it around to the left side
+                    if (this.x > p.width + this.size * 2) {
+                        this.x = -this.size * 2;
+                    }
+                }
+
+                display() {
+                    p.noStroke();
+                    p.fill(255, 255, 255, 200); // Semi-transparent white
+                    
+                    // Draw cloud as a series of ellipses
+                    p.ellipse(this.x, this.y, this.size * 1.6, this.size);
+                    p.ellipse(this.x + this.size * 0.4, this.y - this.size * 0.3, this.size, this.size * 0.8);
+                    p.ellipse(this.x - this.size * 0.4, this.y + this.size * 0.2, this.size * 1.2, this.size * 0.9);
+                }
+            }
+
+            // --- Function to draw the grid ---
+            const drawGrid = () => {
+                const gridSize = 50;
+                p.stroke(0, 0, 0, 30); // Thin, semi-transparent black lines
+                p.strokeWeight(1);
+
+                for (let x = 0; x < p.width; x += gridSize) {
+                    p.line(x, 0, x, p.height);
+                }
+                for (let y = 0; y < p.height; y += gridSize) {
+                    p.line(0, y, p.width, y);
+                }
+            }
+
+
+            p.setup = () => {
+                // Set canvas size to be responsive
+                const canvasWidth = Math.min(window.innerWidth * 0.9, 800);
+                const canvasHeight = Math.min(window.innerHeight * 0.7, 600);
+                p.createCanvas(canvasWidth, canvasHeight);
+
+                // Create a few clouds with random properties
+                for (let i = 0; i < 5; i++) {
+                    clouds.push(new Cloud(p.random(p.width), p.random(50, p.height / 2 - 80), p.random(40, 80)));
+                }
+
+                // --- Tide Controls ---
+                const highTideBtn = document.getElementById('high-tide-btn');
+                const mediumTideBtn = document.getElementById('medium-tide-btn');
+                const lowTideBtn = document.getElementById('low-tide-btn');
+                const buttons = [highTideBtn, mediumTideBtn, lowTideBtn];
+
+                const setActiveButton = (activeBtn) => {
+                    buttons.forEach(btn => btn.classList.remove('active'));
+                    if (activeBtn) {
+                        activeBtn.classList.add('active');
+                    }
+                };
+
+                highTideBtn.onclick = () => {
+                    waveAmplitude = 90; // Larger amplitude for high tide
+                    setActiveButton(highTideBtn);
+                };
+                mediumTideBtn.onclick = () => {
+                    waveAmplitude = 50; // Default amplitude for medium tide
+                    setActiveButton(mediumTideBtn);
+                };
+                lowTideBtn.onclick = () => {
+                    waveAmplitude = 20; // Smaller amplitude for low tide
+                    setActiveButton(lowTideBtn);
+                };
+            };
+
+            p.draw = () => {
+                // --- Draw the Sky ---
+                p.background(135, 206, 235); // Sky blue
+
+                // --- Draw and Move Clouds ---
+                for (let cloud of clouds) {
+                    cloud.move();
+                    cloud.display();
+                }
+
+                // --- Draw the Ocean ---
+                p.fill(0, 105, 148); // A deep blue for the ocean
+                p.stroke(224, 255, 255); // A light cyan for the wave crests
+                p.strokeWeight(2);
+
+                p.beginShape();
+                p.vertex(0, p.height);
+
+                for (let x = 0; x <= p.width; x += 5) {
+                    // By subtracting xTimeOffset from x, we sample the noise field progressively
+                    // to the left, which makes the resulting wave appear to move to the right.
+                    const noiseValue = p.noise((x - xTimeOffset) * noiseScale, yTimeOffset);
+                    const y = p.map(noiseValue, 0, 1, p.height / 2 - waveAmplitude, p.height / 2 + waveAmplitude);
+                    p.vertex(x, y);
+                }
+
+                p.vertex(p.width, p.height);
+                p.endShape(p.CLOSE);
+
+                // --- Draw Grid Overlay ---
+                drawGrid();
+
+                // Animate the vertical wave shape
+                yTimeOffset += 0.015;
+                // Animate the horizontal flow
+                xTimeOffset += flowSpeed;
+            };
+
+            // Handle window resizing to keep the canvas responsive
+            p.windowResized = () => {
+                const canvasWidth = Math.min(window.innerWidth * 0.9, 800);
+                const canvasHeight = Math.min(window.innerHeight * 0.7, 600);
+                p.resizeCanvas(canvasWidth, canvasHeight);
+            };
+        };
+
+        // Find the container element and instantiate the p5 sketch
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>

@@ -1,359 +1,506 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Tunnel Stress Analysis</title>
+    <title>Magnesium Reaction Simulation</title>
     <style>
         body {
             margin: 0;
-            padding: 20px;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
             background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
         }
-
-        .controls {
-            margin-bottom: 20px;
-            padding: 15px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            width: 600px;
-            text-align: center;
+        #canvas {
+            border: 1px solid black;
         }
-
-        label {
-            font-weight: bold;
-            margin-right: 10px;
-        }
-
-        input[type="range"] {
-            width: 300px;
-            vertical-align: middle;
-        }
-
-        .value-display {
-            display: inline-block;
-            width: 60px;
-            text-align: right;
-            margin-left: 10px;
-        }
-
-        canvas {
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: #ffffff;
+            padding: 10px;
+            border: 1px solid black;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         }
     </style>
-
-    <!-- Import map shim for browsers without native support -->
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-
-    <!-- Define all external dependencies in the import map -->
     <script type="importmap">
-    {
-        "imports": {
-            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+        {
+            "imports": {
+                "matter-js": "https://cdn.jsdelivr.net/npm/matter-js@0.19.0/+esm"
+            }
         }
-    }
     </script>
 </head>
-
 <body>
-    <h1>2D Tunnel Stress Analysis</h1>
-    <div class="controls">
-        <label for="loadSlider">Vertical Load:</label>
-        <input type="range" id="loadSlider" min="0" max="100" value="0">
-        <span id="loadValue" class="value-display">0 N</span>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <div id="controls">
+        <label for="temperature">Temperature (°C):</label>
+        <input type="range" id="temperature" min="30" max="100" value="30">
+        <span id="temperature-value">30</span>
+        <button id="add-magnesium">Add Magnesium</button>
+        <button id="reset">Reset</button>
     </div>
 
-    <div id="canvas-container"></div>
-
     <script type="module">
-        // Import dependencies
-        import p5 from 'p5';
+        import Matter from 'matter-js';
 
-        // Create a new p5 instance in instance mode
-        const sketch = (p) => {
-            // Physics constants
-            const GRAVITY = 0.2;
-            const DAMPING = 0.92;
-            const SPRING_K = 0.12;
-            const MASS = 1;
-            const NUM_SEGMENTS = 12;
-            const TUNNEL_WIDTH = 400;
-            const TUNNEL_HEIGHT = 200;
-            const FIXED_POINTS = 2;
+        const canvas = document.getElementById('canvas');
+        const temperatureInput = document.getElementById('temperature');
+        const temperatureValue = document.getElementById('temperature-value');
+        const addMagnesiumButton = document.getElementById('add-magnesium');
+        const resetButton = document.getElementById('reset');
 
-            // Global variables
-            let particles = [];
-            let springs = [];
-            let tunnelBaseY;
-            let loadForce = 0;
-            let loadSlider;
-            let loadValueDisplay;
-            let crownParticle;
+        // Initialize the physics engine
+        const engine = Matter.Engine.create();
+        const world = engine.world;
+        const render = Matter.Render.create({
+            canvas: canvas,
+            engine: engine,
+            options: {
+                width: 800,
+                height: 600,
+                wireframes: false,
+                background: '#f0f0f0'
+            }
+        });
 
-            // Initialize the simulation
-            p.setup = () => {
-                const canvas = p.createCanvas(800, 600);
-                canvas.parent('canvas-container');
+        // Add walls and container for water
+        const walls = [
+            Matter.Bodies.rectangle(400, 590, 800, 20, { isStatic: true }),
+            Matter.Bodies.rectangle(10, 300, 20, 600, { isStatic: true }),
+            Matter.Bodies.rectangle(790, 300, 20, 600, { isStatic: true }),
+            Matter.Bodies.rectangle(400, 20, 800, 40, { isStatic: true }) // Top wall with overflow
+        ];
+        Matter.World.add(world, walls);
 
-                tunnelBaseY = p.height - 100;
-                const tunnelTopY = tunnelBaseY - TUNNEL_HEIGHT;
+        const waterContainer = Matter.Bodies.rectangle(400, 300, 700, 500, {
+            isStatic: true,
+            render: {
+                fillStyle: '#ADD8E6'
+            }
+        });
+        Matter.World.add(world, waterContainer);
 
-                // Create fixed base particles (tunnel walls)
-                for (let i = 0; i < FIXED_POINTS; i++) {
-                    const x = p.map(i, 0, FIXED_POINTS - 1, p.width / 2 - TUNNEL_WIDTH / 2, p.width / 2 + TUNNEL_WIDTH / 2);
-                    particles.push(new Particle(x, tunnelBaseY, true));
+        // State variables
+        let magnesiumStrips = [];
+        let bubbles = [];
+        let bubbleSources = [];
+        let temperature = 30;
+        let magnesiumCount = 0;
+
+        // Keep track of which strip generated which bubbles
+        const magnesiumBubbles = new Map();
+
+        // Add bubbles to a specific strip's bubble list
+        function addBubbleToStrip(bubble, strip) {
+            if (!magnesiumBubbles.has(strip)) {
+                magnesiumBubbles.set(strip, []);
+            }
+            magnesiumBubbles.get(strip).push(bubble);
+        }
+
+        // Create magnesium strip with attached bubbles (passivation layer)
+        function createMagnesiumStrip() {
+            magnesiumCount++;
+            const x = Math.random() * 400 + 200;
+            const y = Math.random() * 400 + 100;
+
+            const magnesiumStrip = Matter.Bodies.rectangle(x, y, 50, 5, {
+                density: 0.05,
+                friction: 0.1,
+                frictionAir: 0.01,
+                restitution: 0.5,
+                render: {
+                    fillStyle: '#C0C0C0',
+                    strokeStyle: '#606060',
+                    lineWidth: 1
                 }
+            });
 
-                // Create arch particles
-                for (let i = 0; i < NUM_SEGMENTS; i++) {
-                    const angle = p.map(i, 0, NUM_SEGMENTS - 1, p.PI, 0);
-                    const x = p.width / 2 + (TUNNEL_WIDTH / 2) * p.cos(angle);
-                    const y = tunnelTopY + (TUNNEL_HEIGHT / 2) * p.sin(angle);
+            // Apply initial velocity in random direction
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 0.05 + Math.random() * 0.1;
+            Matter.Body.setVelocity(magnesiumStrip, {
+                x: Math.cos(angle) * speed,
+                y: Math.sin(angle) * speed
+            });
 
-                    // Identify the crown particle (top center)
-                    const isCrown = i === Math.floor(NUM_SEGMENTS / 2);
-                    const particle = new Particle(x, y, false);
+            // Apply initial angular velocity
+            Matter.Body.setAngularVelocity(magnesiumStrip, (Math.random() - 0.5) * 0.05);
 
-                    if (isCrown) {
-                        crownParticle = particle;
+            // Create bubbles for passivation layer (stuck to strip)
+            const passivationBubbles = [];
+            const bubblePositions = [
+                { x: 0, y: -2.5 },   // Top middle
+                { x: 0, y: 2.5 },    // Bottom middle
+                { x: -25, y: 0 },    // Left middle
+                { x: 25, y: 0 },     // Right middle
+                { x: -20, y: -2.5 }, // Top left
+                { x: 20, y: -2.5 },  // Top right
+                { x: -20, y: 2.5 },  // Bottom left
+                { x: 20, y: 2.5 }    // Bottom right
+            ];
+
+            bubblePositions.forEach(pos => {
+                const bubble = Matter.Bodies.circle(pos.x, pos.y, 2, {
+                    density: 0.0001,
+                    friction: 0,
+                    frictionAir: 0,
+                    restitution: 0.5,
+                    collisionFilter: { category: 0 },
+                    render: {
+                        fillStyle: 'rgba(255, 255, 255, 0.5)'
                     }
+                });
 
-                    particles.push(particle);
+                // Make the bubble stick to the magnesium strip
+                bubble.isStuck = true;
+                bubble.stuckTo = magnesiumStrip;
+                Matter.Composite.add(world, bubble);
+                passivationBubbles.push(bubble);
+            });
+
+            // Store reference to strip and its bubbles
+            magnesiumBubbles.set(magnesiumStrip, passivationBubbles);
+            magnesiumStrips.push(magnesiumStrip);
+            Matter.World.add(world, magnesiumStrip);
+
+            return magnesiumStrip;
+        }
+
+        // Create freely floating bubble
+        function createBubble(x, y, size = 2, density = 0.0001) {
+            const bubble = Matter.Bodies.circle(x, y, size, {
+                density: density,
+                friction: 0,
+                frictionAir: 0,
+                restitution: 0.5,
+                render: {
+                    fillStyle: 'rgba(255, 255, 255, 0.7)'
                 }
+            });
 
-                // Create springs between particles
-                for (let i = 0; i < particles.length - 1; i++) {
-                    springs.push(new Spring(particles[i], particles[i + 1]));
-                }
+            Matter.World.add(world, bubble);
+            return bubble;
+        }
 
-                // Close the tunnel by connecting the last particle to the first
-                springs.push(new Spring(particles[particles.length - 1], particles[FIXED_POINTS]));
+        // Get points along the perimeter of a rectangle (for bubble creation)
+        function getRectPerimeterPoints(body, spacing = 8) {
+            const points = [];
+            const w = body.bounds.max.x - body.bounds.min.x;
+            const h = body.bounds.max.y - body.bounds.min.y;
+            const center = body.position;
 
-                // Setup load slider
-                loadSlider = document.getElementById('loadSlider');
-                loadValueDisplay = document.getElementById('loadValue');
-                loadSlider.addEventListener('input', updateLoad);
-            };
-
-            // Update the applied load
-            function updateLoad() {
-                loadForce = p.map(loadSlider.value, 0, 100, 0, 10);
-                loadValueDisplay.textContent = `${loadForce.toFixed(1)} N`;
+            // Top edge
+            for (let x = center.x - w/2; x <= center.x + w/2; x += spacing) {
+                points.push({ x, y: center.y - h/2 });
             }
 
-            // Main animation loop
-            p.draw = () => {
-                p.background(240);
-
-                // Draw ground
-                p.stroke(100);
-                p.strokeWeight(2);
-                p.line(0, tunnelBaseY, p.width, tunnelBaseY);
-
-                // Update physics
-                for (const particle of particles) {
-                    particle.applyForce(0, loadForce);
-                    particle.update();
-                }
-
-                // Update springs
-                for (const spring of springs) {
-                    spring.update();
-                }
-
-                // Draw springs
-                for (const spring of springs) {
-                    spring.display();
-                }
-
-                // Draw particles
-                for (const particle of particles) {
-                    particle.display();
-                }
-
-                // Draw load indicator
-                p.noStroke();
-                p.fill(0);
-                p.textSize(14);
-                p.text(`Load: ${loadForce.toFixed(1)} N`, p.width - 100, 30);
-
-                // Display strain visualization key
-                displayStrainKey();
-            };
-
-            // Display strain visualization key
-            function displayStrainKey() {
-                const keyX = 20;
-                const keyY = 20;
-                const keyWidth = 150;
-                const keyHeight = 80;
-
-                // Draw key background
-                p.fill(255);
-                p.stroke(200);
-                p.strokeWeight(1);
-                p.rect(keyX, keyY, keyWidth, keyHeight);
-
-                p.noStroke();
-                p.fill(0);
-                p.textSize(12);
-                p.textAlign(p.LEFT, p.TOP);
-
-                const lineSpacing = 15;
-                let yPos = keyY + 10;
-
-                p.text("Strain Visualization:", keyX + 10, yPos);
-                yPos += lineSpacing * 2;
-
-                // Color indicators
-                p.fill(255, 0, 0);
-                p.rect(keyX + 10, yPos, 20, 10);
-                p.fill(0);
-                p.text("Tension", keyX + 40, yPos + 8);
-                yPos += lineSpacing;
-
-                p.fill(0, 0, 255);
-                p.rect(keyX + 10, yPos, 20, 10);
-                p.fill(0);
-                p.text("Compression", keyX + 40, yPos + 8);
-                yPos += lineSpacing;
-
-                p.fill(128);
-                p.rect(keyX + 10, yPos, 20, 10);
-                p.fill(0);
-                p.text("Neutral", keyX + 40, yPos + 8);
+            // Right edge
+            for (let y = center.y - h/2; y <= center.y + h/2; y += spacing) {
+                points.push({ x: center.x + w/2, y });
             }
 
-            // Particle class
-            class Particle {
-                constructor(x, y, fixed) {
-                    this.position = p.createVector(x, y);
-                    this.prevPosition = p.createVector(x, y);
-                    this.acceleration = p.createVector(0, 0);
-                    this.fixed = fixed;
-                    this.mass = MASS;
-                    this.radius = fixed ? 8 : 6;
-                }
-
-                applyForce(x, y) {
-                    if (!this.fixed) {
-                        this.acceleration.add(x, y);
-                    }
-                }
-
-                update() {
-                    if (!this.fixed) {
-                        // Apply gravity
-                        this.acceleration.add(0, GRAVITY);
-
-                        // Verlet integration
-                        const temp = this.position.copy();
-                        const velocity = p5.Vector.sub(this.position, this.prevPosition).mult(DAMPING);
-                        this.position.add(velocity).add(this.acceleration.copy().mult(0.5));
-                        this.prevPosition = temp;
-                        this.acceleration.mult(0);
-                    }
-                }
-
-                display() {
-                    p.noStroke();
-                    p.fill(this.fixed ? 50 : 100);
-                    p.ellipse(this.position.x, this.position.y, this.radius * 2);
-                }
+            // Bottom edge
+            for (let x = center.x + w/2; x >= center.x - w/2; x -= spacing) {
+                points.push({ x, y: center.y + h/2 });
             }
 
-            // Spring class
-            class Spring {
-                constructor(p1, p2) {
-                    this.p1 = p1;
-                    this.p2 = p2;
-                    this.restLength = p5.Vector.dist(p1.position, p2.position);
-                    this.k = SPRING_K;
-                }
+            // Left edge
+            for (let y = center.y + h/2; y >= center.y - h/2; y -= spacing) {
+                points.push({ x: center.x - w/2, y });
+            }
 
-                update() {
-                    const force = p5.Vector.sub(this.p2.position, this.p1.position);
-                    const currentLength = force.mag();
-                    const x = currentLength - this.restLength;
+            return points;
+        }
 
-                    // Calculate spring force (Hooke's Law)
-                    force.normalize().mult(this.k * x);
+        // Check if a point is near the strip
+        function isNearStrip(point, strip) {
+            const stripBounds = strip.bounds;
+            const buffer = 5; // pixels around the strip to consider "near"
 
-                    // Apply forces to particles
-                    if (!this.p1.fixed) {
-                        this.p1.applyForce(force.x, force.y);
+            // Check if point is near the strip's bounds
+            return (
+                (point.x >= stripBounds.min.x - buffer && point.x <= stripBounds.max.x + buffer) &&
+                (point.y >= stripBounds.min.y - buffer && point.y <= stripBounds.max.y + buffer)
+            );
+        }
+
+        // Find the closest point on the strip to a given point
+        function findClosestPointOnStrip(point, strip) {
+            const stripBounds = strip.bounds;
+            let closestPoint = { x: point.x, y: point.y };
+            let minDistance = Infinity;
+
+            // Check if point is close to any of the strip's edges
+            // Top edge
+            if (Math.abs(point.y - stripBounds.min.y) < 10) {
+                closestPoint.y = stripBounds.min.y;
+                minDistance = Math.abs(point.y - stripBounds.min.y);
+            }
+
+            // Bottom edge
+            if (Math.abs(point.y - stripBounds.max.y) < 10 &&
+                Math.abs(point.y - stripBounds.max.y) < minDistance) {
+                closestPoint.y = stripBounds.max.y;
+                minDistance = Math.abs(point.y - stripBounds.max.y);
+            }
+
+            // Left edge
+            if (Math.abs(point.x - stripBounds.min.x) < 10 &&
+                Math.abs(point.x - stripBounds.min.x) < minDistance) {
+                closestPoint.x = stripBounds.min.x;
+                minDistance = Math.abs(point.x - stripBounds.min.x);
+            }
+
+            // Right edge
+            if (Math.abs(point.x - stripBounds.max.x) < 10 &&
+                Math.abs(point.x - stripBounds.max.x) < minDistance) {
+                closestPoint.x = stripBounds.max.x;
+                minDistance = Math.abs(point.x - stripBounds.max.x);
+            }
+
+            return closestPoint;
+        }
+
+        // Update the physics simulation
+        function update() {
+            Matter.Engine.update(engine);
+
+            // Handle stuck bubbles first
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+                const bubble = bubbles[i];
+
+                if (bubble.isStuck) {
+                    // If temperature exceeds 40, release all stuck bubbles
+                    if (temperature > 40) {
+                        bubble.isStuck = false;
+                        bubble.stuckTo = null;
+                        bubble.collisionFilter = { category: 1 };
+
+                        // Apply upward force to make it float
+                        Matter.Body.applyForce(bubble, bubble.position, {
+                            x: (Math.random() - 0.5) * 0.0005,
+                            y: -0.0005 - Math.random() * 0.0005
+                        });
+
+                        continue;
                     }
-                    if (!this.p2.fixed) {
-                        this.p2.applyForce(-force.x, -force.y);
-                    }
-                }
 
-                display() {
-                    const force = p5.Vector.sub(this.p2.position, this.p1.position);
-                    const currentLength = force.mag();
-                    const strain = (currentLength - this.restLength) / this.restLength;
+                    if (bubble.stuckTo && magnesiumStrips.includes(bubble.stuckTo)) {
+                        // Keep bubble attached to magnesium strip
+                        const offset = {
+                            x: bubble.position.x - bubble.stuckTo.position.x,
+                            y: bubble.position.y - bubble.stuckTo.position.y
+                        };
 
-                    // Map strain to color
-                    let r, g, b;
+                        // Apply offset in world coordinates instead of local
+                        Matter.Body.setPosition(bubble, {
+                            x: bubble.stuckTo.position.x + offset.x,
+                            y: bubble.stuckTo.position.y + offset.y
+                        });
 
-                    if (strain > 0.05) {
-                        // Red for tension
-                        const intensity = p.constrain(p.map(strain, 0.05, 0.5, 0, 255), 0, 255);
-                        r = 255;
-                        g = p.max(0, 128 - intensity);
-                        b = g;
-                    } else if (strain < -0.05) {
-                        // Blue for compression
-                        const intensity = p.constrain(p.map(-strain, 0.05, 0.5, 0, 255), 0, 255);
-                        b = 255;
-                        g = p.max(0, 128 - intensity);
-                        r = g;
+                        // Ensure the stuck bubble moves with the strip
+                        Matter.Body.setVelocity(bubble, bubble.stuckTo.velocity);
                     } else {
-                        // Neutral gray
-                        r = g = b = 128;
+                        // If the strip was removed, release the bubble
+                        bubble.isStuck = false;
+                        bubble.stuckTo = null;
                     }
-
-                    p.stroke(r, g, b);
-                    p.strokeWeight(3);
-                    p.line(this.p1.position.x, this.p1.position.y, this.p2.position.x, this.p2.position.y);
-
-                    // Draw strain indicator
-                    const midX = (this.p1.position.x + this.p2.position.x) / 2;
-                    const midY = (this.p1.position.y + this.p2.position.y) / 2;
-                    const angle = p.atan2(this.p2.position.y - this.p1.position.y, this.p2.position.x - this.p1.position.x);
-
-                    p.push();
-                    p.translate(midX, midY);
-                    p.rotate(angle);
-
-                    const barLength = p.map(p.abs(strain), 0, 0.5, 0, 20);
-                    const barHeight = 4;
-
-                    p.noStroke();
-                    if (strain > 0) {
-                        p.fill(255, 0, 0);
-                        p.rect(0, -barHeight / 2, barLength, barHeight);
-                    } else if (strain < 0) {
-                        p.fill(0, 0, 255);
-                        p.rect(-barLength, -barHeight / 2, barLength, barHeight);
-                    }
-
-                    p.pop();
                 }
             }
-        };
 
-        // Create a new p5 instance with the sketch
-        new p5(sketch);
+            // Generate new bubbles based on temperature
+            if (temperature < 40) {
+                // Low temperature - slow passivation
+                magnesiumStrips.forEach(strip => {
+                    if (!magnesiumBubbles.has(strip)) return;
+
+                    const stripBubbles = magnesiumBubbles.get(strip);
+                    // Count stuck bubbles only
+                    const stuckCount = stripBubbles.filter(b => b.isStuck).length;
+
+                    if (stuckCount < 20 && Math.random() < 0.02) {
+                        const perimeterPoints = getRectPerimeterPoints(strip);
+                        const availablePoints = perimeterPoints.filter(
+                            p => !stripBubbles.some(b =>
+                                Math.abs(b.position.x - p.x) < 5 &&
+                                Math.abs(b.position.y - p.y) < 5
+                            )
+                        );
+
+                        if (availablePoints.length > 0) {
+                            const point = availablePoints[Math.floor(Math.random() * availablePoints.length)];
+                            const bubble = createBubble(point.x, point.y, 1 + Math.random() * 1);
+
+                            // Make the bubble stick to the magnesium strip
+                            bubble.isStuck = true;
+                            bubble.stuckTo = strip;
+                            bubble.collisionFilter = { category: 0 };
+
+                            stripBubbles.push(bubble);
+                            bubbles.push(bubble);
+                        }
+                    }
+                });
+            } else {
+                // High temperature - vigorous reaction
+                magnesiumStrips.forEach(strip => {
+                    if (!magnesiumBubbles.has(strip)) return;
+
+                    if (Math.random() < 0.05) {
+                        // Get perimeter points of the strip
+                        const perimeterPoints = getRectPerimeterPoints(strip);
+                        const bubble = createBubble(
+                            perimeterPoints[Math.floor(Math.random() * perimeterPoints.length)].x,
+                            perimeterPoints[Math.floor(Math.random() * perimeterPoints.length)].y,
+                            1 + Math.random() * 2,
+                            0.00005
+                        );
+
+                        // Apply upward force to make it float
+                        Matter.Body.applyForce(bubble, bubble.position, {
+                            x: (Math.random() - 0.5) * 0.0005,
+                            y: -0.001 - Math.random() * 0.0005
+                        });
+
+                        // Add to tracking arrays
+                        magnesiumBubbles.get(strip).push(bubble);
+                        bubbles.push(bubble);
+                    }
+                });
+            }
+
+            // Update bubble behavior
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+                const bubble = bubbles[i];
+
+                // Skip stuck bubbles (already handled)
+                if (bubble.isStuck) continue;
+
+                // Apply buoyancy to non-stuck bubbles
+                if (bubble.position.y < waterContainer.bounds.max.y) {
+                    // Apply upward force to simulate buoyancy
+                    Matter.Body.applyForce(bubble, bubble.position, {
+                        x: (Math.random() - 0.5) * 0.0002,
+                        y: -0.0002 - Math.random() * 0.0002
+                    });
+                }
+
+                // Handle bubbles exiting the top of the container
+                if (bubble.position.y < 0) {
+                    // Remove the bubble from the world
+                    Matter.World.remove(world, bubble);
+                    bubbles.splice(i, 1);
+
+                    // Also remove from magnesiumBubbles tracking
+                    magnesiumBubbles.forEach((stripBubbles, strip) => {
+                        const index = stripBubbles.indexOf(bubble);
+                        if (index !== -1) {
+                            stripBubbles.splice(index, 1);
+                        }
+                    });
+
+                    continue;
+                }
+
+                // Remove bubbles that are out of bounds (other directions)
+                if (bubble.position.x < 0 || bubble.position.x > 800 || bubble.position.y > 600) {
+                    Matter.World.remove(world, bubble);
+                    bubbles.splice(i, 1);
+
+                    // Also remove from magnesiumBubbles tracking
+                    magnesiumBubbles.forEach((stripBubbles, strip) => {
+                        const index = stripBubbles.indexOf(bubble);
+                        if (index !== -1) {
+                            stripBubbles.splice(index, 1);
+                        }
+                    });
+                }
+            }
+
+            // Make magnesium strips float
+            magnesiumStrips.forEach(strip => {
+                // Apply upward force to simulate buoyancy
+                Matter.Body.applyForce(strip, strip.position, {
+                    x: 0,
+                    y: -0.0003
+                });
+
+                // Remove strips that exit the top of the container
+                if (strip.position.y < 0) {
+                    Matter.World.remove(world, strip);
+                    const index = magnesiumStrips.indexOf(strip);
+                    if (index !== -1) {
+                        magnesiumStrips.splice(index, 1);
+                    }
+
+                    // Remove all bubbles associated with this strip
+                    if (magnesiumBubbles.has(strip)) {
+                        const stripBubbles = magnesiumBubbles.get(strip);
+                        stripBubbles.forEach(bubble => {
+                            Matter.World.remove(world, bubble);
+                            const bubbleIndex = bubbles.indexOf(bubble);
+                            if (bubbleIndex !== -1) {
+                                bubbles.splice(bubbleIndex, 1);
+                            }
+                        });
+                        magnesiumBubbles.delete(strip);
+                    }
+                }
+            });
+        }
+
+        // Event listeners
+        temperatureInput.addEventListener('input', () => {
+            temperature = parseInt(temperatureInput.value);
+            temperatureValue.textContent = temperature;
+
+            // Release stuck bubbles if temperature exceeds 40
+            if (temperature > 40) {
+                bubbles.forEach(bubble => {
+                    if (bubble.isStuck) {
+                        bubble.isStuck = false;
+                        bubble.stuckTo = null;
+
+                        // Apply upward force to make it float
+                        Matter.Body.applyForce(bubble, bubble.position, {
+                            x: (Math.random() - 0.5) * 0.0005,
+                            y: -0.0005 - Math.random() * 0.0005
+                        });
+                    }
+                });
+            }
+        });
+
+        addMagnesiumButton.addEventListener('click', () => {
+            if (magnesiumCount < 5) {
+                createMagnesiumStrip();
+            }
+        });
+
+        resetButton.addEventListener('click', () => {
+            // Clear all bodies
+            magnesiumStrips.forEach(strip => Matter.World.remove(world, strip));
+            bubbles.forEach(bubble => Matter.World.remove(world, bubble));
+
+            // Reset arrays and counters
+            magnesiumStrips = [];
+            bubbles = [];
+            magnesiumBubbles.clear();
+            magnesiumCount = 0;
+
+            // Reset temperature
+            temperature = 30;
+            temperatureInput.value = "30";
+            temperatureValue.textContent = "30";
+        });
+
+        // Run the simulation
+        setInterval(update, 1000 / 60);
+        Matter.Engine.run(engine);
+        Matter.Render.run(render);
     </script>
 </body>
-
 </html>
