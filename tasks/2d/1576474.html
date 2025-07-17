@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optical Cloaking Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto', sans-serif;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 2rem;
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        #main-content {
+            display: flex;
+            justify-content: center;
+            align-items: stretch; /* Make children equal height */
+            gap: 25px;
+            flex-wrap: wrap; /* Allow items to wrap on smaller screens */
+            width: 100%;
+            max-width: 1100px;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            overflow: hidden;
+            flex-shrink: 0; /* Prevent canvas from shrinking */
+            display: flex; /* Helps the canvas inside fill it */
+        }
+
+        #info-card {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+            max-width: 350px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #info-card h2 {
+            font-family: 'Roboto Mono', monospace;
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        #info-card p, #info-card li {
+            font-size: 1rem;
+            line-height: 1.6;
+            color: #555;
+        }
+        
+        #info-card ul {
+            padding-left: 20px;
+        }
+
+        #controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 25px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 14px;
+            font-family: 'Roboto Mono', monospace;
+            cursor: pointer;
+            border-radius: 8px;
+            border: 2px solid #555;
+            background-color: #fff;
+            color: #333;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        button:hover:not(:disabled) {
+            background-color: #333;
+            color: #fff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        button:disabled {
+            background-color: #e0e0e0;
+            color: #999;
+            cursor: not-allowed;
+            border-color: #ccc;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <h1>Optical Cloaking Simulation</h1>
+
+    <div id="main-content">
+        <div id="canvas-container">
+            <!-- p5.js canvas will be inserted here -->
+        </div>
+        <div id="info-card">
+            <h2>How It Works</h2>
+            <p>This simulation demonstrates a simplified concept of optical cloaking using perpendicular lenses.</p>
+            <ul>
+                <li>Click <strong>"Add Horizontal Lens"</strong> to place a lens that appears to hide the horizontal section of the cross beneath it.</li>
+                <li>Click <strong>"Add Vertical Lens"</strong> to hide the vertical section.</li>
+            </ul>
+            <p>The "cloaking" illusion is created by drawing the wooden sticks as separate segments, leaving a physical gap where the lens is placed. This gives the impression that the central part of the object has vanished.</p>
+            <p>Click <strong>"Reset"</strong> to remove both lenses and reveal the full object again.</p>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="add-horizontal-lens-button">Add Horizontal Lens</button>
+        <button id="add-vertical-lens-button">Add Vertical Lens</button>
+        <button id="reset-button">Reset</button>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Configuration Constants ---
+            const canvasWidth = 600;
+            // Canvas height is now dynamic, so we remove the constant here.
+            const stickLength = 300;
+            const stickThickness = 12;
+            const cloakSize = 80; 
+            const lensThickness = cloakSize;
+            const lensLength = 180;
+            
+            // --- Colors ---
+            const woodColor = '#8B4513';
+            const lensFillColor = [200, 220, 255, 150];
+            const lensStrokeColor = '#999';
+            const backgroundColor = '#FFFFFF';
+
+            // --- State Variables ---
+            let isHorizontalLensVisible = false;
+            let isVerticalLensVisible = false;
+
+            p.setup = () => {
+                // Get the info card element to measure its height.
+                const infoCard = document.getElementById('info-card');
+                // Use offsetHeight to get the full rendered height of the card.
+                const dynamicCanvasHeight = infoCard.offsetHeight;
+                
+                // Create the canvas with a dynamic height matching the info card.
+                const canvas = p.createCanvas(canvasWidth, dynamicCanvasHeight);
+                canvas.parent('canvas-container'); // Attach canvas to the container div
+                p.rectMode(p.CENTER);
+            };
+
+            p.draw = () => {
+                p.background(backgroundColor);
+                p.translate(p.width / 2, p.height / 2);
+
+                p.stroke(woodColor);
+                p.strokeWeight(stickThickness);
+                p.strokeCap(p.SQUARE);
+
+                // Draw the VERTICAL stick
+                // It is hidden by the VERTICAL lens now
+                if (isVerticalLensVisible) {
+                    p.line(0, -stickLength / 2, 0, -cloakSize / 2);
+                    p.line(0, cloakSize / 2, 0, stickLength / 2);
+                } else {
+                    p.line(0, -stickLength / 2, 0, stickLength / 2);
+                }
+
+                // Draw the HORIZONTAL stick
+                // It is hidden by the HORIZONTAL lens now
+                if (isHorizontalLensVisible) {
+                    p.line(-stickLength / 2, 0, -cloakSize / 2, 0);
+                    p.line(cloakSize / 2, 0, stickLength / 2, 0);
+                } else {
+                    p.line(-stickLength / 2, 0, stickLength / 2, 0);
+                }
+
+                // Draw Lenses on Top
+                p.strokeWeight(2);
+                p.stroke(lensStrokeColor);
+                p.fill(lensFillColor);
+
+                if (isHorizontalLensVisible) {
+                    p.rect(0, 0, lensLength, lensThickness, 10);
+                }
+
+                if (isVerticalLensVisible) {
+                    p.rect(0, 0, lensThickness, lensLength, 10);
+                }
+            };
+            
+            p.addHorizontalLens = () => { isHorizontalLensVisible = true; };
+            p.addVerticalLens = () => { isVerticalLensVisible = true; };
+            p.resetLenses = () => {
+                isHorizontalLensVisible = false;
+                isVerticalLensVisible = false;
+            };
+        };
+
+        // Initialize p5.js and attach it to the sketch function
+        const p5Instance = new p5(sketch);
+
+        // --- Button Controls ---
+        const horizontalButton = document.getElementById('add-horizontal-lens-button');
+        const verticalButton = document.getElementById('add-vertical-lens-button');
+        const resetButton = document.getElementById('reset-button');
+
+        horizontalButton.addEventListener('click', () => {
+            p5Instance.addHorizontalLens();
+            horizontalButton.disabled = true;
+        });
+
+        verticalButton.addEventListener('click', () => {
+            p5Instance.addVerticalLens();
+            verticalButton.disabled = true;
+        });
+
+        resetButton.addEventListener('click', () => {
+            p5Instance.resetLenses();
+            horizontalButton.disabled = false;
+            verticalButton.disabled = false;
+        });
+
+    </script>
+</body>
+
+</html>
