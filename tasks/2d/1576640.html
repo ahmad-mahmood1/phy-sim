@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lunar Lander</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        h1 {
+            font-weight: 400;
+            margin-bottom: 1rem;
+        }
+
+        #game-container {
+            display: flex;
+            flex-direction: row;
+            gap: 2rem;
+            width: 90vw;
+            max-width: 1200px;
+            align-items: flex-start;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #30363d;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            flex-grow: 1; /* Allow canvas to take up available space */
+            height: 80vh;
+        }
+
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #info-card {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            width: 280px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #info-card h2 {
+            margin-top: 0;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 0.5rem;
+            font-weight: 400;
+        }
+
+        #info-card p {
+            margin: 0.5rem 0;
+            line-height: 1.6;
+        }
+
+        #info-card strong {
+            color: #58a6ff;
+            font-weight: 700;
+        }
+        
+        #restart-button {
+            background-color: #238636;
+            color: white;
+            border: 1px solid rgba(240, 246, 252, 0.1);
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 1rem;
+            transition: background-color 0.2s;
+        }
+
+        #restart-button:hover {
+            background-color: #2ea043;
+        }
+        
+        /* Responsive layout for smaller screens */
+        @media (max-width: 900px) {
+            #game-container {
+                flex-direction: column;
+                align-items: center;
+            }
+            #canvas-container {
+                width: 100%;
+                height: 60vh;
+            }
+            #info-card {
+                width: 100%;
+                margin-top: 1rem;
+            }
+        }
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <h1>Lunar Lander</h1>
+    <div id="game-container">
+        <div id="canvas-container">
+        </div>
+        <div id="info-card">
+            <h2>Lander Controls</h2>
+            <p><strong>Controls:</strong></p>
+            <p>↑ Arrow: Thrust</p>
+            <p>← Arrow: Rotate Left</p>
+            <p>→ Arrow: Rotate Right</p>
+            <br>
+            <p><strong>Safe Landing:</strong></p>
+            <p>Speed: &lt; 0.3 m/s</p>
+            <p>Tilt Angle: &lt; 20°</p>
+            <button id="restart-button">Restart</button>
+        </div>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let lander;
+            let gravity;
+            let terrain = [];
+            let craters = [];
+            let terrainDetail = 0.5;
+            let gameState = 'playing'; // 'playing', 'settling', 'landed', 'crashed'
+            let stars = [];
+            let surfaceNoise = [];
+
+            // --- Game Configuration ---
+            const LUNAR_GRAVITY = 0.0015;
+            const THRUST_FORCE = 0.004;
+            const ROTATION_SPEED = 0.04;
+            const MAX_SAFE_SPEED = 0.3; 
+            const MAX_SAFE_IMPACT_ANGLE = p.radians(15); 
+            const MAX_SAFE_TILT_ANGLE = p.radians(20);
+            const INITIAL_FUEL = 500;
+            const TERRAIN_HEIGHT_RATIO = 0.7;
+            const NUM_CRATERS = 30;
+            const NUM_NOISE_POINTS = 5000;
+
+            class Lander {
+                constructor(x, y) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(p.random(-0.5, 0.5), p.random(0, 0.5));
+                    this.acc = p.createVector(0, 0);
+                    this.angle = p.random(-p.PI / 4, p.PI / 4);
+                    this.rotation = 0;
+                    this.w = 15;
+                    this.h = 20;
+                    this.fuel = INITIAL_FUEL;
+                    this.thrusting = false;
+                    this.isLanded = false; // Generic flag to stop input
+                }
+
+                applyForce(force) {
+                    this.acc.add(force);
+                }
+
+                update() {
+                    if (this.isLanded) return;
+
+                    this.angle += this.rotation;
+                    this.rotation = 0;
+                    if (this.thrusting && this.fuel > 0) {
+                        let thrustVector = p5.Vector.fromAngle(this.angle - p.PI / 2);
+                        thrustVector.mult(THRUST_FORCE);
+                        this.applyForce(thrustVector);
+                        this.fuel--;
+                    }
+                    this.applyForce(gravity);
+                    this.vel.add(this.acc);
+                    this.pos.add(this.vel);
+                    this.acc.mult(0);
+                }
+
+                draw() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    p.rotate(this.angle);
+
+                    if (this.thrusting && this.fuel > 0 && gameState === 'playing') {
+                        p.fill(255, p.random(150, 220), 0);
+                        p.noStroke();
+                        p.triangle(-this.w / 4, this.h / 2, this.w / 4, this.h / 2, 0, this.h / 2 + p.random(10, 20));
+                    }
+                    p.stroke(200);
+                    p.strokeWeight(1.5);
+                    p.fill(100, 100, 110);
+                    p.rectMode(p.CENTER);
+                    p.rect(0, 0, this.w, this.h, 2);
+                    p.line(-this.w / 2, this.h / 2, -this.w, this.h / 2 + 5);
+                    p.line(this.w / 2, this.h / 2, this.w, this.h / 2 + 5);
+                    p.fill(200).noStroke();
+                    p.rect(-this.w, this.h / 2 + 5, 5, 2);
+                    p.rect(this.w, this.h / 2 + 5, 5, 2);
+                    p.pop();
+                }
+
+                handleInput() {
+                    if (this.isLanded) {
+                        this.thrusting = false;
+                        return;
+                    }
+                    this.thrusting = false;
+                    if (p.keyIsDown(p.UP_ARROW) && this.fuel > 0) this.thrusting = true;
+                    if (p.keyIsDown(p.LEFT_ARROW)) this.rotation = -ROTATION_SPEED;
+                    if (p.keyIsDown(p.RIGHT_ARROW)) this.rotation = ROTATION_SPEED;
+                }
+
+                getLegPositions() {
+                    const cosA = Math.cos(this.angle);
+                    const sinA = Math.sin(this.angle);
+                    const legXOffset = this.w;
+                    const legYOffset = this.h / 2 + 5;
+                    const leftLeg = p.createVector(
+                        this.pos.x + (-legXOffset * cosA - legYOffset * sinA),
+                        this.pos.y + (-legXOffset * sinA + legYOffset * cosA)
+                    );
+                    const rightLeg = p.createVector(
+                        this.pos.x + (legXOffset * cosA - legYOffset * sinA),
+                        this.pos.y + (legXOffset * sinA + legYOffset * cosA)
+                    );
+                    return { left: leftLeg, right: rightLeg };
+                }
+            }
+
+            function generateTerrain() {
+                terrain = [];
+                craters = [];
+                surfaceNoise = [];
+                let xoff = p.random(1000);
+                for (let x = 0; x <= p.width / terrainDetail; x++) {
+                    let y = p.map(p.noise(xoff), 0, 1, p.height * TERRAIN_HEIGHT_RATIO, p.height * (TERRAIN_HEIGHT_RATIO + 0.05));
+                    terrain.push(y);
+                    xoff += 0.005;
+                }
+                for (let i = 0; i < NUM_CRATERS; i++) {
+                    let craterX = p.random(p.width);
+                    let terrainIndex = Math.floor(craterX / terrainDetail);
+                    if (terrain[terrainIndex]) {
+                        let craterY = p.random(terrain[terrainIndex], p.height);
+                        let craterSize = p.random(20, 80);
+                        craters.push({ x: craterX, y: craterY, size: craterSize });
+                    }
+                }
+                for (let i = 0; i < NUM_NOISE_POINTS; i++) {
+                    let noiseX = p.random(p.width);
+                    let terrainIndex = Math.floor(noiseX / terrainDetail);
+                    if (terrain[terrainIndex]) {
+                        let noiseY = p.random(terrain[terrainIndex], p.height);
+                        surfaceNoise.push({ x: noiseX, y: noiseY, c: p.random(140, 160) });
+                    }
+                }
+            }
+
+            function drawTerrain() {
+                p.noStroke();
+                p.fill(150, 150, 150);
+                p.beginShape();
+                p.vertex(0, p.height);
+                for (let i = 0; i < terrain.length; i++) {
+                    p.vertex(i * terrainDetail, terrain[i]);
+                }
+                p.vertex(p.width, p.height);
+                p.endShape(p.CLOSE);
+            }
+
+            function drawSurfaceNoise() {
+                p.noStroke();
+                for (const n of surfaceNoise) {
+                    p.fill(n.c, 100);
+                    p.ellipse(n.x, n.y, 2, 2);
+                }
+            }
+
+            function drawCraters() {
+                for (const crater of craters) {
+                    const craterHeight = crater.size * 0.4;
+                    p.noStroke();
+                    p.fill(135, 135, 135);
+                    p.ellipse(crater.x, crater.y, crater.size, craterHeight);
+                    p.noFill();
+                    p.strokeWeight(crater.size * 0.05);
+                    p.stroke(170, 170, 170);
+                    p.arc(crater.x, crater.y, crater.size, craterHeight, p.PI, p.TWO_PI);
+                    p.stroke(110, 110, 110);
+                    p.arc(crater.x, crater.y, crater.size, craterHeight, 0, p.PI);
+                }
+            }
+
+            function checkCollision() {
+                if (gameState !== 'playing') return;
+
+                const legPositions = lander.getLegPositions();
+                const leftLeg = legPositions.left;
+                const rightLeg = legPositions.right;
+
+                const leftTerrainIndex = Math.floor(leftLeg.x / terrainDetail);
+                const rightTerrainIndex = Math.floor(rightLeg.x / terrainDetail);
+
+                const leftTerrainY = terrain[leftTerrainIndex];
+                const rightTerrainY = terrain[rightTerrainIndex];
+
+                if ((leftTerrainY && leftLeg.y > leftTerrainY) || (rightTerrainY && rightLeg.y > rightTerrainY)) {
+                    handleInitialImpact();
+                }
+                 if (lander.pos.y > p.height + lander.h) {
+                    gameState = 'crashed';
+                    lander.isLanded = true;
+                }
+            }
+
+            function handleInitialImpact() {
+                const speed = lander.vel.mag();
+                const impactAngle = Math.abs(lander.angle % (p.TWO_PI));
+
+                lander.vel.mult(0);
+                lander.acc.mult(0);
+                lander.isLanded = true; // Stop player input
+
+                if (speed > MAX_SAFE_SPEED || (impactAngle > MAX_SAFE_IMPACT_ANGLE && impactAngle < p.TWO_PI - MAX_SAFE_IMPACT_ANGLE)) {
+                    gameState = 'crashed';
+                } else {
+                    gameState = 'settling'; // Begin the settling process
+                }
+            }
+
+            function settleLander() {
+                let legPositions = lander.getLegPositions();
+                let leftLeg = legPositions.left;
+                let rightLeg = legPositions.right;
+
+                let leftTerrainIndex = Math.floor(leftLeg.x / terrainDetail);
+                let rightTerrainIndex = Math.floor(rightLeg.x / terrainDetail);
+
+                if (leftTerrainIndex < 0 || leftTerrainIndex >= terrain.length || rightTerrainIndex < 0 || rightTerrainIndex >= terrain.length) {
+                    gameState = 'crashed';
+                    return;
+                }
+
+                let leftTerrainY = terrain[leftTerrainIndex];
+                let rightTerrainY = terrain[rightTerrainIndex];
+
+                if (leftLeg.y >= leftTerrainY && rightLeg.y >= rightTerrainY) {
+                    const finalTilt = p.atan2(rightTerrainY - leftTerrainY, rightLeg.x - leftLeg.x);
+                    
+                    if (Math.abs(finalTilt) > MAX_SAFE_TILT_ANGLE) {
+                        gameState = 'crashed';
+                        lander.angle = finalTilt + (finalTilt > 0 ? p.PI/4 : -p.PI/4);
+                    } else {
+                        gameState = 'landed';
+                        lander.angle = finalTilt;
+                        
+                        // Perform a final position snap to make it look grounded
+                        const finalLegs = lander.getLegPositions();
+                        const finalLeftY = terrain[Math.floor(finalLegs.left.x / terrainDetail)];
+                        const finalRightY = terrain[Math.floor(finalLegs.right.x / terrainDetail)];
+                        
+                        let anchorLeg, anchorPoint;
+                        if (finalLeftY > finalRightY) { // Left leg is on lower ground, so it's the anchor
+                           anchorLeg = 'left';
+                           anchorPoint = p.createVector(finalLegs.left.x, finalLeftY);
+                        } else {
+                           anchorLeg = 'right';
+                           anchorPoint = p.createVector(finalLegs.right.x, finalRightY);
+                        }
+                        
+                        const cosA = Math.cos(lander.angle);
+                        const sinA = Math.sin(lander.angle);
+                        const legXOffset = lander.w;
+                        const legYOffset = lander.h / 2 + 5;
+                        let offsetX, offsetY;
+
+                        if (anchorLeg === 'left') {
+                            offsetX = -legXOffset * cosA - legYOffset * sinA;
+                            offsetY = -legXOffset * sinA + legYOffset * cosA;
+                        } else {
+                            offsetX = legXOffset * cosA - legYOffset * sinA;
+                            offsetY = legXOffset * sinA + legYOffset * cosA;
+                        }
+                        
+                        lander.pos.x = anchorPoint.x - offsetX;
+                        lander.pos.y = anchorPoint.y - offsetY;
+                        lander.pos.y += 1;
+                    }
+                    return;
+                }
+
+                let pivotPoint, pivotDirection;
+                if (leftLeg.y > leftTerrainY && rightLeg.y < rightTerrainY) {
+                    pivotPoint = p.createVector(leftLeg.x, leftTerrainY);
+                    pivotDirection = 1;
+                } else {
+                    pivotPoint = p.createVector(rightLeg.x, rightTerrainY);
+                    pivotDirection = -1;
+                }
+
+                lander.angle += 0.005 * pivotDirection;
+
+                const cosA = Math.cos(lander.angle);
+                const sinA = Math.sin(lander.angle);
+                const legXOffset = lander.w;
+                const legYOffset = lander.h / 2 + 5;
+                
+                let offsetX, offsetY;
+                if (pivotDirection === 1) {
+                    offsetX = -legXOffset * cosA - legYOffset * sinA;
+                    offsetY = -legXOffset * sinA + legYOffset * cosA;
+                } else {
+                    offsetX = legXOffset * cosA - legYOffset * sinA;
+                    offsetY = legXOffset * sinA + legYOffset * cosA;
+                }
+                
+                lander.pos.x = pivotPoint.x - offsetX;
+                lander.pos.y = pivotPoint.y - offsetY;
+            }
+
+            function drawUI() {
+                p.push();
+                p.fill(255);
+                p.noStroke();
+                p.textSize(14);
+                p.textAlign(p.LEFT, p.TOP);
+                const altitude = calculateAltitude();
+                p.text(`Velocity: ${lander.vel.mag().toFixed(2)} m/s`, 10, 10);
+                p.text(`Angle: ${(p.degrees(lander.angle) % 360).toFixed(1)}°`, 10, 30);
+                p.text(`Altitude: ${altitude.toFixed(0)} m`, 10, 50);
+                p.text(`Fuel: ${Math.ceil(lander.fuel)}`, 10, 70);
+                if (gameState === 'landed') {
+                    p.textSize(32);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.fill(0, 255, 0);
+                    p.text('The Eagle Has Landed!', p.width / 2, p.height / 2);
+                    p.textSize(16);
+                } else if (gameState === 'crashed') {
+                    p.textSize(32);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.fill(255, 0, 0);
+                    p.text('Crashed!', p.width / 2, p.height / 2);
+                    p.textSize(16);
+                } else if (lander.fuel <= 0 && gameState === 'playing') {
+                    p.textAlign(p.CENTER, p.TOP);
+                    p.fill(255, 100, 100);
+                    p.text('OUT OF FUEL', p.width / 2, 10);
+                }
+                p.pop();
+            }
+
+            function calculateAltitude() {
+                if(lander.isLanded) return 0;
+                const legPositions = lander.getLegPositions();
+                const lowerLegY = Math.max(legPositions.left.y, legPositions.right.y);
+                const terrainIndex = Math.floor(lander.pos.x / terrainDetail);
+                if (terrain[terrainIndex]) {
+                    return Math.max(0, terrain[terrainIndex] - lowerLegY);
+                }
+                return 0;
+            }
+
+            function resetGame() {
+                lander = new Lander(p.width / 2, p.height / 8);
+                generateTerrain();
+                gameState = 'playing';
+            }
+
+            function drawStars() {
+                p.fill(255);
+                p.noStroke();
+                for (let star of stars) {
+                    p.ellipse(star.x, star.y, star.size, star.size);
+                }
+            }
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(container.offsetWidth, container.offsetHeight);
+                canvas.parent(container);
+                gravity = p.createVector(0, LUNAR_GRAVITY);
+                for (let i = 0; i < 200; i++) {
+                    stars.push({
+                        x: p.random(p.width),
+                        y: p.random(p.height * (TERRAIN_HEIGHT_RATIO + 0.1)),
+                        size: p.random(1, 3)
+                    });
+                }
+                resetGame();
+
+                // Add event listener for the restart button
+                const restartButton = document.getElementById('restart-button');
+                restartButton.addEventListener('click', resetGame);
+            };
+
+            p.draw = () => {
+                p.background(10, 10, 20);
+                drawStars();
+                drawTerrain();
+                p.drawingContext.save();
+                p.beginShape();
+                p.vertex(0, p.height);
+                for (let i = 0; i < terrain.length; i++) {
+                    p.vertex(i * terrainDetail, terrain[i]);
+                }
+                p.vertex(p.width, p.height);
+                p.endShape(p.CLOSE);
+                p.drawingContext.clip();
+                drawCraters();
+                drawSurfaceNoise();
+                p.drawingContext.restore();
+
+                if (gameState === 'playing') {
+                    lander.handleInput();
+                    lander.update();
+                    checkCollision();
+                } else if (gameState === 'settling') {
+                    settleLander();
+                }
+                
+                lander.draw();
+                drawUI();
+            };
+
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+                generateTerrain();
+            };
+
+        }
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>

@@ -1,95 +1,184 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Optical Cloaking Simulation</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #f0f0f0;
-        }
-        .controls {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background-color: rgba(255, 255, 255, 0.7);
-            padding: 10px;
-            border-radius: 5px;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Lunar Lander Simulation</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+      }
+    }
+  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #222;
+    }
+    canvas {
+      border: 1px solid #fff;
+    }
+  </style>
 </head>
 <body>
-    <div class="controls">
-        <button id="horizontal-lens-button">Add Horizontal Lens</button>
-        <button id="vertical-lens-button">Add Vertical Lens</button>
-        <button id="reset-button">Reset</button>
-    </div>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://esm.sh/p5@1.4.0"
-            }
+  <script type="module">
+    import p5 from 'p5';
+
+    new p5((sketch) => {
+      // Constants
+      const GRAVITY = 0.05;
+      const THRUST_POWER = 0.15;
+      const ROTATION_SPEED = 0.05;
+      const SAFE_LANDING_VELOCITY = 3;
+      const SAFE_LANDING_ANGLE = 0.2;
+      const LANDER_WIDTH = 40;
+      const LANDER_HEIGHT = 20;
+      const LEG_LENGTH = 20;
+
+      // Lander properties
+      let x, y;
+      let vx = 0;
+      let vy = 0;
+      let angle = 0;
+      let thrust = 0;
+      let landed = false;
+      let settling = false;
+      let contactPoint = null;
+
+      // Terrain properties
+      const terrain = [];
+
+      sketch.setup = () => {
+        sketch.createCanvas(800, 600);
+        x = sketch.width / 2;
+        y = 100;
+        generateTerrain();
+      };
+
+      sketch.draw = () => {
+        sketch.background(0);
+        drawTerrain();
+        drawLander();
+        updateLander();
+
+        if (!landed) {
+          applyPhysics();
+        } else if (settling) {
+          settleOnGround();
         }
-    </script>
-    <script type="module">
-        import p5 from "p5";
+      };
 
-        let sketch = function(p) {
-            let horizontalLens = null;
-            let verticalLens = null;
+      function generateTerrain() {
+        for (let i = 0; i < sketch.width; i += 10) {
+          terrain.push(sketch.random(20, 50));
+        }
+      }
 
-            p.setup = function() {
-                p.createCanvas(400, 400);
-                p.rectMode(p.CENTER);
-                document.getElementById('horizontal-lens-button').addEventListener('click', addHorizontalLens);
-                document.getElementById('vertical-lens-button').addEventListener('click', addVerticalLens);
-                document.getElementById('reset-button').addEventListener('click', resetLenses);
-            };
+      function drawTerrain() {
+        sketch.noStroke();
+        sketch.fill(200);
+        sketch.beginShape();
+        for (let i = 0; i < terrain.length; i++) {
+          sketch.vertex(i * 10, sketch.height - terrain[i]);
+        }
+        sketch.vertex(sketch.width, sketch.height);
+        sketch.vertex(0, sketch.height);
+        sketch.endShape(sketch.CLOSE);
+      }
 
-            p.draw = function() {
-                p.background(220);
-                drawCross();
-                drawLenses();
-            };
+      function drawLander() {
+        sketch.push();
+        sketch.translate(x, y);
+        sketch.rotate(angle);
+        sketch.fill(255);
+        sketch.stroke(0);
+        sketch.strokeWeight(2);
+        sketch.rectMode(sketch.CENTER);
+        sketch.rect(0, 0, LANDER_WIDTH, LANDER_HEIGHT);
+        sketch.line(-LANDER_WIDTH / 2, LANDER_HEIGHT / 2, -LANDER_WIDTH / 2, LANDER_HEIGHT / 2 + LEG_LENGTH);
+        sketch.line(LANDER_WIDTH / 2, LANDER_HEIGHT / 2, LANDER_WIDTH / 2, LANDER_HEIGHT / 2 + LEG_LENGTH);
+        sketch.pop();
+      }
 
-            function drawCross() {
-                p.fill(0);
-                p.rect(p.width / 2, p.height / 2, 200, 20); // Horizontal stick
-                p.rect(p.width / 2, p.height / 2, 20, 200); // Vertical stick
-            }
+      function updateLander() {
+        if (sketch.keyIsDown(sketch.LEFT_ARROW)) {
+          angle -= ROTATION_SPEED;
+        }
+        if (sketch.keyIsDown(sketch.RIGHT_ARROW)) {
+          angle += ROTATION_SPEED;
+        }
+        if (sketch.keyIsDown(sketch.UP_ARROW)) {
+          thrust = THRUST_POWER;
+        } else {
+          thrust = 0;
+        }
+      }
 
-            function drawLenses() {
-                if (horizontalLens) {
-                    p.fill(255, 0, 0, 150);
-                    p.rect(horizontalLens.x, horizontalLens.y, 50, 100);
-                }
-                if (verticalLens) {
-                    p.fill(0, 255, 0, 150);
-                    p.rect(verticalLens.x, verticalLens.y, 100, 50);
-                }
-            }
+      function applyPhysics() {
+        vy += GRAVITY;
+        if (thrust > 0) {
+          vy -= Math.cos(angle) * thrust;
+          vx += Math.sin(angle) * thrust;
+        }
+        x += vx;
+        y += vy;
 
-            function addHorizontalLens() {
-                horizontalLens = { x: p.width / 2, y: p.height / 2 };
-            }
+        checkLanding();
+      }
 
-            function addVerticalLens() {
-                verticalLens = { x: p.width / 2, y: p.height / 2 };
-            }
+      function checkLanding() {
+        const leftLegX = x - LANDER_WIDTH / 2;
+        const rightLegX = x + LANDER_WIDTH / 2;
+        const leftLegY = y + LANDER_HEIGHT / 2 + LEG_LENGTH;
+        const rightLegY = y + LANDER_HEIGHT / 2 + LEG_LENGTH;
 
-            function resetLenses() {
-                horizontalLens = null;
-                verticalLens = null;
-            }
-        };
+        const leftLegTerrainY = getTerrainY(leftLegX);
+        const rightLegTerrainY = getTerrainY(rightLegX);
 
-        new p5(sketch);
-    </script>
+        if (leftLegY >= leftLegTerrainY || rightLegY >= rightLegTerrainY) {
+          landed = true;
+          if (leftLegY >= leftLegTerrainY) {
+            contactPoint = { x: leftLegX, y: leftLegTerrainY };
+          } else {
+            contactPoint = { x: rightLegX, y: rightLegTerrainY };
+          }
+          checkSafeLanding();
+        }
+      }
+
+      function settleOnGround() {
+        const otherLegX = x - LANDER_WIDTH / 2;
+        const otherLegY = y + LANDER_HEIGHT / 2 + LEG_LENGTH;
+        const otherLegTerrainY = getTerrainY(otherLegX);
+
+        if (otherLegY >= otherLegTerrainY) {
+          settling = false;
+          checkSafeLanding();
+        } else {
+          const angleToGround = Math.atan2(contactPoint.y - otherLegTerrainY, contactPoint.x - otherLegX);
+          angle = angleToGround;
+        }
+      }
+
+      function checkSafeLanding() {
+        const velocity = Math.sqrt(vx * vx + vy * vy);
+        if (velocity <= SAFE_LANDING_VELOCITY && Math.abs(angle) <= SAFE_LANDING_ANGLE) {
+          console.log("Safe landing!");
+        } else {
+          console.log("Crash!");
+        }
+      }
+
+      function getTerrainY(x) {
+        const index = Math.floor(x / 10);
+        return sketch.height - terrain[index];
+      }
+    });
+  </script>
 </body>
 </html>
