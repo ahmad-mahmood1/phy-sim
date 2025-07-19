@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Microplastic Ingestion Simulation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #0d1117;
+            color: #e0e0e0;
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden;
+        }
+
+        #simulation-wrapper {
+            position: relative;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #30363d;
+            box-shadow: 0 0 25px rgba(0, 180, 255, 0.15);
+            background-color: #161b22;
+            cursor: pointer;
+        }
+
+        #title {
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #58a6ff;
+        }
+
+        #info-bar {
+            width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .button-group button {
+            padding: 8px 16px;
+            background-color: #30363d;
+            color: white;
+            border: 1px solid #484f58;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Roboto Mono', monospace;
+            transition: background-color 0.2s;
+            margin-left: 10px;
+        }
+        .button-group button:hover {
+            background-color: #484f58;
+        }
+        
+        #reset-button {
+            background-color: #8b3232;
+        }
+        #reset-button:hover {
+            background-color: #a43a3a;
+        }
+
+
+        /* Modal Styles */
+        #info-modal-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(5px);
+            transition: opacity 0.3s ease;
+        }
+
+        #info-modal-content {
+            background-color: #161b22;
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid #30363d;
+            width: 90%;
+            max-width: 700px;
+            text-align: center;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        
+        #info-modal-content h2 {
+            color: #58a6ff;
+            margin-top: 0;
+            font-size: 1.8rem;
+        }
+
+        #info-modal-content .instructions {
+            color: #c9d1d9;
+            margin-bottom: 2rem;
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+        
+        .info-cards-container {
+            display: flex;
+            justify-content: space-around;
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .info-card {
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            width: 45%;
+            text-align: left;
+        }
+        
+        .info-card h3 {
+            color: #89b6e4;
+            margin-top: 0;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
+        
+        .info-card p {
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: #c9d1d9;
+        }
+        
+        #start-button {
+            padding: 12px 24px;
+            font-size: 1rem;
+            background-color: #238636;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-weight: bold;
+        }
+        #start-button:hover {
+             background-color: #2ea043;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="title">🌊 Microplastic Dispersal Simulation 🦠</div>
+    <div id="simulation-wrapper">
+        <div id="canvas-container"></div>
+        
+        <!-- Information Modal -->
+        <div id="info-modal-overlay">
+            <div id="info-modal-content">
+                <h2>Welcome to the Simulation</h2>
+                <p class="instructions">Click anywhere on the canvas to generate a ripple. <br/>This creates a water current that will spread a new cluster of microplastics.</p>
+                <div class="info-cards-container">
+                    <div class="info-card">
+                        <h3>Passive Filter-Feeders</h3>
+                        <p>These plankton wander through the water, filtering for food. They accidentally ingest microplastics that drift into their path, mistaking them for their natural food source.</p>
+                    </div>
+                    <div class="info-card">
+                        <h3>Active Hunters</h3>
+                        <p>These predatory plankton actively hunt for food. They can mistake nearby microplastics for prey and will pursue them, demonstrating a different, more direct method of ingestion.</p>
+                    </div>
+                </div>
+                <button id="start-button">Start Simulation</button>
+            </div>
+        </div>
+    </div>
+    <div id="info-bar">
+        <span id="ingested-count">Ingested: 0</span>
+        <div class="button-group">
+            <button id="reset-button">Reset</button>
+            <button id="info-button">Show Info</button>
+        </div>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+
+            // --- CONFIGURATION ---
+            const CANVAS_WIDTH = 800;
+            const CANVAS_HEIGHT = 600;
+            const NUM_PLANKTON = 40;
+            const PLASTICS_PER_CLICK = 25;
+            const NUM_BG_PARTICLES = 100;
+            const PARTICLE_MAX_SPEED = 1.5;
+            const DAMPING = 0.99; // Friction factor for particles
+
+            let microplastics = [];
+            let plankton = [];
+            let ripples = [];
+            let bgParticles = [];
+            let totalIngested = 0;
+
+            // --- RIPPLE CLASS ---
+            class Ripple {
+                constructor(x, y) {
+                    this.center = p.createVector(x, y);
+                    this.radius = 0;
+                    this.maxRadius = p.random(150, 300);
+                    this.speed = p.random(1, 2);
+                    this.strength = 0.5;
+                    this.lifespan = 255;
+                }
+
+                update() {
+                    this.radius += this.speed;
+                    this.lifespan -= 1.5;
+                }
+
+                applyForce(particle) {
+                    const dist = p.dist(particle.pos.x, particle.pos.y, this.center.x, this.center.y);
+                    if (dist > this.radius - 20 && dist < this.radius + 20) {
+                        const force = p5.Vector.sub(particle.pos, this.center);
+                        force.normalize();
+                        force.mult(this.strength * (this.lifespan / 255));
+                        particle.applyForce(force);
+                    }
+                }
+
+                display() {
+                    p.noFill();
+                    p.stroke(0, 150, 255, this.lifespan);
+                    p.strokeWeight(2);
+                    p.ellipse(this.center.x, this.center.y, this.radius * 2);
+                }
+            }
+
+            // --- PARTICLE BASE CLASS ---
+            class Particle {
+                constructor(x, y) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(0, 0);
+                    this.acc = p.createVector(0, 0);
+                    this.maxSpeed = PARTICLE_MAX_SPEED;
+                }
+
+                applyForce(force) {
+                    this.acc.add(force);
+                }
+
+                update() {
+                    this.vel.add(this.acc);
+                    this.vel.limit(this.maxSpeed);
+                    this.pos.add(this.vel);
+                    this.acc.mult(0);
+                }
+
+                edges() {
+                    if (this.pos.x > p.width + 10) this.pos.x = -10;
+                    if (this.pos.x < -10) this.pos.x = p.width + 10;
+                    if (this.pos.y > p.height + 10) this.pos.y = -10;
+                    if (this.pos.y < -10) this.pos.y = p.height + 10;
+                }
+            }
+
+            // --- PLANKTON CLASS (With DYNAMIC BEHAVIOR) ---
+            class Plankton extends Particle {
+                constructor(x, y) {
+                    super(x, y);
+                    this.r = 10;
+                    this.ingestedPlastics = [];
+                    this.noiseOffsetX = p.random(1000);
+                    this.noiseOffsetY = p.random(1000);
+                    
+                    this.behavior = p.random(['passive', 'active']);
+                    
+                    if (this.behavior === 'active') {
+                        this.maxSpeed = PARTICLE_MAX_SPEED * 0.4;
+                        this.detectionRadius = 60;
+                    } else {
+                        this.maxSpeed = PARTICLE_MAX_SPEED * 0.3;
+                    }
+                }
+                
+                act(plastics) {
+                    if (this.behavior === 'active') {
+                        this.hunt(plastics);
+                    } else {
+                        this.wander();
+                    }
+                }
+
+                wander() {
+                    const wanderStrength = 0.05;
+                    const angle = p.noise(this.noiseOffsetX + p.frameCount * 0.01) * p.TWO_PI * 2;
+                    const wanderForce = p5.Vector.fromAngle(angle);
+                    wanderForce.setMag(wanderStrength);
+                    this.applyForce(wanderForce);
+                }
+                
+                hunt(plastics) {
+                    let closestDist = Infinity;
+                    let closestPlastic = null;
+
+                    for (const plastic of plastics) {
+                        const d = p.dist(this.pos.x, this.pos.y, plastic.pos.x, plastic.pos.y);
+                        if (d < closestDist && d < this.detectionRadius) {
+                            closestDist = d;
+                            closestPlastic = plastic;
+                        }
+                    }
+
+                    if (closestPlastic) {
+                        const seekForce = p5.Vector.sub(closestPlastic.pos, this.pos);
+                        seekForce.setMag(this.maxSpeed);
+                        seekForce.sub(this.vel);
+                        seekForce.limit(0.1);
+                        this.applyForce(seekForce);
+                    } else {
+                        this.wander();
+                    }
+                }
+                
+                update() {
+                    super.update();
+                    this.vel.mult(0.98); // Plankton also experience some drag
+                }
+
+                display() {
+                    // More realistic color change: from vibrant green to a pale, sickly color
+                    const healthyColor = p.color(40, 255, 170);
+                    const contaminatedColor = p.color(180, 210, 200, 180); // Pale, desaturated green
+                    const lerpAmount = p.min(this.ingestedPlastics.length / 8, 1);
+                    const currentColor = p.lerpColor(healthyColor, contaminatedColor, lerpAmount);
+
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    p.rotate(this.vel.heading() + p.PI / 2);
+
+                    for (const plastic of this.ingestedPlastics) {
+                        p.fill(plastic.color);
+                        p.noStroke();
+                        p.rect(plastic.offset.x, plastic.offset.y, 3, 3);
+                    }
+                    
+                    p.noStroke();
+                    p.fill(currentColor.levels[0], currentColor.levels[1], currentColor.levels[2], 200);
+                    p.beginShape();
+                    const bodyLength = this.behavior === 'active' ? this.r * 1.5 : this.r * 1.2;
+                    p.curveVertex(0, -bodyLength);
+                    p.curveVertex(this.r, 0);
+                    p.curveVertex(0, this.r * 0.8);
+                    p.curveVertex(-this.r, 0);
+                    p.endShape(p.CLOSE);
+
+                    p.stroke(currentColor.levels[0], currentColor.levels[1], currentColor.levels[2], 220);
+                    p.strokeWeight(1);
+                    p.line(0, -this.r, -4, -this.r * 1.8);
+                    p.line(0, -this.r, 4, -this.r * 1.8);
+
+                    p.pop();
+                }
+
+                checkIngestion(plastics) {
+                    for (let i = plastics.length - 1; i >= 0; i--) {
+                        const plastic = plastics[i];
+                        const d = p.dist(this.pos.x, this.pos.y, plastic.pos.x, plastic.pos.y);
+                        if (d < this.r) {
+                            const ingested = {
+                                color: plastic.color,
+                                offset: p.createVector(p.random(-this.r/2, this.r/2), p.random(-this.r/2, this.r/2))
+                            };
+                            this.ingestedPlastics.push(ingested);
+                            
+                            plastics.splice(i, 1);
+                            totalIngested++;
+                            document.getElementById('ingested-count').innerText = `Ingested: ${totalIngested}`;
+                        }
+                    }
+                }
+            }
+
+            // --- MICROPLASTIC CLASS ---
+            class Microplastic extends Particle {
+                constructor(x, y) {
+                    super(x, y);
+                    this.r = 2;
+                    this.color = p.random([p.color(255, 100, 100), p.color(100, 220, 255), p.color(255, 255, 120)]);
+                    this.maxSpeed = PARTICLE_MAX_SPEED * 0.8;
+                }
+                
+                update() {
+                    super.update();
+                    // Apply damping to simulate water resistance
+                    this.vel.mult(DAMPING);
+                }
+
+                display() {
+                    p.noStroke();
+                    p.fill(this.color);
+                    p.rectMode(p.CENTER);
+                    p.rect(this.pos.x, this.pos.y, this.r * 2, this.r * 2);
+                }
+            }
+
+            // --- BACKGROUND PARTICLE CLASS (Marine Snow) ---
+            class BGParticle {
+                constructor() {
+                    this.pos = p.createVector(p.random(p.width), p.random(p.height));
+                    this.vel = p.createVector(0, p.random(0.1, 0.3));
+                    this.size = p.random(1, 3);
+                    this.opacity = p.random(20, 80);
+                }
+
+                update() {
+                    this.pos.add(this.vel);
+                    if (this.pos.y > p.height) {
+                        this.pos.y = 0;
+                        this.pos.x = p.random(p.width);
+                    }
+                }
+
+                display() {
+                    p.noStroke();
+                    p.fill(200, this.opacity);
+                    p.ellipse(this.pos.x, this.pos.y, this.size);
+                }
+            }
+            
+            function initializePlankton() {
+                 for (let i = 0; i < NUM_PLANKTON; i++) {
+                    plankton.push(new Plankton(p.random(p.width), p.random(p.height)));
+                }
+            }
+            
+            function resetSimulation() {
+                // Clear all dynamic elements
+                plankton = [];
+                microplastics = [];
+                ripples = [];
+                
+                // Reset counter
+                totalIngested = 0;
+                document.getElementById('ingested-count').innerText = `Ingested: 0`;
+                
+                // Re-create the plankton
+                initializePlankton();
+                
+                // Ensure the simulation is running
+                if (!p.isLooping()) {
+                    p.loop();
+                }
+            }
+
+            // --- P5.JS SETUP ---
+            p.setup = () => {
+                const container = window.document.getElementById('canvas-container');
+                p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).parent(container);
+
+                initializePlankton();
+                
+                for (let i = 0; i < NUM_BG_PARTICLES; i++) {
+                    bgParticles.push(new BGParticle());
+                }
+                
+                // Add event listener for the reset button
+                document.getElementById('reset-button').addEventListener('click', resetSimulation);
+                
+                p.noLoop();
+            };
+            
+            function drawMarineBackground() {
+                const topColor = p.color(10, 20, 40);
+                const bottomColor = p.color(5, 10, 20);
+                for (let i = 0; i < p.height; i++) {
+                    const inter = p.map(i, 0, p.height, 0, 1);
+                    const c = p.lerpColor(topColor, bottomColor, inter);
+                    p.stroke(c);
+                    p.line(0, i, p.width, i);
+                }
+                
+                for(const part of bgParticles) {
+                    part.update();
+                    part.display();
+                }
+            }
+
+            // --- P5.JS DRAW LOOP ---
+            p.draw = () => {
+                drawMarineBackground();
+
+                for (let i = ripples.length - 1; i >= 0; i--) {
+                    const r = ripples[i];
+                    r.update();
+                    r.display();
+                    if (r.lifespan <= 0 || r.radius > r.maxRadius) {
+                        ripples.splice(i, 1);
+                    }
+                }
+
+                for (const pl of plankton) {
+                    pl.act(microplastics);
+                    for (const r of ripples) r.applyForce(pl);
+                    pl.update();
+                    pl.edges();
+                    pl.checkIngestion(microplastics);
+                    pl.display();
+                }
+
+                for (const mp of microplastics) {
+                    for (const r of ripples) r.applyForce(mp);
+                    mp.update();
+                    mp.edges();
+                    mp.display();
+                }
+            };
+
+            // --- USER INTERACTION ---
+            p.mousePressed = () => {
+                if (p.mouseX < 0 || p.mouseX > p.width || p.mouseY < 0 || p.mouseY > p.height) {
+                    return;
+                }
+                if (p.isLooping()) {
+                    ripples.push(new Ripple(p.mouseX, p.mouseY));
+
+                    for (let i = 0; i < PLASTICS_PER_CLICK; i++) {
+                        const angle = p.random(p.TWO_PI);
+                        const radius = p.random(10);
+                        const x = p.mouseX + p.cos(angle) * radius;
+                        const y = p.mouseY + p.sin(angle) * radius;
+                        microplastics.push(new Microplastic(x, y));
+                    }
+                }
+            };
+            
+            // --- MODAL CONTROL ---
+            const modal = document.getElementById('info-modal-overlay');
+            const startBtn = document.getElementById('start-button');
+            const infoBtn = document.getElementById('info-button');
+
+            startBtn.addEventListener('click', () => {
+                modal.classList.add('hidden');
+                p.loop();
+            });
+
+            infoBtn.addEventListener('click', () => {
+                modal.classList.remove('hidden');
+                p.noLoop();
+            });
+
+        }
+
+        new p5(sketch);
+
+    </script>
+</body>
+
+</html>
