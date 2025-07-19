@@ -1,184 +1,455 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Lunar Lander Simulation</title>
-  <script type="importmap">
-    {
-      "imports": {
-        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-      }
-    }
-  </script>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      background-color: #222;
-    }
-    canvas {
-      border: 1px solid #fff;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar Flare Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #simulation-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .controls {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .slider-container {
+            margin: 5px 0;
+        }
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        button {
+            padding: 5px 10px;
+            margin: 5px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
 </head>
 <body>
-  <script type="module">
-    import p5 from 'p5';
+    <div id="simulation-container">
+        <div id="canvas-container"></div>
+        <div class="controls" id="satellite-controls"></div>
+        <div class="controls">
+            <button id="cme-button">Trigger CME</button>
+            <button id="reset-button">Reset Simulation</button>
+        </div>
+    </div>
 
-    new p5((sketch) => {
-      // Constants
-      const GRAVITY = 0.05;
-      const THRUST_POWER = 0.15;
-      const ROTATION_SPEED = 0.05;
-      const SAFE_LANDING_VELOCITY = 3;
-      const SAFE_LANDING_ANGLE = 0.2;
-      const LANDER_WIDTH = 40;
-      const LANDER_HEIGHT = 20;
-      const LEG_LENGTH = 20;
-
-      // Lander properties
-      let x, y;
-      let vx = 0;
-      let vy = 0;
-      let angle = 0;
-      let thrust = 0;
-      let landed = false;
-      let settling = false;
-      let contactPoint = null;
-
-      // Terrain properties
-      const terrain = [];
-
-      sketch.setup = () => {
-        sketch.createCanvas(800, 600);
-        x = sketch.width / 2;
-        y = 100;
-        generateTerrain();
-      };
-
-      sketch.draw = () => {
-        sketch.background(0);
-        drawTerrain();
-        drawLander();
-        updateLander();
-
-        if (!landed) {
-          applyPhysics();
-        } else if (settling) {
-          settleOnGround();
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://esm.sh/p5@1.4.0"
+            }
         }
-      };
+    </script>
 
-      function generateTerrain() {
-        for (let i = 0; i < sketch.width; i += 10) {
-          terrain.push(sketch.random(20, 50));
-        }
-      }
+    <script type="module">
+        import p5 from 'p5';
 
-      function drawTerrain() {
-        sketch.noStroke();
-        sketch.fill(200);
-        sketch.beginShape();
-        for (let i = 0; i < terrain.length; i++) {
-          sketch.vertex(i * 10, sketch.height - terrain[i]);
-        }
-        sketch.vertex(sketch.width, sketch.height);
-        sketch.vertex(0, sketch.height);
-        sketch.endShape(sketch.CLOSE);
-      }
-
-      function drawLander() {
-        sketch.push();
-        sketch.translate(x, y);
-        sketch.rotate(angle);
-        sketch.fill(255);
-        sketch.stroke(0);
-        sketch.strokeWeight(2);
-        sketch.rectMode(sketch.CENTER);
-        sketch.rect(0, 0, LANDER_WIDTH, LANDER_HEIGHT);
-        sketch.line(-LANDER_WIDTH / 2, LANDER_HEIGHT / 2, -LANDER_WIDTH / 2, LANDER_HEIGHT / 2 + LEG_LENGTH);
-        sketch.line(LANDER_WIDTH / 2, LANDER_HEIGHT / 2, LANDER_WIDTH / 2, LANDER_HEIGHT / 2 + LEG_LENGTH);
-        sketch.pop();
-      }
-
-      function updateLander() {
-        if (sketch.keyIsDown(sketch.LEFT_ARROW)) {
-          angle -= ROTATION_SPEED;
-        }
-        if (sketch.keyIsDown(sketch.RIGHT_ARROW)) {
-          angle += ROTATION_SPEED;
-        }
-        if (sketch.keyIsDown(sketch.UP_ARROW)) {
-          thrust = THRUST_POWER;
-        } else {
-          thrust = 0;
-        }
-      }
-
-      function applyPhysics() {
-        vy += GRAVITY;
-        if (thrust > 0) {
-          vy -= Math.cos(angle) * thrust;
-          vx += Math.sin(angle) * thrust;
-        }
-        x += vx;
-        y += vy;
-
-        checkLanding();
-      }
-
-      function checkLanding() {
-        const leftLegX = x - LANDER_WIDTH / 2;
-        const rightLegX = x + LANDER_WIDTH / 2;
-        const leftLegY = y + LANDER_HEIGHT / 2 + LEG_LENGTH;
-        const rightLegY = y + LANDER_HEIGHT / 2 + LEG_LENGTH;
-
-        const leftLegTerrainY = getTerrainY(leftLegX);
-        const rightLegTerrainY = getTerrainY(rightLegX);
-
-        if (leftLegY >= leftLegTerrainY || rightLegY >= rightLegTerrainY) {
-          landed = true;
-          if (leftLegY >= leftLegTerrainY) {
-            contactPoint = { x: leftLegX, y: leftLegTerrainY };
-          } else {
-            contactPoint = { x: rightLegX, y: rightLegTerrainY };
-          }
-          checkSafeLanding();
-        }
-      }
-
-      function settleOnGround() {
-        const otherLegX = x - LANDER_WIDTH / 2;
-        const otherLegY = y + LANDER_HEIGHT / 2 + LEG_LENGTH;
-        const otherLegTerrainY = getTerrainY(otherLegX);
-
-        if (otherLegY >= otherLegTerrainY) {
-          settling = false;
-          checkSafeLanding();
-        } else {
-          const angleToGround = Math.atan2(contactPoint.y - otherLegTerrainY, contactPoint.x - otherLegX);
-          angle = angleToGround;
-        }
-      }
-
-      function checkSafeLanding() {
-        const velocity = Math.sqrt(vx * vx + vy * vy);
-        if (velocity <= SAFE_LANDING_VELOCITY && Math.abs(angle) <= SAFE_LANDING_ANGLE) {
-          console.log("Safe landing!");
-        } else {
-          console.log("Crash!");
-        }
-      }
-
-      function getTerrainY(x) {
-        const index = Math.floor(x / 10);
-        return sketch.height - terrain[index];
-      }
-    });
-  </script>
+        // Main simulation sketch
+        const sketch = (p) => {
+            // Constants
+            const SUN_RADIUS = 50;
+            const EARTH_RADIUS = 20;
+            const SATELLITE_RADIUS = 10;
+            const PARTICLE_SIZE = 5;
+            const MAX_PARTICLES = 1000;
+            const MAX_SHIELD_STRENGTH = 100;
+            const RECOVERY_RATE = 0.1;
+            
+            // Simulation state
+            let sun;
+            let earth;
+            let satellites = [];
+            let particles = [];
+            let cmeActive = false;
+            let cmeTimer = 0;
+            let CME_DURATION = 120; // frames
+            let draggingSatellite = null;
+            
+            // Sliders and controls
+            let satelliteSliders = [];
+            
+            // Colors
+            let sunColor, earthColor, satelliteColor, particleColor, cmeColor;
+            
+            // Setup function
+            p.setup = () => {
+                const canvas = p.createCanvas(800, 600);
+                canvas.parent('canvas-container');
+                
+                // Initialize colors
+                sunColor = p.color(255, 204, 0);
+                earthColor = p.color(0, 102, 204);
+                satelliteColor = p.color(200, 100, 50);
+                particleColor = p.color(255, 100, 50, 150);
+                cmeColor = p.color(255, 50, 50, 200);
+                
+                // Create celestial bodies
+                sun = {
+                    x: p.width / 2,
+                    y: p.height / 2,
+                    radius: SUN_RADIUS
+                };
+                
+                earth = {
+                    x: 50,
+                    y: p.height - 50,
+                    radius: EARTH_RADIUS
+                };
+                
+                // Create satellites
+                satellites.push({
+                    x: p.width / 2 - 150,
+                    y: p.height / 2,
+                    radius: SATELLITE_RADIUS,
+                    shieldStrength: 50,
+                    damage: 0,
+                    id: 'sat1'
+                });
+                
+                satellites.push({
+                    x: p.width / 2 + 150,
+                    y: p.height / 2,
+                    radius: SATELLITE_RADIUS,
+                    shieldStrength: 30,
+                    damage: 0,
+                    id: 'sat2'
+                });
+                
+                // Create sliders for satellites
+                createSliders();
+                
+                // Setup CME button
+                document.getElementById('cme-button').addEventListener('click', triggerCME);
+                document.getElementById('reset-button').addEventListener('click', resetSimulation);
+            };
+            
+            // Create sliders for each satellite
+            function createSliders() {
+                const controlsDiv = document.getElementById('satellite-controls');
+                controlsDiv.innerHTML = '';
+                
+                satellites.forEach((sat, index) => {
+                    const container = document.createElement('div');
+                    container.className = 'slider-container';
+                    
+                    const label = document.createElement('label');
+                    label.textContent = `Satellite ${index + 1}:`;
+                    container.appendChild(label);
+                    
+                    const slider = document.createElement('input');
+                    slider.type = 'range';
+                    slider.min = '0';
+                    slider.max = MAX_SHIELD_STRENGTH;
+                    slider.value = sat.shieldStrength;
+                    slider.id = sat.id;
+                    container.appendChild(slider);
+                    
+                    const valueDisplay = document.createElement('span');
+                    valueDisplay.textContent = sat.shieldStrength;
+                    valueDisplay.id = `${sat.id}-value`;
+                    container.appendChild(valueDisplay);
+                    
+                    slider.addEventListener('input', () => {
+                        sat.shieldStrength = parseInt(slider.value);
+                        valueDisplay.textContent = slider.value;
+                    });
+                    
+                    controlsDiv.appendChild(container);
+                });
+            }
+            
+            // Reset simulation
+            function resetSimulation() {
+                particles = [];
+                satellites.forEach(sat => {
+                    sat.damage = 0;
+                });
+                cmeActive = false;
+                cmeTimer = 0;
+            }
+            
+            // Trigger CME
+            function triggerCME() {
+                cmeActive = true;
+                cmeTimer = 0;
+                
+                // Add CME particles
+                for (let i = 0; i < 200; i++) {
+                    if (particles.length < MAX_PARTICLES) {
+                        const angle = p.random(p.TWO_PI);
+                        const speed = p.random(3, 6);
+                        const distance = p.random(sun.radius * 1.5, sun.radius * 2);
+                        
+                        particles.push({
+                            x: sun.x + p.cos(angle) * distance,
+                            y: sun.y + p.sin(angle) * distance,
+                            vx: p.cos(angle) * speed,
+                            vy: p.sin(angle) * speed,
+                            size: PARTICLE_SIZE * 2,
+                            cme: true,
+                            color: cmeColor
+                        });
+                    }
+                }
+            }
+            
+            // Check if particle hits communication path
+            function checkCollision(particle, satellite) {
+                // Get Earth position
+                const earthX = earth.x;
+                const earthY = earth.y;
+                
+                // Get satellite position
+                const satX = satellite.x;
+                const satY = satellite.y;
+                
+                // Vector from Earth to satellite
+                const lineVecX = satX - earthX;
+                const lineVecY = satY - earthY;
+                
+                // Vector from Earth to particle
+                const particleVecX = particle.x - earthX;
+                const particleVecY = particle.y - earthY;
+                
+                // Calculate line length
+                const lineLength = p.sqrt(lineVecX * lineVecX + lineVecY * lineVecY);
+                
+                // Normalize line vector
+                const normLineX = lineVecX / lineLength;
+                const normLineY = lineVecY / lineLength;
+                
+                // Project particle onto the line (find closest point on line)
+                const projection = particleVecX * normLineX + particleVecY * normLineY;
+                
+                // Find closest point on line segment
+                let closestX, closestY;
+                if (projection < 0) {
+                    closestX = earthX;
+                    closestY = earthY;
+                } else if (projection > lineLength) {
+                    closestX = satX;
+                    closestY = satY;
+                } else {
+                    closestX = earthX + projection * normLineX;
+                    closestY = earthY + projection * normLineY;
+                }
+                
+                // Calculate distance from particle to closest point
+                const distance = p.dist(particle.x, particle.y, closestX, closestY);
+                
+                // Check if particle is close enough to the line
+                const collisionThreshold = particle.size / 2 + 5;
+                return distance < collisionThreshold;
+            }
+            
+            // Update particles
+            function updateParticles() {
+                // Add regular solar flare particles
+                if (p.random() < 0.3 && particles.length < MAX_PARTICLES) {
+                    const angle = p.random(p.TWO_PI);
+                    const speed = p.random(1, 3);
+                    const distance = p.random(sun.radius * 1.1, sun.radius * 1.5);
+                    
+                    particles.push({
+                        x: sun.x + p.cos(angle) * distance,
+                        y: sun.y + p.sin(angle) * distance,
+                        vx: p.cos(angle) * speed,
+                        vy: p.sin(angle) * speed,
+                        size: PARTICLE_SIZE,
+                        cme: false,
+                        color: particleColor
+                    });
+                }
+                
+                // Update existing particles
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const particle = particles[i];
+                    
+                    // Update position
+                    particle.x += particle.vx;
+                    particle.y += particle.vy;
+                    
+                    // Check for collisions with satellites
+                    let collided = false;
+                    for (const satellite of satellites) {
+                        if (checkCollision(particle, satellite)) {
+                            // Calculate damage based on shield strength
+                            const baseDamage = particle.cme ? 5 : 1;
+                            const shieldEffectiveness = 1 - (satellite.shieldStrength / MAX_SHIELD_STRENGTH);
+                            const damageAmount = baseDamage * shieldEffectiveness;
+                            
+                            satellite.damage = p.min(satellite.damage + damageAmount, 100);
+                            collided = true;
+                            break;
+                        }
+                    }
+                    
+                    // Remove particles that are off-screen or collided
+                    if (collided || 
+                        particle.x < -50 || particle.x > p.width + 50 || 
+                        particle.y < -50 || particle.y > p.height + 50) {
+                        particles.splice(i, 1);
+                    }
+                }
+                
+                // Update CME timer
+                if (cmeActive) {
+                    cmeTimer++;
+                    if (cmeTimer > CME_DURATION) {
+                        cmeActive = false;
+                    }
+                }
+            }
+            
+            // Update satellite status
+            function updateSatellites() {
+                // Recover damage over time
+                satellites.forEach(sat => {
+                    if (sat.damage > 0) {
+                        sat.damage = p.max(sat.damage - RECOVERY_RATE, 0);
+                    }
+                });
+            }
+            
+            // Draw everything
+            p.draw = () => {
+                p.background(0);
+                
+                // Draw sun
+                p.fill(sunColor);
+                p.noStroke();
+                p.ellipse(sun.x, sun.y, sun.radius * 2);
+                
+                // Draw earth
+                p.fill(earthColor);
+                p.ellipse(earth.x, earth.y, earth.radius * 2);
+                
+                // Draw satellites
+                satellites.forEach(sat => {
+                    // Draw satellite
+                    p.fill(satelliteColor);
+                    p.ellipse(sat.x, sat.y, sat.radius * 2);
+                    
+                    // Draw communication path (with status)
+                    const pathColor = p.lerpColor(
+                        p.color(0, 255, 0), 
+                        p.color(255, 0, 0), 
+                        sat.damage / 100
+                    );
+                    
+                    p.stroke(pathColor);
+                    p.strokeWeight(2);
+                    p.line(earth.x, earth.y, sat.x, sat.y);
+                    
+                    // Draw shield strength indicator
+                    p.noStroke();
+                    p.fill(0, 150, 255, 150);
+                    p.arc(sat.x, sat.y, sat.radius * 2.5, sat.radius * 2.5, 
+                          p.PI, p.PI * 2, p.PIE);
+                    p.fill(255, 255, 255);
+                    const shieldAngle = p.map(sat.shieldStrength, 0, MAX_SHIELD_STRENGTH, p.PI, 0);
+                    p.arc(sat.x, sat.y, sat.radius * 2.5, sat.radius * 2.5, 
+                          0, shieldAngle, p.PIE);
+                    
+                    // Draw damage indicator
+                    p.fill(255, 0, 0, 150);
+                    const damageAngle = p.map(sat.damage, 0, 100, 0, p.PI * 2);
+                    p.arc(sat.x, sat.y, sat.radius * 2.5, sat.radius * 2.5, 
+                          p.PI, p.PI + damageAngle, p.PIE);
+                });
+                
+                // Draw particles
+                particles.forEach(particle => {
+                    p.fill(particle.color);
+                    p.noStroke();
+                    p.ellipse(particle.x, particle.y, particle.size);
+                });
+                
+                // Update simulation
+                updateParticles();
+                updateSatellites();
+                
+                // Draw status text
+                p.fill(255);
+                p.noStroke();
+                p.textSize(16);
+                p.text(`CME Active: ${cmeActive ? 'YES' : 'NO'}`, 10, 20);
+                
+                // Draw legend
+                p.textSize(14);
+                p.text('Communication Path Status:', 10, 50);
+                const green = p.color(0, 255, 0);
+                const red = p.color(255, 0, 0);
+                for (let i = 0; i <= 10; i++) {
+                    const x = 10 + i * 20;
+                    const y = 70;
+                    const statusColor = p.lerpColor(green, red, i / 10);
+                    p.stroke(statusColor);
+                    p.strokeWeight(3);
+                    p.line(x, y, x + 15, y);
+                    p.noStroke();
+                }
+            };
+            
+            // Handle mouse events for dragging satellites
+            p.mousePressed = () => {
+                // Check if mouse is over a satellite
+                for (const sat of satellites) {
+                    const distance = p.dist(p.mouseX, p.mouseY, sat.x, sat.y);
+                    if (distance < sat.radius * 2) {
+                        draggingSatellite = sat;
+                        break;
+                    }
+                }
+            };
+            
+            p.mouseDragged = () => {
+                if (draggingSatellite) {
+                    // Constrain to a circular orbit around the sun
+                    const dx = p.mouseX - sun.x;
+                    const dy = p.mouseY - sun.y;
+                    const distance = p.sqrt(dx * dx + dy * dy);
+                    
+                    // Prevent dragging into sun or too far away
+                    if (distance > sun.radius * 1.5 && distance < p.min(p.width, p.height) / 2) {
+                        draggingSatellite.x = p.mouseX;
+                        draggingSatellite.y = p.mouseY;
+                    }
+                }
+            };
+            
+            p.mouseReleased = () => {
+                draggingSatellite = null;
+            };
+        };
+        
+        // Create p5 instance
+        new p5(sketch, document.body);
+    </script>
 </body>
 </html>

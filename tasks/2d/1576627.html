@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar Flare Impact Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+            overscroll-behavior: none;
+        }
+        #simulation-container {
+            touch-action: none;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-gray-900 text-white flex flex-col items-center justify-start min-h-screen p-4">
+
+    <h1 class="text-2xl lg:text-3xl font-bold text-cyan-300 my-4 lg:my-6">Solar Flare Impact Simulation</h1>
+
+    <div class="flex flex-col lg:flex-row items-center justify-center w-full max-w-7xl">
+        <div class="flex flex-col w-full max-w-4xl">
+            <div id="simulation-container" class="w-full aspect-video rounded-lg shadow-2xl shadow-cyan-500/20 border-2 border-cyan-400/30 overflow-hidden">
+                <!-- p5.js canvas will be inserted here -->
+            </div>
+            <div id="info-card" class="bg-gray-800/50 p-4 rounded-lg border border-gray-700 mt-4">
+                <h3 class="text-lg font-bold text-cyan-300 mb-2">Communication Path Status</h3>
+                <p class="text-sm text-gray-300">
+                    The line from the satellite to Earth represents its communication link.
+                    <span class="text-green-400 font-semibold">Green</span> indicates a strong signal. When solar particles hit the line, the signal weakens, turning <span class="text-red-400 font-semibold">Red</span>.
+                    The link will slowly repair itself over time. Higher shield strength reduces the damage from each particle impact.
+                </p>
+            </div>
+        </div>
+
+
+        <div id="controls" class="w-full lg:w-64 mt-6 lg:mt-0 lg:ml-8 flex flex-col space-y-6">
+            <div class="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
+                <h2 class="text-lg font-bold text-cyan-300 mb-3 border-b border-gray-600 pb-2">Instructions</h2>
+                <ul class="text-sm space-y-2 text-gray-300">
+                    <li>- Drag satellites to new positions.</li>
+                    <li>- Adjust shield strength with sliders.</li>
+                    <li>- Stronger shields reduce communication disruption.</li>
+                    <li>- Press 'C' to trigger a Coronal Mass Ejection (CME).</li>
+                </ul>
+            </div>
+            <div id="satellite-controls" class="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
+                 <h2 class="text-lg font-bold text-cyan-300 mb-4 border-b border-gray-600 pb-2">Satellite Shields</h2>
+                 <!-- Sliders will be dynamically added here -->
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // Core simulation objects
+            let sun, earth, satellites = [];
+            let particles = [];
+            let stars = [];
+
+            // Satellite properties
+            const numSatellites = 3;
+            let draggedSatellite = null;
+            
+            // CME state
+            let cmeActive = false;
+            let cmeStartTime;
+            const cmeDuration = 3000; // 3 seconds
+
+            class Satellite {
+                constructor(id, x, y) {
+                    this.id = id;
+                    this.pos = p.createVector(x, y);
+                    this.size = 20;
+                    this.shieldStrength = p.random(0.2, 0.8); // Initial random shield
+                    this.commStatus = 1.0; // 1.0 = perfect, 0.0 = offline
+                    this.lastHitTime = 0;
+                }
+
+                // Draw the satellite and its shield
+                draw() {
+                    // Comm status recovery
+                    if (this.commStatus < 1.0) {
+                        this.commStatus = p.min(1.0, this.commStatus + 0.002);
+                    }
+
+                    // Draw shield
+                    p.noFill();
+                    p.strokeWeight(1 + this.shieldStrength * 4);
+                    p.stroke(0, 150, 255, 50 + this.shieldStrength * 150);
+                    p.circle(this.pos.x, this.pos.y, this.size * 2.5);
+
+                    // Draw satellite body
+                    p.noStroke();
+                    p.fill(200);
+                    p.circle(this.pos.x, this.pos.y, this.size);
+                    p.fill(50, 100, 200);
+                    p.circle(this.pos.x, this.pos.y, this.size * 0.6);
+                }
+
+                // Check if a point (mouse) is over this satellite
+                isMouseOver() {
+                    return p.dist(p.mouseX, p.mouseY, this.pos.x, this.pos.y) < this.size / 2;
+                }
+                
+                // Handle being hit by a particle
+                hit() {
+                    const damage = p.map(this.shieldStrength, 0, 1, 0.5, 0.05);
+                    this.commStatus -= damage;
+                    this.lastHitTime = p.millis();
+                    if (this.commStatus < 0) this.commStatus = 0;
+                }
+            }
+
+            class Particle {
+                constructor() {
+                    // Start particles from the edge of the sun circle
+                    const angle = p.random(-p.PI / 2.2, p.PI / 2.2);
+                    const startPos = p.createVector(
+                        sun.pos.x + (sun.size / 2) * p.cos(angle),
+                        sun.pos.y + (sun.size / 2) * p.sin(angle)
+                    );
+                    this.pos = startPos;
+                    this.vel = p.createVector(p.random(4, 8), p.random(-0.5, 0.5));
+                    this.size = p.random(2, 4);
+                    this.lifespan = 255;
+                }
+
+                // Update particle position
+                update() {
+                    this.pos.add(this.vel);
+                    this.lifespan -= 2;
+                }
+
+                // Draw the particle
+                draw() {
+                    p.noStroke();
+                    p.fill(255, p.random(150, 255), 0, this.lifespan);
+                    p.circle(this.pos.x, this.pos.y, this.size);
+                }
+
+                // Check if particle is off-screen
+                isOffscreen() {
+                    return this.pos.x > p.width || this.lifespan < 0;
+                }
+            }
+            
+            // Helper function to find distance from a point to a line segment
+            function distToLineSegment(point, v, w) {
+                const l2 = p5.Vector.dist(v, w) ** 2;
+                if (l2 === 0) return p5.Vector.dist(point, v);
+                let t = ((point.x - v.x) * (w.x - v.x) + (point.y - v.y) * (w.y - v.y)) / l2;
+                t = Math.max(0, Math.min(1, t));
+                const projection = p5.Vector.add(v, p5.Vector.mult(p5.Vector.sub(w, v), t));
+                return p5.Vector.dist(point, projection);
+            }
+
+            p.setup = () => {
+                const container = document.getElementById('simulation-container');
+                const canvas = p.createCanvas(container.offsetWidth, container.offsetHeight);
+                canvas.parent(container);
+
+                // Initialize celestial bodies
+                // Sun's diameter is p.height
+                sun = { pos: p.createVector(-50, p.height / 2), size: p.height };
+                earth = { pos: p.createVector(p.width - 40, p.height / 2), size: 80 };
+
+                // Define orbital constraints for initial positioning
+                const maxDist = p.width / 3.5; 
+                const minDist = earth.size / 2 + 20; // 20 is satellite size
+
+                // Initialize satellites within the allowed zone
+                for (let i = 0; i < numSatellites; i++) {
+                    // Get a random angle and distance from Earth, on the sun-facing side
+                    const angle = p.random(p.PI * 0.6, p.PI * 1.4); 
+                    const dist = p.random(minDist, maxDist);
+
+                    // Calculate position based on angle and distance from Earth's center
+                    const xPos = earth.pos.x + dist * p.cos(angle);
+                    const yPos = earth.pos.y + dist * p.sin(angle);
+                    
+                    satellites.push(new Satellite(i, xPos, yPos));
+                }
+                
+                // Create starfield background
+                for(let i = 0; i < 200; i++) {
+                    stars.push(p.createVector(p.random(p.width), p.random(p.height)));
+                }
+
+                // Create UI controls
+                const controlsContainer = document.getElementById('satellite-controls');
+                satellites.forEach(sat => {
+                    const controlDiv = document.createElement('div');
+                    controlDiv.className = 'flex flex-col space-y-1';
+
+                    const label = document.createElement('label');
+                    label.htmlFor = `shield-${sat.id}`;
+                    label.innerText = `Satellite ${sat.id + 1} Shield`;
+                    label.className = 'text-sm text-gray-400';
+
+                    const slider = document.createElement('input');
+                    slider.type = 'range';
+                    slider.id = `shield-${sat.id}`;
+                    slider.min = '0';
+                    slider.max = '1';
+                    slider.step = '0.01';
+                    slider.value = sat.shieldStrength;
+                    slider.className = 'w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer';
+
+                    slider.addEventListener('input', (e) => {
+                        sat.shieldStrength = parseFloat(e.target.value);
+                    });
+
+                    controlDiv.appendChild(label);
+                    controlDiv.appendChild(slider);
+                    controlsContainer.appendChild(controlDiv);
+                });
+            };
+
+            p.draw = () => {
+                p.background(10, 15, 30);
+                
+                // Draw starfield
+                p.fill(255, 255, 255, 150);
+                p.noStroke();
+                stars.forEach(star => p.circle(star.x, star.y, p.random(0.5, 1.5)));
+
+                // Draw Sun
+                p.fill(255, 204, 0);
+                p.noStroke();
+                p.circle(sun.pos.x, sun.pos.y, sun.size);
+                p.fill(255, 150, 0, 50);
+                p.circle(sun.pos.x, sun.pos.y, sun.size * 1.5);
+
+                // Draw Earth
+                p.fill(0, 102, 255);
+                p.circle(earth.pos.x, earth.pos.y, earth.size);
+                p.fill(0, 200, 100, 150);
+                p.circle(earth.pos.x, earth.pos.y, earth.size * 0.9);
+
+                // Handle solar flares and CMEs
+                if (cmeActive) {
+                    // High rate of particles for CME
+                    for (let i = 0; i < 10; i++) {
+                        particles.push(new Particle());
+                    }
+                } else {
+                    // Normal, lower rate of particles
+                    if (p.frameCount % 5 === 0) {
+                        particles.push(new Particle());
+                    }
+                }
+
+                // Check if the CME duration has passed and stop it
+                if(cmeActive && p.millis() - cmeStartTime > cmeDuration) {
+                    cmeActive = false;
+                }
+
+                // Update and draw particles
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update();
+                    particles[i].draw();
+                    if (particles[i].isOffscreen()) {
+                        particles.splice(i, 1);
+                    }
+                }
+
+                // Draw satellites and communication paths
+                satellites.forEach(sat => {
+                    // Draw communication path
+                    const commColor = p.lerpColor(p.color(255, 0, 0), p.color(0, 255, 150), sat.commStatus);
+                    p.stroke(commColor);
+                    
+                    // Add flickering effect on low comm status
+                    const isFlickering = sat.commStatus < 0.7 && p.frameCount % 10 < 5;
+                    if (!isFlickering) {
+                       p.strokeWeight(p.max(0.5, sat.commStatus * 2));
+                       p.line(sat.pos.x, sat.pos.y, earth.pos.x, earth.pos.y);
+                    }
+
+                    // Draw the satellite itself
+                    sat.draw();
+                });
+                
+                // Collision detection
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    let particleRemoved = false;
+                    for (let sat of satellites) {
+                        // Check collision with comms path
+                        const d = distToLineSegment(particles[i].pos, sat.pos, earth.pos);
+                        if (d < 5) { // 5px collision threshold for the line
+                            sat.hit();
+                            particles.splice(i, 1);
+                            particleRemoved = true;
+                            break; 
+                        }
+                    }
+                    if (particleRemoved) continue;
+                }
+            };
+
+            p.mousePressed = () => {
+                for (let sat of satellites) {
+                    if (sat.isMouseOver()) {
+                        draggedSatellite = sat;
+                        // Bring to front by moving to end of array
+                        satellites = satellites.filter(s => s !== sat);
+                        satellites.push(sat);
+                        break;
+                    }
+                }
+            };
+
+            p.mouseDragged = () => {
+                if (draggedSatellite) {
+                    const earthPos = earth.pos;
+                    const mousePos = p.createVector(p.mouseX, p.mouseY);
+                    
+                    // Define min and max distance from Earth's center
+                    const maxDist = p.width / 3.5; 
+                    const minDist = earth.size / 2 + draggedSatellite.size; // Prevent dragging inside Earth
+
+                    // Vector from Earth to the mouse
+                    let dir = p5.Vector.sub(mousePos, earthPos);
+                    let currentDist = dir.mag();
+
+                    // Constrain the distance to be within the min/max radius
+                    let newDist = p.constrain(currentDist, minDist, maxDist);
+
+                    // If the distance had to be constrained, calculate the new position along the vector
+                    if (newDist !== currentDist) {
+                        dir.setMag(newDist);
+                        const newPos = p5.Vector.add(earthPos, dir);
+                        draggedSatellite.pos.set(newPos);
+                    } else {
+                        // Otherwise, just follow the mouse if it's within the valid zone
+                        draggedSatellite.pos.set(mousePos);
+                    }
+
+                    // Also, add a hard left boundary to prevent dragging too close to the sun
+                    const leftBoundary = p.width / 3;
+                    if (draggedSatellite.pos.x < leftBoundary) {
+                        draggedSatellite.pos.x = leftBoundary;
+                    }
+                    
+                    // Add final constraints to keep the satellite fully within the canvas
+                    const halfSize = draggedSatellite.size / 2;
+                    draggedSatellite.pos.x = p.constrain(draggedSatellite.pos.x, halfSize, p.width - halfSize);
+                    draggedSatellite.pos.y = p.constrain(draggedSatellite.pos.y, halfSize, p.height - halfSize);
+                }
+            };
+
+            p.mouseReleased = () => {
+                draggedSatellite = null;
+            };
+
+            p.keyPressed = () => {
+                if (p.key === 'c' || p.key === 'C') {
+                    // Prevent re-triggering if already active
+                    if (!cmeActive) { 
+                        cmeActive = true;
+                        cmeStartTime = p.millis();
+                    }
+                }
+            }
+
+            p.windowResized = () => {
+                const container = document.getElementById('simulation-container');
+                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+                // Recalculate positions based on new dimensions
+                earth.pos.x = p.width - 40;
+                earth.pos.y = p.height / 2;
+                sun.pos.y = p.height / 2;
+                // Update sun's size based on new height
+                sun.size = p.height;
+            };
+        };
+        
+        const container = window.document.getElementById('simulation-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>
