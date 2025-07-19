@@ -1,455 +1,392 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Solar Flare Simulation</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #f0f0f0;
-            font-family: Arial, sans-serif;
-        }
-        #simulation-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .controls {
-            margin: 15px 0;
-            padding: 10px;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-        .slider-container {
-            margin: 5px 0;
-        }
-        label {
-            display: inline-block;
-            width: 100px;
-        }
-        button {
-            padding: 5px 10px;
-            margin: 5px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gravity Assist Slingshot</title>
+  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+    }
+  }
+  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0a0a1a;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    h1 {
+      margin-bottom: 20px;
+      font-size: 2.5rem;
+      text-align: center;
+    }
+    #canvas-container {
+      border: 2px solid #333;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      width: 800px;
+      height: 600px;
+      position: relative;
+    }
+    .controls {
+      margin: 20px 0;
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      width: 800px;
+      justify-content: center;
+    }
+    button {
+      background-color: #ff4d4d;
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      font-size: 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      min-width: 120px;
+      text-align: center;
+    }
+    button:hover {
+      background-color: #ff6b6b;
+    }
+    button:disabled {
+      background-color: #666;
+      cursor: not-allowed;
+    }
+    .slider-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    input[type="range"] {
+      width: 200px;
+      margin: 10px 0;
+      accent-color: #ff4d4d;
+    }
+    .info-card {
+      background-color: rgba(20, 20, 40, 0.8);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+      width: 800px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .info-card h2 {
+      margin-top: 0;
+      color: #ff4d4d;
+    }
+    .info-card p {
+      margin: 10px 0;
+      line-height: 1.6;
+    }
+    .status {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 20px;
+      border-radius: 8px;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      font-size: 1.2rem;
+      z-index: 10;
+      display: none;
+    }
+    .status.success {
+      background-color: rgba(50, 200, 50, 0.9);
+    }
+    .status.failure {
+      background-color: rgba(200, 50, 50, 0.9);
+    }
+    .status.active {
+      display: block;
+    }
+  </style>
 </head>
 <body>
-    <div id="simulation-container">
-        <div id="canvas-container"></div>
-        <div class="controls" id="satellite-controls"></div>
-        <div class="controls">
-            <button id="cme-button">Trigger CME</button>
-            <button id="reset-button">Reset Simulation</button>
-        </div>
+  <h1>Gravity Assist Slingshot</h1>
+  <div id="canvas-container"></div>
+  <div class="controls">
+    <div class="slider-container">
+      <label for="angleSlider">Launch Angle: <span id="angleValue">0°</span></label>
+      <input type="range" id="angleSlider" min="-180" max="180" value="0">
     </div>
+    <button id="actionButton">Launch</button>
+  </div>
+  <div class="info-card">
+    <h2>What is a Gravity Assist?</h2>
+    <p>A gravity assist, or "slingshot" maneuver, uses a planet's gravity to change a spacecraft's velocity and direction. This technique allows spacecraft to gain or lose speed and alter their trajectories without using fuel.</p>
+    <h2>How to Play</h2>
+    <p>1. Adjust the launch angle using the slider to aim your spacecraft.</p>
+    <p>2. Click "Launch" to launch the spacecraft toward Earth.</p>
+    <p>3. The spacecraft will be pulled by Earth's gravity when it enters the blue gravitational well.</p>
+    <p>4. Try to reach Mars (red circle) without crashing into Earth or flying off-screen.</p>
+    <p>5. Click "Reset" to try again with a different angle.</p>
+  </div>
 
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://esm.sh/p5@1.4.0"
-            }
+  <script type="module">
+    import p5 from 'p5';
+
+    // Define sketch as a function for p5 instance mode
+    const sketch = (p) => {
+      // Constants
+      const WIDTH = 800;
+      const HEIGHT = 600;
+      const EARTH_MASS = 1000;
+      const EARTH_RADIUS = 30;
+      const MARS_MASS = 100;
+      const MARS_RADIUS = 20;
+      const SPACECRAFT_MASS = 1;
+      const SPACECRAFT_RADIUS = 8;
+      const G = 0.5;
+      const GRAVITY_WELL_RADIUS = 150;
+      const LAUNCH_SPEED = 3;
+      const MARS_DISTANCE = 250;
+
+      // Game state
+      let earth, mars, spacecraft;
+      let angleSlider, actionButton;
+      let gameState = 'ready'; // ready, launched, success, failure
+      let angle = 0;
+      let trail = [];
+      let initialDirection = null;
+
+      // p5 setup
+      p.setup = () => {
+        const canvas = p.createCanvas(WIDTH, HEIGHT);
+        canvas.parent('canvas-container');
+
+        // Create objects
+        earth = new Planet(WIDTH / 2, HEIGHT / 2, EARTH_RADIUS, EARTH_MASS, '#3399ff');
+        mars = new Planet(WIDTH / 2 + MARS_DISTANCE, HEIGHT / 2, MARS_RADIUS, MARS_MASS, '#ff3333');
+        spacecraft = new Spacecraft(earth.x, earth.y - EARTH_RADIUS - SPACECRAFT_RADIUS - 10, SPACECRAFT_RADIUS, SPACECRAFT_MASS, '#ffcc00');
+
+        // Get UI elements
+        angleSlider = document.getElementById('angleSlider');
+        actionButton = document.getElementById('actionButton');
+
+        // Set up button
+        actionButton.addEventListener('click', () => {
+          if (gameState === 'ready') {
+            launchSpacecraft();
+          } else {
+            resetGame();
+          }
+        });
+
+        // Set up slider
+        angleSlider.addEventListener('input', (e) => {
+          angle = parseInt(e.target.value);
+          document.getElementById('angleValue').textContent = `${angle}°`;
+          if (gameState === 'ready') {
+            updateInitialDirection();
+          }
+        });
+
+        updateInitialDirection();
+
+        // Create status indicator
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'status';
+        statusDiv.id = 'status';
+        document.getElementById('canvas-container').appendChild(statusDiv);
+      };
+
+      // p5 draw loop
+      p.draw = () => {
+        // Clear canvas
+        p.background(10, 10, 30);
+
+        // Draw objects
+        earth.display();
+        mars.display();
+        spacecraft.display();
+
+        // Draw gravitational well
+        p.noFill();
+        p.stroke(50, 150, 255, 100);
+        p.strokeWeight(1);
+        p.circle(earth.x, earth.y, GRAVITY_WELL_RADIUS * 2);
+
+        // Draw trail
+        p.stroke(255, 204, 0, 150);
+        p.strokeWeight(2);
+        p.noFill();
+        p.beginShape();
+        for (const pos of trail) {
+          p.vertex(pos.x, pos.y);
         }
-    </script>
+        p.endShape();
 
-    <script type="module">
-        import p5 from 'p5';
+        // Draw initial direction line
+        if (initialDirection) {
+          p.stroke(150, 150, 255, 100);
+          p.strokeWeight(1);
+          const lineEnd = p5.Vector.add(spacecraft.pos, p5.Vector.mult(initialDirection, 100));
+          p.line(spacecraft.pos.x, spacecraft.pos.y, lineEnd.x, lineEnd.y);
+        }
 
-        // Main simulation sketch
-        const sketch = (p) => {
-            // Constants
-            const SUN_RADIUS = 50;
-            const EARTH_RADIUS = 20;
-            const SATELLITE_RADIUS = 10;
-            const PARTICLE_SIZE = 5;
-            const MAX_PARTICLES = 1000;
-            const MAX_SHIELD_STRENGTH = 100;
-            const RECOVERY_RATE = 0.1;
-            
-            // Simulation state
-            let sun;
-            let earth;
-            let satellites = [];
-            let particles = [];
-            let cmeActive = false;
-            let cmeTimer = 0;
-            let CME_DURATION = 120; // frames
-            let draggingSatellite = null;
-            
-            // Sliders and controls
-            let satelliteSliders = [];
-            
-            // Colors
-            let sunColor, earthColor, satelliteColor, particleColor, cmeColor;
-            
-            // Setup function
-            p.setup = () => {
-                const canvas = p.createCanvas(800, 600);
-                canvas.parent('canvas-container');
-                
-                // Initialize colors
-                sunColor = p.color(255, 204, 0);
-                earthColor = p.color(0, 102, 204);
-                satelliteColor = p.color(200, 100, 50);
-                particleColor = p.color(255, 100, 50, 150);
-                cmeColor = p.color(255, 50, 50, 200);
-                
-                // Create celestial bodies
-                sun = {
-                    x: p.width / 2,
-                    y: p.height / 2,
-                    radius: SUN_RADIUS
-                };
-                
-                earth = {
-                    x: 50,
-                    y: p.height - 50,
-                    radius: EARTH_RADIUS
-                };
-                
-                // Create satellites
-                satellites.push({
-                    x: p.width / 2 - 150,
-                    y: p.height / 2,
-                    radius: SATELLITE_RADIUS,
-                    shieldStrength: 50,
-                    damage: 0,
-                    id: 'sat1'
-                });
-                
-                satellites.push({
-                    x: p.width / 2 + 150,
-                    y: p.height / 2,
-                    radius: SATELLITE_RADIUS,
-                    shieldStrength: 30,
-                    damage: 0,
-                    id: 'sat2'
-                });
-                
-                // Create sliders for satellites
-                createSliders();
-                
-                // Setup CME button
-                document.getElementById('cme-button').addEventListener('click', triggerCME);
-                document.getElementById('reset-button').addEventListener('click', resetSimulation);
-            };
-            
-            // Create sliders for each satellite
-            function createSliders() {
-                const controlsDiv = document.getElementById('satellite-controls');
-                controlsDiv.innerHTML = '';
-                
-                satellites.forEach((sat, index) => {
-                    const container = document.createElement('div');
-                    container.className = 'slider-container';
-                    
-                    const label = document.createElement('label');
-                    label.textContent = `Satellite ${index + 1}:`;
-                    container.appendChild(label);
-                    
-                    const slider = document.createElement('input');
-                    slider.type = 'range';
-                    slider.min = '0';
-                    slider.max = MAX_SHIELD_STRENGTH;
-                    slider.value = sat.shieldStrength;
-                    slider.id = sat.id;
-                    container.appendChild(slider);
-                    
-                    const valueDisplay = document.createElement('span');
-                    valueDisplay.textContent = sat.shieldStrength;
-                    valueDisplay.id = `${sat.id}-value`;
-                    container.appendChild(valueDisplay);
-                    
-                    slider.addEventListener('input', () => {
-                        sat.shieldStrength = parseInt(slider.value);
-                        valueDisplay.textContent = slider.value;
-                    });
-                    
-                    controlsDiv.appendChild(container);
-                });
-            }
-            
-            // Reset simulation
-            function resetSimulation() {
-                particles = [];
-                satellites.forEach(sat => {
-                    sat.damage = 0;
-                });
-                cmeActive = false;
-                cmeTimer = 0;
-            }
-            
-            // Trigger CME
-            function triggerCME() {
-                cmeActive = true;
-                cmeTimer = 0;
-                
-                // Add CME particles
-                for (let i = 0; i < 200; i++) {
-                    if (particles.length < MAX_PARTICLES) {
-                        const angle = p.random(p.TWO_PI);
-                        const speed = p.random(3, 6);
-                        const distance = p.random(sun.radius * 1.5, sun.radius * 2);
-                        
-                        particles.push({
-                            x: sun.x + p.cos(angle) * distance,
-                            y: sun.y + p.sin(angle) * distance,
-                            vx: p.cos(angle) * speed,
-                            vy: p.sin(angle) * speed,
-                            size: PARTICLE_SIZE * 2,
-                            cme: true,
-                            color: cmeColor
-                        });
-                    }
-                }
-            }
-            
-            // Check if particle hits communication path
-            function checkCollision(particle, satellite) {
-                // Get Earth position
-                const earthX = earth.x;
-                const earthY = earth.y;
-                
-                // Get satellite position
-                const satX = satellite.x;
-                const satY = satellite.y;
-                
-                // Vector from Earth to satellite
-                const lineVecX = satX - earthX;
-                const lineVecY = satY - earthY;
-                
-                // Vector from Earth to particle
-                const particleVecX = particle.x - earthX;
-                const particleVecY = particle.y - earthY;
-                
-                // Calculate line length
-                const lineLength = p.sqrt(lineVecX * lineVecX + lineVecY * lineVecY);
-                
-                // Normalize line vector
-                const normLineX = lineVecX / lineLength;
-                const normLineY = lineVecY / lineLength;
-                
-                // Project particle onto the line (find closest point on line)
-                const projection = particleVecX * normLineX + particleVecY * normLineY;
-                
-                // Find closest point on line segment
-                let closestX, closestY;
-                if (projection < 0) {
-                    closestX = earthX;
-                    closestY = earthY;
-                } else if (projection > lineLength) {
-                    closestX = satX;
-                    closestY = satY;
-                } else {
-                    closestX = earthX + projection * normLineX;
-                    closestY = earthY + projection * normLineY;
-                }
-                
-                // Calculate distance from particle to closest point
-                const distance = p.dist(particle.x, particle.y, closestX, closestY);
-                
-                // Check if particle is close enough to the line
-                const collisionThreshold = particle.size / 2 + 5;
-                return distance < collisionThreshold;
-            }
-            
-            // Update particles
-            function updateParticles() {
-                // Add regular solar flare particles
-                if (p.random() < 0.3 && particles.length < MAX_PARTICLES) {
-                    const angle = p.random(p.TWO_PI);
-                    const speed = p.random(1, 3);
-                    const distance = p.random(sun.radius * 1.1, sun.radius * 1.5);
-                    
-                    particles.push({
-                        x: sun.x + p.cos(angle) * distance,
-                        y: sun.y + p.sin(angle) * distance,
-                        vx: p.cos(angle) * speed,
-                        vy: p.sin(angle) * speed,
-                        size: PARTICLE_SIZE,
-                        cme: false,
-                        color: particleColor
-                    });
-                }
-                
-                // Update existing particles
-                for (let i = particles.length - 1; i >= 0; i--) {
-                    const particle = particles[i];
-                    
-                    // Update position
-                    particle.x += particle.vx;
-                    particle.y += particle.vy;
-                    
-                    // Check for collisions with satellites
-                    let collided = false;
-                    for (const satellite of satellites) {
-                        if (checkCollision(particle, satellite)) {
-                            // Calculate damage based on shield strength
-                            const baseDamage = particle.cme ? 5 : 1;
-                            const shieldEffectiveness = 1 - (satellite.shieldStrength / MAX_SHIELD_STRENGTH);
-                            const damageAmount = baseDamage * shieldEffectiveness;
-                            
-                            satellite.damage = p.min(satellite.damage + damageAmount, 100);
-                            collided = true;
-                            break;
-                        }
-                    }
-                    
-                    // Remove particles that are off-screen or collided
-                    if (collided || 
-                        particle.x < -50 || particle.x > p.width + 50 || 
-                        particle.y < -50 || particle.y > p.height + 50) {
-                        particles.splice(i, 1);
-                    }
-                }
-                
-                // Update CME timer
-                if (cmeActive) {
-                    cmeTimer++;
-                    if (cmeTimer > CME_DURATION) {
-                        cmeActive = false;
-                    }
-                }
-            }
-            
-            // Update satellite status
-            function updateSatellites() {
-                // Recover damage over time
-                satellites.forEach(sat => {
-                    if (sat.damage > 0) {
-                        sat.damage = p.max(sat.damage - RECOVERY_RATE, 0);
-                    }
-                });
-            }
-            
-            // Draw everything
-            p.draw = () => {
-                p.background(0);
-                
-                // Draw sun
-                p.fill(sunColor);
-                p.noStroke();
-                p.ellipse(sun.x, sun.y, sun.radius * 2);
-                
-                // Draw earth
-                p.fill(earthColor);
-                p.ellipse(earth.x, earth.y, earth.radius * 2);
-                
-                // Draw satellites
-                satellites.forEach(sat => {
-                    // Draw satellite
-                    p.fill(satelliteColor);
-                    p.ellipse(sat.x, sat.y, sat.radius * 2);
-                    
-                    // Draw communication path (with status)
-                    const pathColor = p.lerpColor(
-                        p.color(0, 255, 0), 
-                        p.color(255, 0, 0), 
-                        sat.damage / 100
-                    );
-                    
-                    p.stroke(pathColor);
-                    p.strokeWeight(2);
-                    p.line(earth.x, earth.y, sat.x, sat.y);
-                    
-                    // Draw shield strength indicator
-                    p.noStroke();
-                    p.fill(0, 150, 255, 150);
-                    p.arc(sat.x, sat.y, sat.radius * 2.5, sat.radius * 2.5, 
-                          p.PI, p.PI * 2, p.PIE);
-                    p.fill(255, 255, 255);
-                    const shieldAngle = p.map(sat.shieldStrength, 0, MAX_SHIELD_STRENGTH, p.PI, 0);
-                    p.arc(sat.x, sat.y, sat.radius * 2.5, sat.radius * 2.5, 
-                          0, shieldAngle, p.PIE);
-                    
-                    // Draw damage indicator
-                    p.fill(255, 0, 0, 150);
-                    const damageAngle = p.map(sat.damage, 0, 100, 0, p.PI * 2);
-                    p.arc(sat.x, sat.y, sat.radius * 2.5, sat.radius * 2.5, 
-                          p.PI, p.PI + damageAngle, p.PIE);
-                });
-                
-                // Draw particles
-                particles.forEach(particle => {
-                    p.fill(particle.color);
-                    p.noStroke();
-                    p.ellipse(particle.x, particle.y, particle.size);
-                });
-                
-                // Update simulation
-                updateParticles();
-                updateSatellites();
-                
-                // Draw status text
-                p.fill(255);
-                p.noStroke();
-                p.textSize(16);
-                p.text(`CME Active: ${cmeActive ? 'YES' : 'NO'}`, 10, 20);
-                
-                // Draw legend
-                p.textSize(14);
-                p.text('Communication Path Status:', 10, 50);
-                const green = p.color(0, 255, 0);
-                const red = p.color(255, 0, 0);
-                for (let i = 0; i <= 10; i++) {
-                    const x = 10 + i * 20;
-                    const y = 70;
-                    const statusColor = p.lerpColor(green, red, i / 10);
-                    p.stroke(statusColor);
-                    p.strokeWeight(3);
-                    p.line(x, y, x + 15, y);
-                    p.noStroke();
-                }
-            };
-            
-            // Handle mouse events for dragging satellites
-            p.mousePressed = () => {
-                // Check if mouse is over a satellite
-                for (const sat of satellites) {
-                    const distance = p.dist(p.mouseX, p.mouseY, sat.x, sat.y);
-                    if (distance < sat.radius * 2) {
-                        draggingSatellite = sat;
-                        break;
-                    }
-                }
-            };
-            
-            p.mouseDragged = () => {
-                if (draggingSatellite) {
-                    // Constrain to a circular orbit around the sun
-                    const dx = p.mouseX - sun.x;
-                    const dy = p.mouseY - sun.y;
-                    const distance = p.sqrt(dx * dx + dy * dy);
-                    
-                    // Prevent dragging into sun or too far away
-                    if (distance > sun.radius * 1.5 && distance < p.min(p.width, p.height) / 2) {
-                        draggingSatellite.x = p.mouseX;
-                        draggingSatellite.y = p.mouseY;
-                    }
-                }
-            };
-            
-            p.mouseReleased = () => {
-                draggingSatellite = null;
-            };
-        };
-        
-        // Create p5 instance
-        new p5(sketch, document.body);
-    </script>
+        // Update spacecraft
+        if (gameState === 'launched') {
+          // Add to trail
+          trail.push(spacecraft.pos.copy());
+          if (trail.length > 200) {
+            trail.shift();
+          }
+
+          // Apply gravity if in well
+          if (spacecraft.pos.dist(earth.pos) < GRAVITY_WELL_RADIUS) {
+            const gravityForce = earth.attract(spacecraft);
+            spacecraft.applyForce(gravityForce);
+          }
+
+          spacecraft.update();
+
+          // Check for collisions
+          if (spacecraft.pos.dist(earth.pos) < earth.radius + spacecraft.radius) {
+            gameState = 'failure';
+            document.getElementById('status').textContent = 'Failure: Crashed into Earth!';
+            document.getElementById('status').className = 'status failure active';
+            actionButton.textContent = 'Retry';
+            angleSlider.disabled = true;
+          }
+
+          if (spacecraft.pos.dist(mars.pos) < mars.radius + spacecraft.radius) {
+            gameState = 'success';
+            document.getElementById('status').textContent = 'Success: Reached Mars!';
+            document.getElementById('status').className = 'status success active';
+            actionButton.textContent = 'Reset';
+            angleSlider.disabled = true;
+          }
+
+          // Check boundaries
+          if (spacecraft.pos.x < 0 || spacecraft.pos.x > WIDTH || spacecraft.pos.y < 0 || spacecraft.pos.y > HEIGHT) {
+            gameState = 'failure';
+            document.getElementById('status').textContent = 'Failure: Spacecraft flew off-screen!';
+            document.getElementById('status').className = 'status failure active';
+            actionButton.textContent = 'Retry';
+            angleSlider.disabled = true;
+          }
+        }
+      };
+
+      // Launch the spacecraft
+      function launchSpacecraft() {
+        gameState = 'launched';
+        actionButton.textContent = 'Reset';
+
+        // Set initial velocity based on angle
+        const radians = p.radians(angle);
+        spacecraft.vel = p.createVector(p.cos(radians) * LAUNCH_SPEED, p.sin(radians) * LAUNCH_SPEED);
+
+        // Store initial direction for visualization
+        initialDirection = p.createVector(p.cos(radians), p.sin(radians));
+
+        // Disable slider
+        angleSlider.disabled = true;
+      }
+
+      // Reset the game
+      function resetGame() {
+        gameState = 'ready';
+        actionButton.textContent = 'Launch';
+
+        // Reset spacecraft position and velocity
+        spacecraft.pos = p.createVector(earth.x, earth.y - EARTH_RADIUS - SPACECRAFT_RADIUS - 10);
+        spacecraft.vel = p.createVector(0, 0);
+        spacecraft.acc = p.createVector(0, 0);
+
+        // Clear trail
+        trail = [];
+
+        // Update initial direction based on current angle
+        updateInitialDirection();
+
+        // Hide status message
+        document.getElementById('status').className = 'status';
+
+        // Enable slider
+        angleSlider.disabled = false;
+      }
+
+      // Update the initial direction vector based on current angle
+      function updateInitialDirection() {
+        const radians = p.radians(angle);
+        initialDirection = p.createVector(p.cos(radians), p.sin(radians));
+      }
+
+      // Planet class
+      class Planet {
+        constructor(x, y, radius, mass, color) {
+          this.pos = p.createVector(x, y);
+          this.radius = radius;
+          this.mass = mass;
+          this.color = color;
+        }
+
+        display() {
+          p.noStroke();
+          p.fill(this.color);
+          p.circle(this.pos.x, this.pos.y, this.radius * 2);
+        }
+
+        attract(body) {
+          const force = p5.Vector.sub(this.pos, body.pos);
+          const distance = force.mag();
+          force.normalize();
+
+          const strength = (G * this.mass * body.mass) / (distance * distance);
+          force.mult(strength);
+
+          return force;
+        }
+      }
+
+      // Spacecraft class
+      class Spacecraft {
+        constructor(x, y, radius, mass, color) {
+          this.pos = p.createVector(x, y);
+          this.radius = radius;
+          this.mass = mass;
+          this.color = color;
+          this.vel = p.createVector(0, 0);
+          this.acc = p.createVector(0, 0);
+        }
+
+        display() {
+          p.noStroke();
+          p.fill(this.color);
+          p.circle(this.pos.x, this.pos.y, this.radius * 2);
+        }
+
+        applyForce(force) {
+          const f = p5.Vector.div(force, this.mass);
+          this.acc.add(f);
+        }
+
+        update() {
+          this.vel.add(this.acc);
+          this.pos.add(this.vel);
+          this.acc.mult(0);
+        }
+      }
+    };
+
+    // Create the p5 instance
+    new p5(sketch);
+  </script>
 </body>
 </html>

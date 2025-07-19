@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slingshot Maneuver Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Roboto Mono', monospace;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #000000; 
+            color: #e0e0e0;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            color: #00ffff;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
+            margin-bottom: 20px;
+        }
+
+        #simulation-area {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #334155;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+            border-radius: 12px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        #info-card {
+            background-color: rgba(30, 41, 59, 0.5);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 400px;
+            flex-grow: 1;
+        }
+
+        #info-card h2 {
+            color: #00ffff;
+            margin-top: 0;
+            border-bottom: 1px solid #475569;
+            padding-bottom: 10px;
+        }
+
+        #info-card p, #info-card li {
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+
+        #info-card ul {
+            padding-left: 20px;
+        }
+
+        #controls-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: rgba(30, 41, 59, 0.5);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 800px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 150px;
+            height: 8px;
+            background: #475569;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.9;
+            transition: opacity .2s;
+        }
+        
+        input[type="range"]:disabled {
+            opacity: 0.4;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #00ffff;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #0a0a1a;
+        }
+        
+        input[type="range"]:disabled::-webkit-slider-thumb {
+            background: #475569;
+            cursor: not-allowed;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #00ffff;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #0a0a1a;
+        }
+        
+        input[type="range"]:disabled::-moz-range-thumb {
+            background: #475569;
+            cursor: not-allowed;
+        }
+
+        button {
+            background: linear-gradient(45deg, #00ffff, #0077ff);
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            font-family: 'Roboto Mono', monospace;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: box-shadow 0.3s, transform 0.3s;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+
+        button:hover {
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+            transform: translateY(-2px);
+        }
+
+        #angle-value {
+            font-weight: bold;
+            color: #00ffff;
+            min-width: 50px;
+        }
+        
+        #message-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 3em;
+            text-align: center;
+            font-weight: bold;
+            text-shadow: 0 0 15px #000;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <h1>Gravity Assist (Slingshot) Simulator</h1>
+
+    <div id="simulation-area">
+        <div id="canvas-container">
+            <div id="message-overlay" style="display: none;"></div>
+        </div>
+        <div id="info-card">
+            <h2>How It Works</h2>
+            <p>A gravity assist, or slingshot, uses a planet's gravity to alter a spacecraft's path and speed. As the craft enters the planet's gravitational well (faint blue circles), it's pulled in and accelerated. By flying past at the right angle, the craft can "steal" a tiny amount of the planet's orbital energy, flinging it towards a distant target at a much higher speed and saving enormous amounts of fuel.</p>
+            <h2>Instructions</h2>
+            <ul>
+                <li><strong>Goal:</strong> Launch the spacecraft to successfully reach Mars.</li>
+                <li><strong>Angle Slider:</strong> Adjust the initial approach angle. Small changes can have big results!</li>
+                <li><strong>Launch Button:</strong> Press to start the simulation or reset after a run.</li>
+                <li><strong>Trajectory:</strong> The yellow line shows your path. The cyan line shows your initial aim.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div id="controls-container">
+        <div class="control-group">
+            <label for="angle-slider">Approach Angle:</label>
+            <input type="range" id="angle-slider" min="-45" max="45" value="-15" step="0.5">
+            <span id="angle-value">-15.0°</span>
+        </div>
+        <button id="launch-button">Launch Spacecraft</button>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation Constants ---
+            const G = 1.2; // Gravitational constant
+            let earth, mars, spacecraft;
+            let isSimulating = false;
+            let trajectory = [];
+            let angleSlider, launchButton, angleValueSpan, messageOverlay;
+            let outcomeMessage = '';
+
+            // --- Celestial Body Class ---
+            class CelestialBody {
+                constructor(name, mass, radius, color, pos, gravityRadius) {
+                    this.name = name;
+                    this.mass = mass;
+                    this.radius = radius;
+                    this.color = color;
+                    this.pos = pos; // p5.Vector
+                    this.vel = p.createVector(0, 0);
+                    this.acc = p.createVector(0, 0);
+                    this.gravityRadius = gravityRadius; // The radius of the gravitational well
+                }
+
+                applyForce(force) {
+                    let f = p5.Vector.div(force, this.mass);
+                    this.acc.add(f);
+                }
+
+                attract(other) {
+                    const force = p5.Vector.sub(this.pos, other.pos);
+                    let distanceSq = force.magSq();
+                    if (distanceSq < (this.radius * this.radius)) {
+                        distanceSq = this.radius * this.radius;
+                    }
+                    const strength = (G * this.mass * other.mass) / distanceSq;
+                    force.setMag(strength);
+                    other.applyForce(force);
+                }
+                
+                update() {
+                    this.vel.add(this.acc);
+                    this.pos.add(this.vel);
+                    this.acc.mult(0);
+                }
+
+                draw() {
+                    p.push()
+                    p.noStroke();
+                    p.fill(this.color);
+                    p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
+                    p.pop()
+                }
+                
+                drawWell() {
+                    if (!this.gravityRadius) return;
+                    p.push()
+                    p.noFill();
+                    for (let i = 1; i <= 5; i++) {
+                        let alpha = 50 - i * 8;
+                        let wellColor = p.color(this.color.toString());
+                        wellColor.setAlpha(alpha);
+                        p.stroke(wellColor);
+                        p.strokeWeight(1);
+                        p.ellipse(this.pos.x, this.pos.y, this.gravityRadius * (i / 5) * 2);
+                    }
+                    p.pop()
+                }
+            }
+
+            // --- Spacecraft Class ---
+            class Spacecraft extends CelestialBody {
+                constructor(pos, vel) {
+                    super('Spacecraft', 0.1, 8, p.color(255, 255, 0), pos, 0);
+                    this.vel = vel;
+                }
+
+                draw() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    p.rotate(this.vel.heading());
+                    p.fill(200, 200, 210);
+                    p.noStroke();
+                    p.rectMode(p.CENTER);
+                    p.rect(0, 0, this.radius * 2, this.radius * 1.5, 2);
+                    p.fill(255, 255, 255);
+                    p.stroke(150);
+                    p.strokeWeight(1);
+                    p.ellipse(-this.radius * 0.8, 0, this.radius * 1.2, this.radius * 1.2);
+                    p.fill(100)
+                    p.ellipse(-this.radius, 0, this.radius*0.3, this.radius*0.3);
+                    p.stroke(180);
+                    p.strokeWeight(2);
+                    p.line(this.radius, 0, this.radius * 2.5, 0);
+                    p.fill(255, 215, 0);
+                    p.noStroke();
+                    p.ellipse(this.radius * 2.5, 0, this.radius*0.5, this.radius*0.5);
+                    p.pop();
+                }
+            }
+            
+            p.setup = () => {
+                const canvasSize = 600;
+                p.createCanvas(canvasSize, canvasSize).parent('canvas-container');
+                setupControls();
+                resetSimulation();
+            };
+
+            p.draw = () => {
+                p.background(0);
+                p.translate(p.width / 2, p.height / 2);
+
+                if (isSimulating) {
+                    let distToEarth = p.dist(spacecraft.pos.x, spacecraft.pos.y, earth.pos.x, earth.pos.y);
+                    if (distToEarth < earth.gravityRadius) {
+                        earth.attract(spacecraft);
+                    }
+                    spacecraft.update();
+                    if (p.frameCount % 2 === 0) {
+                       trajectory.push(spacecraft.pos.copy());
+                    }
+                    checkOutcome();
+                }
+
+                mars.draw();
+                mars.drawWell();
+                earth.drawWell();
+                earth.draw();
+                if (!isSimulating) {
+                    drawAimLine();
+                }
+                
+                if (spacecraft) {
+                    spacecraft.draw();
+                    drawTrajectory();
+                }
+                
+                drawInfo();
+            };
+
+            function checkOutcome() {
+                let distToMars = p.dist(spacecraft.pos.x, spacecraft.pos.y, mars.pos.x, mars.pos.y);
+                if (distToMars < mars.radius + spacecraft.radius) {
+                    isSimulating = false;
+                    outcomeMessage = 'SUCCESS!\nMars Reached';
+                    showMessage(outcomeMessage, '#00ff7f');
+                }
+
+                let distToEarth = p.dist(spacecraft.pos.x, spacecraft.pos.y, earth.pos.x, earth.pos.y);
+                if (distToEarth < earth.radius + spacecraft.radius) {
+                    isSimulating = false;
+                    outcomeMessage = 'FAILURE\nCrashed into Earth';
+                    showMessage(outcomeMessage, '#ff4500');
+                }
+
+                if (p.abs(spacecraft.pos.x) > p.width / 2 + 50 || p.abs(spacecraft.pos.y) > p.height / 2 + 50) {
+                    isSimulating = false;
+                    outcomeMessage = 'FAILURE\nLost in Space';
+                    showMessage(outcomeMessage, '#ff4500');
+                }
+            }
+
+            function setupControls() {
+                angleSlider = p.select('#angle-slider');
+                launchButton = p.select('#launch-button');
+                angleValueSpan = p.select('#angle-value');
+                messageOverlay = p.select('#message-overlay');
+
+                angleSlider.input(() => {
+                    angleValueSpan.html(`${parseFloat(angleSlider.value()).toFixed(1)}°`);
+                    if (!isSimulating) {
+                        resetSpacecraft();
+                    }
+                });
+
+                launchButton.mousePressed(() => {
+                    if (outcomeMessage) {
+                        resetSimulation();
+                    } else {
+                        isSimulating = true;
+                        trajectory = [spacecraft.pos.copy()];
+                        launchButton.html('Reset Simulation');
+                    }
+                });
+            }
+
+            function resetSimulation() {
+                isSimulating = false;
+                outcomeMessage = '';
+                hideMessage();
+                trajectory = [];
+                if(launchButton) launchButton.html('Launch Spacecraft');
+                
+                earth = new CelestialBody('Earth', 800, 25, p.color(0, 191, 255), p.createVector(0, 0), p.width / 3.5);
+                mars = new CelestialBody('Mars', 5, 15, p.color(255, 69, 0), p.createVector(p.width / 2 - 100, -p.height / 2 + 100), 200);
+
+                resetSpacecraft();
+            }
+
+            function resetSpacecraft() {
+                let angle = p.radians(parseFloat(angleSlider.value()));
+                let startPos = p.createVector(-p.width / 2 - 20, 0);
+                let initialVel = p5.Vector.fromAngle(angle).setMag(4);
+
+                spacecraft = new Spacecraft(startPos, initialVel);
+                trajectory = [startPos.copy()];
+            }
+
+            function drawTrajectory() {
+                p.noFill();
+                p.stroke(255, 255, 0, 200);
+                p.strokeWeight(2);
+                p.beginShape();
+                for (let pos of trajectory) {
+                    p.vertex(pos.x, pos.y);
+                }
+                p.endShape();
+            }
+            
+            function drawAimLine() {
+                if (!spacecraft) return;
+                p.stroke(0, 255, 255, 100);
+                p.strokeWeight(2);
+                p.drawingContext.setLineDash([5, 10]);
+                p.line(
+                    spacecraft.pos.x, 
+                    spacecraft.pos.y, 
+                    spacecraft.pos.x + spacecraft.vel.x * 200, 
+                    spacecraft.pos.y + spacecraft.vel.y * 200
+                );
+                p.drawingContext.setLineDash([]);
+            }
+
+            function drawInfo() {
+                p.resetMatrix();
+                p.fill(220);
+                p.noStroke();
+                p.textSize(12);
+                p.textAlign(p.LEFT, p.TOP);
+                
+                if (spacecraft) {
+                    let speed = spacecraft.vel.mag().toFixed(2);
+                    p.fill(0, 255, 255);
+                    p.text(`Speed: ${speed}`, 10, 10);
+                }
+            }
+
+            function showMessage(msg, color) {
+                messageOverlay.html(msg.replace('\n', '<br>'));
+                messageOverlay.style('color', color);
+                messageOverlay.style('display', 'flex');
+                launchButton.html('Try Again');
+                angleSlider.attribute('disabled', '');
+            }
+
+            function hideMessage() {
+                messageOverlay.style('display', 'none');
+                angleSlider.removeAttribute('disabled');
+            }
+            
+            p.windowResized = () => {
+                // Keep canvas size fixed but allow info card to reflow
+                // This provides a more stable experience
+            }
+        };
+
+        new p5(sketch, window.document.body);
+    </script>
+</body>
+
+</html>
