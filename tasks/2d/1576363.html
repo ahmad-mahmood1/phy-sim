@@ -272,11 +272,97 @@
                 }
 
                 draw() {
-                    p.push()
+                    // Use special drawing functions for specific planets
+                    if (this.name === 'Earth') {
+                        this.drawEarth();
+                    } else if (this.name === 'Mars') {
+                        this.drawMars();
+                    }
+                    else {
+                        // Otherwise, draw a simple ellipse
+                        p.push()
+                        p.noStroke();
+                        p.fill(this.color);
+                        p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
+                        p.pop()
+                    }
+                }
+
+                // Special function to draw Earth with continents
+                drawEarth() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+
+                    // 1. Draw the blue ocean base
+                    p.noStroke();
+                    p.fill(30, 144, 255); // A nice ocean blue
+                    p.ellipse(0, 0, this.radius * 2);
+
+                    // 2. Draw procedural green continents
+                    p.fill(34, 139, 34); // Forest green for land
+
+                    // Simplified Africa / Eurasia
+                    p.beginShape();
+                    p.vertex(this.radius * 0.2, -this.radius * 0.9);
+                    p.vertex(this.radius * 0.6, -this.radius * 0.7);
+                    p.vertex(this.radius * 0.7, -this.radius * 0.2);
+                    p.vertex(this.radius * 0.5, this.radius * 0.4);
+                    p.vertex(this.radius * 0.3, this.radius * 0.9);
+                    p.vertex(-this.radius * 0.2, this.radius * 0.8);
+                    p.vertex(-this.radius * 0.4, this.radius * 0.2);
+                    p.vertex(-this.radius * 0.3, -this.radius * 0.6);
+                    p.endShape(p.CLOSE);
+
+                    // Simplified Americas
+                    p.beginShape();
+                    p.vertex(-this.radius * 0.9, -this.radius * 0.4);
+                    p.vertex(-this.radius * 0.5, -this.radius * 0.5);
+                    p.vertex(-this.radius * 0.4, 0);
+                    p.vertex(-this.radius * 0.6, this.radius * 0.5);
+                    p.vertex(-this.radius * 0.9, this.radius * 0.3);
+                    p.vertex(-this.radius * 1.0, -this.radius * 0.1);
+                    p.endShape(p.CLOSE);
+
+                    p.pop();
+                }
+
+                // Special function to draw Mars with surface features
+                drawMars() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+
+                    // 1. Draw the base red planet
                     p.noStroke();
                     p.fill(this.color);
-                    p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
-                    p.pop()
+                    p.ellipse(0, 0, this.radius * 2);
+
+                    // 2. Draw darker patches for surface features
+                    p.fill(139, 0, 0, 100); // Dark red with transparency
+                    p.beginShape();
+                    p.vertex(-this.radius * 0.8, -this.radius * 0.3);
+                    p.vertex(-this.radius * 0.2, -this.radius * 0.7);
+                    p.vertex(this.radius * 0.5, -this.radius * 0.5);
+                    p.vertex(this.radius * 0.6, 0);
+                    p.vertex(0, this.radius * 0.9);
+                    p.vertex(-this.radius * 0.9, this.radius * 0.2);
+                    p.endShape(p.CLOSE);
+
+                    // 3. Draw some crack-like canyons
+                    p.stroke(165, 42, 42, 150); // Brownish-red
+                    p.strokeWeight(1.5);
+                    p.noFill();
+                    p.line(-this.radius * 0.1, -this.radius * 0.2, this.radius * 0.4, this.radius * 0.3);
+                    p.line(this.radius * 0.4, this.radius * 0.3, this.radius * 0.2, this.radius * 0.5);
+                    p.line(this.radius * 0.4, this.radius * 0.3, this.radius * 0.6, this.radius * 0.2);
+
+
+                    // 4. Add a subtle highlight for a 3D effect
+                    p.noStroke();
+                    p.fill(255, 165, 0, 40); // Transparent orange highlight
+                    p.arc(-this.radius * 0.3, -this.radius * 0.3, this.radius * 1.8, this.radius * 1.8, p.radians(200), p.radians(340));
+
+
+                    p.pop();
                 }
                 
                 drawWell() {
@@ -285,6 +371,7 @@
                     p.noFill();
                     for (let i = 1; i <= 5; i++) {
                         let alpha = 50 - i * 8;
+                        // Use the original color for the gravity well for consistency
                         let wellColor = p.color(this.color.toString());
                         wellColor.setAlpha(alpha);
                         p.stroke(wellColor);
@@ -426,7 +513,8 @@
 
             function resetSpacecraft() {
                 let angle = p.radians(parseFloat(angleSlider.value()));
-                let startPos = p.createVector(-p.width / 2 - 20, 0);
+                // Start the spacecraft touching the left edge of the canvas
+                let startPos = p.createVector(-p.width / 2 + 10, 0);
                 let initialVel = p5.Vector.fromAngle(angle).setMag(4);
 
                 spacecraft = new Spacecraft(startPos, initialVel);
@@ -459,16 +547,36 @@
             }
 
             function drawInfo() {
-                p.resetMatrix();
-                p.fill(220);
-                p.noStroke();
-                p.textSize(12);
-                p.textAlign(p.LEFT, p.TOP);
+                p.resetMatrix(); // Return to screen coordinates for UI elements
                 
                 if (spacecraft) {
-                    let speed = spacecraft.vel.mag().toFixed(2);
-                    p.fill(0, 255, 255);
-                    p.text(`Speed: ${speed}`, 10, 10);
+                    const speed = spacecraft.vel.mag().toFixed(2);
+                    const infoString = `Speed: ${speed}`;
+                    const padding = 10;
+                    const textSize = 16;
+                    
+                    p.push(); // Isolate styles for this UI element
+                    
+                    p.textFont('Roboto Mono');
+                    p.textSize(textSize);
+                    
+                    const textW = p.textWidth(infoString);
+                    const boxX = 10;
+                    const boxY = 10;
+                    const boxW = textW + padding * 2;
+                    const boxH = textSize + padding;
+                    
+                    // Draw the semi-transparent background box
+                    p.noStroke();
+                    p.fill(30, 41, 59, 220); // Use a theme-consistent color with good opacity
+                    p.rect(boxX, boxY, boxW, boxH, 8); // Rounded corners
+                    
+                    // Draw the text on top
+                    p.fill(0, 255, 255); // Bright cyan color for the text
+                    p.textAlign(p.LEFT, p.TOP);
+                    p.text(infoString, boxX + padding, boxY + padding / 2);
+                    
+                    p.pop(); // Restore previous drawing styles
                 }
             }
 
@@ -491,7 +599,7 @@
             }
         };
 
-        new p5(sketch, window.document.body);
+        new p5(sketch);
     </script>
 </body>
 

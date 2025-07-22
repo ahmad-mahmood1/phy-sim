@@ -76,6 +76,7 @@
         
         #info-card ul {
             padding-left: 20px;
+            margin-top: 10px;
         }
 
         #controls {
@@ -132,14 +133,13 @@
             <!-- p5.js canvas will be inserted here -->
         </div>
         <div id="info-card">
-            <h2>How It Works</h2>
-            <p>This simulation demonstrates a simplified concept of optical cloaking using perpendicular lenses.</p>
+            <h2>How It Works: The Lubar Lens</h2>
+            <p>This simulation demonstrates a simplified "Lubar Lens" effect, where perpendicular lenses are used to hide objects.</p>
             <ul>
-                <li>Click <strong>"Add Horizontal Lens"</strong> to place a lens that appears to hide the horizontal section of the cross beneath it.</li>
-                <li>Click <strong>"Add Vertical Lens"</strong> to hide the vertical section.</li>
+                <li>The <strong>Horizontal Lens</strong> (the tall, vertical rectangle) hides the horizontal dowels by creating a gap where it is placed.</li>
+                <li>The <strong>Vertical Lens</strong> (the wide, horizontal rectangle) hides the central vertical stick in the same way.</li>
             </ul>
-            <p>The "cloaking" illusion is created by drawing the wooden sticks as separate segments, leaving a physical gap where the lens is placed. This gives the impression that the central part of the object has vanished.</p>
-            <p>Click <strong>"Reset"</strong> to remove both lenses and reveal the full object again.</p>
+            <p>The illusion works because the program simply doesn't draw the parts of the sticks that are behind the lenses. Click <strong>"Reset"</strong> to see the full stand again.</p>
         </div>
     </div>
 
@@ -155,15 +155,19 @@
         const sketch = (p) => {
             // --- Configuration Constants ---
             const canvasWidth = 600;
-            // Canvas height is now dynamic, so we remove the constant here.
-            const stickLength = 300;
-            const stickThickness = 12;
-            const cloakSize = 80; 
-            const lensThickness = cloakSize;
-            const lensLength = 180;
+            const uprightHeight = 280;
+            const uprightWidth = 25;
+            const uprightXOffset = 100; // Distance from center to each upright
+            const dowelLength = 320;
+            const dowelThickness = 14;
+            const dowelYOffset = 35; 
+            const baseWidth = 300;
+            const baseHeight = 40;
+            const hCloakWidth = 80; // Width of the horizontal lens's cloak
+            const vCloakHeight = 100; // Height of the vertical lens's cloak (Increased from 80)
             
             // --- Colors ---
-            const woodColor = '#8B4513';
+            const woodColor = '#A0522D';
             const lensFillColor = [200, 220, 255, 150];
             const lensStrokeColor = '#999';
             const backgroundColor = '#FFFFFF';
@@ -172,55 +176,98 @@
             let isHorizontalLensVisible = false;
             let isVerticalLensVisible = false;
 
+            // --- Button Elements ---
+            let horizontalLensButton;
+            let verticalLensButton;
+            let resetButton;
+
             p.setup = () => {
-                // Get the info card element to measure its height.
                 const infoCard = document.getElementById('info-card');
-                // Use offsetHeight to get the full rendered height of the card.
                 const dynamicCanvasHeight = infoCard.offsetHeight;
-                
-                // Create the canvas with a dynamic height matching the info card.
                 const canvas = p.createCanvas(canvasWidth, dynamicCanvasHeight);
-                canvas.parent('canvas-container'); // Attach canvas to the container div
+                canvas.parent('canvas-container');
                 p.rectMode(p.CENTER);
+
+                // --- Button Controls ---
+                horizontalLensButton = document.getElementById('add-horizontal-lens-button');
+                verticalLensButton = document.getElementById('add-vertical-lens-button');
+                resetButton = document.getElementById('reset-button');
+
+                horizontalLensButton.addEventListener('click', () => {
+                    p.addHorizontalLens();
+                    horizontalLensButton.disabled = true;
+                });
+
+                verticalLensButton.addEventListener('click', () => {
+                    p.addVerticalLens();
+                    verticalLensButton.disabled = true;
+                });
+
+                resetButton.addEventListener('click', () => {
+                    p.resetLenses();
+                    horizontalLensButton.disabled = false;
+                    verticalLensButton.disabled = false;
+                });
             };
 
             p.draw = () => {
                 p.background(backgroundColor);
                 p.translate(p.width / 2, p.height / 2);
 
+                // --- Draw Stand Base ---
+                p.fill(woodColor);
+                p.noStroke();
+                const baseY = uprightHeight / 2 + baseHeight / 2;
+                p.rect(0, baseY, baseWidth, baseHeight, 5);
+
+                // --- Draw Side Vertical Upright (Right side only) ---
+                p.rect(uprightXOffset, 0, uprightWidth, uprightHeight);
+
+                // --- Draw Center Vertical Stick ---
+                const centerStickHeight = uprightHeight;
+                const centerStickWidth = 15;
+                p.fill(woodColor);
+                p.noStroke();
+                if (isVerticalLensVisible) {
+                    const topPartHeight = (centerStickHeight / 2) - (vCloakHeight / 2);
+                    p.rect(0, -vCloakHeight / 2 - topPartHeight / 2, centerStickWidth, topPartHeight);
+                    const bottomPartHeight = (centerStickHeight / 2) - (vCloakHeight / 2);
+                    p.rect(0, vCloakHeight / 2 + bottomPartHeight / 2, centerStickWidth, bottomPartHeight);
+                } else {
+                    p.rect(0, 0, centerStickWidth, centerStickHeight);
+                }
+
+
+                // --- Draw Horizontal Dowels ---
                 p.stroke(woodColor);
-                p.strokeWeight(stickThickness);
+                p.strokeWeight(dowelThickness);
                 p.strokeCap(p.SQUARE);
-
-                // Draw the VERTICAL stick
-                // It is hidden by the VERTICAL lens now
-                if (isVerticalLensVisible) {
-                    p.line(0, -stickLength / 2, 0, -cloakSize / 2);
-                    p.line(0, cloakSize / 2, 0, stickLength / 2);
-                } else {
-                    p.line(0, -stickLength / 2, 0, stickLength / 2);
+                const dowelYPositions = [-dowelYOffset, dowelYOffset];
+                for (const y of dowelYPositions) {
+                    if (isHorizontalLensVisible) {
+                        p.line(-dowelLength / 2, y, -hCloakWidth / 2, y);
+                        p.line(hCloakWidth / 2, y, dowelLength / 2, y);
+                    } else {
+                        p.line(-dowelLength / 2, y, dowelLength / 2, y);
+                    }
                 }
-
-                // Draw the HORIZONTAL stick
-                // It is hidden by the HORIZONTAL lens now
+                
+                // --- Draw Horizontal Lens (The Vertical Rectangle) ---
                 if (isHorizontalLensVisible) {
-                    p.line(-stickLength / 2, 0, -cloakSize / 2, 0);
-                    p.line(cloakSize / 2, 0, stickLength / 2, 0);
-                } else {
-                    p.line(-stickLength / 2, 0, stickLength / 2, 0);
+                    p.strokeWeight(2);
+                    p.stroke(lensStrokeColor);
+                    p.fill(lensFillColor);
+                    const lensHeight = 240; 
+                    p.rect(0, 0, hCloakWidth, lensHeight, 10);
                 }
 
-                // Draw Lenses on Top
-                p.strokeWeight(2);
-                p.stroke(lensStrokeColor);
-                p.fill(lensFillColor);
-
-                if (isHorizontalLensVisible) {
-                    p.rect(0, 0, lensLength, lensThickness, 10);
-                }
-
+                // --- Draw Vertical Lens (The Horizontal Rectangle) ---
                 if (isVerticalLensVisible) {
-                    p.rect(0, 0, lensThickness, lensLength, 10);
+                    p.strokeWeight(2);
+                    p.stroke(lensStrokeColor);
+                    p.fill(lensFillColor);
+                    const lensWidth = 150; // Decreased from 200
+                    p.rect(0, 0, lensWidth, vCloakHeight, 10);
                 }
             };
             
@@ -232,30 +279,10 @@
             };
         };
 
-        // Initialize p5.js and attach it to the sketch function
-        const p5Instance = new p5(sketch);
-
-        // --- Button Controls ---
-        const horizontalButton = document.getElementById('add-horizontal-lens-button');
-        const verticalButton = document.getElementById('add-vertical-lens-button');
-        const resetButton = document.getElementById('reset-button');
-
-        horizontalButton.addEventListener('click', () => {
-            p5Instance.addHorizontalLens();
-            horizontalButton.disabled = true;
+        // Wait for the DOM to be fully loaded before initializing the sketch
+        document.addEventListener('DOMContentLoaded', () => {
+            new p5(sketch);
         });
-
-        verticalButton.addEventListener('click', () => {
-            p5Instance.addVerticalLens();
-            verticalButton.disabled = true;
-        });
-
-        resetButton.addEventListener('click', () => {
-            p5Instance.resetLenses();
-            horizontalButton.disabled = false;
-            verticalButton.disabled = false;
-        });
-
     </script>
 </body>
 
