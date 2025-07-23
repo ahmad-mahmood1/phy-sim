@@ -1,392 +1,281 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gravity Assist Slingshot</title>
-  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-  <script type="importmap">
-  {
-    "imports": {
-      "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-    }
-  }
-  </script>
-  <style>
-    body {
-      margin: 0;
-      padding: 20px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #0a0a1a;
-      color: #fff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-    }
-    h1 {
-      margin-bottom: 20px;
-      font-size: 2.5rem;
-      text-align: center;
-    }
-    #canvas-container {
-      border: 2px solid #333;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-      width: 800px;
-      height: 600px;
-      position: relative;
-    }
-    .controls {
-      margin: 20px 0;
-      display: flex;
-      gap: 20px;
-      align-items: center;
-      width: 800px;
-      justify-content: center;
-    }
-    button {
-      background-color: #ff4d4d;
-      color: #fff;
-      border: none;
-      padding: 12px 24px;
-      font-size: 1rem;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background-color 0.3s ease;
-      min-width: 120px;
-      text-align: center;
-    }
-    button:hover {
-      background-color: #ff6b6b;
-    }
-    button:disabled {
-      background-color: #666;
-      cursor: not-allowed;
-    }
-    .slider-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    input[type="range"] {
-      width: 200px;
-      margin: 10px 0;
-      accent-color: #ff4d4d;
-    }
-    .info-card {
-      background-color: rgba(20, 20, 40, 0.8);
-      border-radius: 12px;
-      padding: 20px;
-      margin-top: 20px;
-      width: 800px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    .info-card h2 {
-      margin-top: 0;
-      color: #ff4d4d;
-    }
-    .info-card p {
-      margin: 10px 0;
-      line-height: 1.6;
-    }
-    .status {
-      position: absolute;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 10px 20px;
-      border-radius: 8px;
-      background-color: rgba(0, 0, 0, 0.7);
-      color: white;
-      font-size: 1.2rem;
-      z-index: 10;
-      display: none;
-    }
-    .status.success {
-      background-color: rgba(50, 200, 50, 0.9);
-    }
-    .status.failure {
-      background-color: rgba(200, 50, 50, 0.9);
-    }
-    .status.active {
-      display: block;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polyester Shirt Static Cling Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+        #reset-button {
+            margin-bottom: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #simulation-container {
+            border: 1px solid #ccc;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://esm.sh/p5@1.6.0"
+            }
+        }
+    </script>
 </head>
 <body>
-  <h1>Gravity Assist Slingshot</h1>
-  <div id="canvas-container"></div>
-  <div class="controls">
-    <div class="slider-container">
-      <label for="angleSlider">Launch Angle: <span id="angleValue">0°</span></label>
-      <input type="range" id="angleSlider" min="-180" max="180" value="0">
-    </div>
-    <button id="actionButton">Launch</button>
-  </div>
-  <div class="info-card">
-    <h2>What is a Gravity Assist?</h2>
-    <p>A gravity assist, or "slingshot" maneuver, uses a planet's gravity to change a spacecraft's velocity and direction. This technique allows spacecraft to gain or lose speed and alter their trajectories without using fuel.</p>
-    <h2>How to Play</h2>
-    <p>1. Adjust the launch angle using the slider to aim your spacecraft.</p>
-    <p>2. Click "Launch" to launch the spacecraft toward Earth.</p>
-    <p>3. The spacecraft will be pulled by Earth's gravity when it enters the blue gravitational well.</p>
-    <p>4. Try to reach Mars (red circle) without crashing into Earth or flying off-screen.</p>
-    <p>5. Click "Reset" to try again with a different angle.</p>
-  </div>
+    <button id="reset-button">Reset Charges</button>
+    <div id="simulation-container"></div>
+    <script type="module">
+        import p5 from "p5";
 
-  <script type="module">
-    import p5 from 'p5';
+        const sketch = (p) => {
+            // Simulation parameters
+            let shirtPoints = [];
+            let skinPoints = [];
+            let isDragging = false;
+            let chargeRadius = 20;
+            let chargeStrength = 0.3;
+            let baseSpacing = 30;
+            let shirtWidth = 200;
+            let shirtHeight = 400;
+            let skinX = 500;
 
-    // Define sketch as a function for p5 instance mode
-    const sketch = (p) => {
-      // Constants
-      const WIDTH = 800;
-      const HEIGHT = 600;
-      const EARTH_MASS = 1000;
-      const EARTH_RADIUS = 30;
-      const MARS_MASS = 100;
-      const MARS_RADIUS = 20;
-      const SPACECRAFT_MASS = 1;
-      const SPACECRAFT_RADIUS = 8;
-      const G = 0.5;
-      const GRAVITY_WELL_RADIUS = 150;
-      const LAUNCH_SPEED = 3;
-      const MARS_DISTANCE = 250;
+            // Charge class
+            class Charge {
+                constructor(x, y, strength, type) {
+                    this.x = x;
+                    this.y = y;
+                    this.strength = strength;
+                    this.type = type; // '-' or '+'
+                }
 
-      // Game state
-      let earth, mars, spacecraft;
-      let angleSlider, actionButton;
-      let gameState = 'ready'; // ready, launched, success, failure
-      let angle = 0;
-      let trail = [];
-      let initialDirection = null;
+                display() {
+                    p.textSize(20);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.fill(this.type === '-' ? p.color(255, 0, 0) : p.color(0, 0, 255));
+                    p.text(this.type, this.x, this.y);
+                }
+            }
 
-      // p5 setup
-      p.setup = () => {
-        const canvas = p.createCanvas(WIDTH, HEIGHT);
-        canvas.parent('canvas-container');
+            // Shirt point class
+            class ShirtPoint {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.origX = x;
+                    this.origY = y;
+                    this.charge = null;
+                    this.connected = false;
+                    this.attachedTo = null;
+                    this.velocity = { x: 0, y: 0 };
+                }
 
-        // Create objects
-        earth = new Planet(WIDTH / 2, HEIGHT / 2, EARTH_RADIUS, EARTH_MASS, '#3399ff');
-        mars = new Planet(WIDTH / 2 + MARS_DISTANCE, HEIGHT / 2, MARS_RADIUS, MARS_MASS, '#ff3333');
-        spacecraft = new Spacecraft(earth.x, earth.y - EARTH_RADIUS - SPACECRAFT_RADIUS - 10, SPACECRAFT_RADIUS, SPACECRAFT_MASS, '#ffcc00');
+                applyForce(force) {
+                    this.velocity.x += force.x;
+                    this.velocity.y += force.y;
+                }
 
-        // Get UI elements
-        angleSlider = document.getElementById('angleSlider');
-        actionButton = document.getElementById('actionButton');
+                update() {
+                    if (!this.connected) {
+                        this.x += this.velocity.x;
+                        this.y += this.velocity.y;
+                        this.velocity.x *= 0.9; // Damping
+                        this.velocity.y *= 0.9;
 
-        // Set up button
-        actionButton.addEventListener('click', () => {
-          if (gameState === 'ready') {
-            launchSpacecraft();
-          } else {
-            resetGame();
-          }
-        });
+                        // Elastic force to original position
+                        let dx = this.origX - this.x;
+                        let dy = this.origY - this.y;
+                        this.applyForce({ x: dx * 0.05, y: dy * 0.05 });
 
-        // Set up slider
-        angleSlider.addEventListener('input', (e) => {
-          angle = parseInt(e.target.value);
-          document.getElementById('angleValue').textContent = `${angle}°`;
-          if (gameState === 'ready') {
-            updateInitialDirection();
-          }
-        });
+                        // Check for collision with skin points
+                        for (let skinPoint of skinPoints) {
+                            if (skinPoint.charge && skinPoint.charge.type === '+') {
+                                let d = p.dist(this.x, this.y, skinPoint.x, skinPoint.y);
+                                if (d < 10) {
+                                    this.connected = true;
+                                    this.attachedTo = skinPoint;
+                                    skinPoint.connected = true;
+                                    skinPoint.attachedTo = this;
+                                    break;
+                                }
+                            }
+                        }
+                    } else {
+                        // Stick to attached skin point
+                        if (this.attachedTo) {
+                            this.x = this.attachedTo.x - 10;
+                            this.y = this.attachedTo.y;
+                        }
+                    }
+                }
 
-        updateInitialDirection();
+                display() {
+                    p.stroke(0);
+                    p.strokeWeight(1);
+                    p.fill(200);
+                    p.ellipse(this.x, this.y, 8, 8);
 
-        // Create status indicator
-        const statusDiv = document.createElement('div');
-        statusDiv.className = 'status';
-        statusDiv.id = 'status';
-        document.getElementById('canvas-container').appendChild(statusDiv);
-      };
+                    if (this.charge) {
+                        this.charge.x = this.x;
+                        this.charge.y = this.y;
+                        this.charge.display();
+                    }
+                }
+            }
 
-      // p5 draw loop
-      p.draw = () => {
-        // Clear canvas
-        p.background(10, 10, 30);
+            // Skin point class
+            class SkinPoint {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.charge = null;
+                    this.connected = false;
+                    this.attachedTo = null;
+                }
 
-        // Draw objects
-        earth.display();
-        mars.display();
-        spacecraft.display();
+                display() {
+                    p.stroke(0);
+                    p.strokeWeight(1);
+                    p.fill(255, 200, 200);
+                    p.ellipse(this.x, this.y, 8, 8);
 
-        // Draw gravitational well
-        p.noFill();
-        p.stroke(50, 150, 255, 100);
-        p.strokeWeight(1);
-        p.circle(earth.x, earth.y, GRAVITY_WELL_RADIUS * 2);
+                    if (this.charge) {
+                        this.charge.x = this.x;
+                        this.charge.y = this.y;
+                        this.charge.display();
+                    }
+                }
+            }
 
-        // Draw trail
-        p.stroke(255, 204, 0, 150);
-        p.strokeWeight(2);
-        p.noFill();
-        p.beginShape();
-        for (const pos of trail) {
-          p.vertex(pos.x, pos.y);
-        }
-        p.endShape();
+            // Setup the canvas and initial state
+            p.setup = () => {
+                const canvas = p.createCanvas(600, 600);
+                canvas.parent('simulation-container');
 
-        // Draw initial direction line
-        if (initialDirection) {
-          p.stroke(150, 150, 255, 100);
-          p.strokeWeight(1);
-          const lineEnd = p5.Vector.add(spacecraft.pos, p5.Vector.mult(initialDirection, 100));
-          p.line(spacecraft.pos.x, spacecraft.pos.y, lineEnd.x, lineEnd.y);
-        }
+                // Create shirt points
+                for (let y = 0; y < shirtHeight; y += baseSpacing) {
+                    for (let x = p.width / 2 - shirtWidth / 2; x <= p.width / 2 + shirtWidth / 2; x += baseSpacing) {
+                        shirtPoints.push(new ShirtPoint(x, y));
+                    }
+                }
 
-        // Update spacecraft
-        if (gameState === 'launched') {
-          // Add to trail
-          trail.push(spacecraft.pos.copy());
-          if (trail.length > 200) {
-            trail.shift();
-          }
+                // Create skin points
+                for (let y = 0; y < p.height; y += baseSpacing) {
+                    skinPoints.push(new SkinPoint(skinX, y));
+                }
 
-          // Apply gravity if in well
-          if (spacecraft.pos.dist(earth.pos) < GRAVITY_WELL_RADIUS) {
-            const gravityForce = earth.attract(spacecraft);
-            spacecraft.applyForce(gravityForce);
-          }
+                // Event listeners
+                p.canvas.addEventListener('mousedown', () => {
+                    isDragging = true;
+                });
 
-          spacecraft.update();
+                p.canvas.addEventListener('mouseup', () => {
+                    isDragging = false;
+                });
 
-          // Check for collisions
-          if (spacecraft.pos.dist(earth.pos) < earth.radius + spacecraft.radius) {
-            gameState = 'failure';
-            document.getElementById('status').textContent = 'Failure: Crashed into Earth!';
-            document.getElementById('status').className = 'status failure active';
-            actionButton.textContent = 'Retry';
-            angleSlider.disabled = true;
-          }
+                p.canvas.addEventListener('mousemove', (event) => {
+                    if (isDragging) {
+                        let mouseX = event.clientX - p.canvas.offsetLeft;
+                        let mouseY = event.clientY - p.canvas.offsetTop;
 
-          if (spacecraft.pos.dist(mars.pos) < mars.radius + spacecraft.radius) {
-            gameState = 'success';
-            document.getElementById('status').textContent = 'Success: Reached Mars!';
-            document.getElementById('status').className = 'status success active';
-            actionButton.textContent = 'Reset';
-            angleSlider.disabled = true;
-          }
+                        // Add charges to shirt points near mouse
+                        for (let point of shirtPoints) {
+                            let d = p.dist(mouseX, mouseY, point.x, point.y);
+                            if (d < chargeRadius && !point.charge) {
+                                point.charge = new Charge(point.x, point.y, chargeStrength, '-');
 
-          // Check boundaries
-          if (spacecraft.pos.x < 0 || spacecraft.pos.x > WIDTH || spacecraft.pos.y < 0 || spacecraft.pos.y > HEIGHT) {
-            gameState = 'failure';
-            document.getElementById('status').textContent = 'Failure: Spacecraft flew off-screen!';
-            document.getElementById('status').className = 'status failure active';
-            actionButton.textContent = 'Retry';
-            angleSlider.disabled = true;
-          }
-        }
-      };
+                                // Find corresponding skin point and add opposite charge
+                                let skinPoint = skinPoints.find(sp => 
+                                    p.abs(sp.y - point.y) < baseSpacing / 2
+                                );
 
-      // Launch the spacecraft
-      function launchSpacecraft() {
-        gameState = 'launched';
-        actionButton.textContent = 'Reset';
+                                if (skinPoint && !skinPoint.charge) {
+                                    skinPoint.charge = new Charge(skinPoint.x, skinPoint.y, chargeStrength, '+');
+                                }
+                            }
+                        }
+                    }
+                });
 
-        // Set initial velocity based on angle
-        const radians = p.radians(angle);
-        spacecraft.vel = p.createVector(p.cos(radians) * LAUNCH_SPEED, p.sin(radians) * LAUNCH_SPEED);
+                // Reset button event listener
+                document.getElementById('reset-button').addEventListener('click', resetCharges);
+            };
 
-        // Store initial direction for visualization
-        initialDirection = p.createVector(p.cos(radians), p.sin(radians));
+            // Reset charges function
+            function resetCharges() {
+                for (let point of shirtPoints) {
+                    point.charge = null;
+                    point.connected = false;
+                    point.attachedTo = null;
+                    point.x = point.origX;
+                    point.y = point.origY;
+                    point.velocity = { x: 0, y: 0 };
+                }
 
-        // Disable slider
-        angleSlider.disabled = true;
-      }
+                for (let point of skinPoints) {
+                    point.charge = null;
+                    point.connected = false;
+                    point.attachedTo = null;
+                }
+            }
 
-      // Reset the game
-      function resetGame() {
-        gameState = 'ready';
-        actionButton.textContent = 'Launch';
+            // Draw the simulation
+            p.draw = () => {
+                p.background(240);
 
-        // Reset spacecraft position and velocity
-        spacecraft.pos = p.createVector(earth.x, earth.y - EARTH_RADIUS - SPACECRAFT_RADIUS - 10);
-        spacecraft.vel = p.createVector(0, 0);
-        spacecraft.acc = p.createVector(0, 0);
+                // Apply attraction forces
+                for (let shirtPoint of shirtPoints) {
+                    if (shirtPoint.charge) {
+                        for (let skinPoint of skinPoints) {
+                            if (skinPoint.charge && skinPoint.charge.type === '+') {
+                                let dx = skinPoint.x - shirtPoint.x;
+                                let dy = skinPoint.y - shirtPoint.y;
+                                let d = p.max(p.dist(shirtPoint.x, shirtPoint.y, skinPoint.x, skinPoint.y), 5);
+                                let forceMag = (shirtPoint.charge.strength * skinPoint.charge.strength) / (d * d);
+                                shirtPoint.applyForce({ 
+                                    x: dx * forceMag * 0.01,
+                                    y: dy * forceMag * 0.01
+                                });
+                            }
+                        }
+                    }
+                }
 
-        // Clear trail
-        trail = [];
+                // Update and display points
+                for (let point of shirtPoints) {
+                    point.update();
+                }
 
-        // Update initial direction based on current angle
-        updateInitialDirection();
+                for (let point of skinPoints) {
+                    point.display();
+                }
 
-        // Hide status message
-        document.getElementById('status').className = 'status';
+                for (let point of shirtPoints) {
+                    point.display();
+                }
 
-        // Enable slider
-        angleSlider.disabled = false;
-      }
+                // Draw connections between connected points
+                p.stroke(100, 100, 255);
+                p.strokeWeight(2);
+                for (let point of shirtPoints) {
+                    if (point.connected && point.attachedTo) {
+                        p.line(point.x, point.y, point.attachedTo.x, point.attachedTo.y);
+                    }
+                }
+            };
+        };
 
-      // Update the initial direction vector based on current angle
-      function updateInitialDirection() {
-        const radians = p.radians(angle);
-        initialDirection = p.createVector(p.cos(radians), p.sin(radians));
-      }
-
-      // Planet class
-      class Planet {
-        constructor(x, y, radius, mass, color) {
-          this.pos = p.createVector(x, y);
-          this.radius = radius;
-          this.mass = mass;
-          this.color = color;
-        }
-
-        display() {
-          p.noStroke();
-          p.fill(this.color);
-          p.circle(this.pos.x, this.pos.y, this.radius * 2);
-        }
-
-        attract(body) {
-          const force = p5.Vector.sub(this.pos, body.pos);
-          const distance = force.mag();
-          force.normalize();
-
-          const strength = (G * this.mass * body.mass) / (distance * distance);
-          force.mult(strength);
-
-          return force;
-        }
-      }
-
-      // Spacecraft class
-      class Spacecraft {
-        constructor(x, y, radius, mass, color) {
-          this.pos = p.createVector(x, y);
-          this.radius = radius;
-          this.mass = mass;
-          this.color = color;
-          this.vel = p.createVector(0, 0);
-          this.acc = p.createVector(0, 0);
-        }
-
-        display() {
-          p.noStroke();
-          p.fill(this.color);
-          p.circle(this.pos.x, this.pos.y, this.radius * 2);
-        }
-
-        applyForce(force) {
-          const f = p5.Vector.div(force, this.mass);
-          this.acc.add(f);
-        }
-
-        update() {
-          this.vel.add(this.acc);
-          this.pos.add(this.vel);
-          this.acc.mult(0);
-        }
-      }
-    };
-
-    // Create the p5 instance
-    new p5(sketch);
-  </script>
+        new p5(sketch);
+    </script>
 </body>
 </html>

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Static Cling Simulation (2D Fabric)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+        }
+
+        #main-container {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            gap: 20px;
+        }
+
+        #simulation-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            overflow: hidden; /* Ensures canvas corners are rounded */
+        }
+
+        #instructions, #info-card {
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        #instructions {
+             margin-bottom: 15px;
+        }
+
+        #info-card {
+            width: 250px;
+            text-align: left;
+        }
+        
+        #info-card h3 {
+            margin-top: 0;
+            text-align: center;
+        }
+
+        #info-card ul {
+            padding-left: 20px;
+            margin: 0;
+        }
+
+        #info-card li {
+            margin-bottom: 10px;
+        }
+
+        #controls {
+            margin-top: 20px; /* Changed from margin-bottom */
+        }
+
+        #reset-button {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 14px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            transition: background-color 0.2s, box-shadow 0.2s;
+        }
+
+        #reset-button:hover {
+            background-color: #e9e9e9;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="main-container">
+        <div id="simulation-container">
+            <div id="instructions">
+                <p><strong>2D Static Cling Simulation</strong></p>
+                <p>Drag on the fabric to charge it, making it cling to the skin.</p>
+            </div>
+            <div id="canvas-container">
+            </div>
+            <div id="controls">
+                <button id="reset-button">Reset Charges</button>
+            </div>
+        </div>
+        <div id="info-card">
+            <h3>The Science of Static Cling</h3>
+            <p>This simulation shows the <strong>triboelectric effect</strong>.</p>
+            <ul>
+                <li>When you "rub" the polyester shirt on the skin, electrons transfer from the skin to the shirt.</li>
+                <li>The <strong>shirt</strong> gains electrons, giving it a net <strong>negative charge (-)</strong>.</li>
+                <li>The <strong>skin</strong> loses electrons, leaving it with a net <strong>positive charge (+)</strong>.</li>
+                <li>Because opposite charges attract, the negatively charged shirt is pulled towards the positively charged skin, creating the "cling" effect.</li>
+            </ul>
+        </div>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+
+            // --- Simulation Constants ---
+            const gravity = p.createVector(0, 0.1);
+            const clothStiffness = 0.9;
+            const clothIterations = 5; 
+            const segmentLength = 10; 
+            const rubRadius = 40;
+
+            let shirt;
+            let skin;
+            let positiveCharges = [];
+            const lightDir = p.createVector(0.2, -0.2, -1).normalize(); // Angled light
+
+            // --- ShirtPoint Class ---
+            class ShirtPoint {
+                constructor(x, y) {
+                    this.pos = p.createVector(x, y, 0); 
+                    this.prevPos = p.createVector(x, y, 0);
+                    this.acc = p.createVector(0, 0, 0);
+                    this.charge = 0;
+                    this.isPinned = false;
+                }
+
+                applyForce(force) {
+                    this.acc.add(force);
+                }
+
+                update() {
+                    if (this.isPinned) return;
+
+                    let vel = p5.Vector.sub(this.pos, this.prevPos);
+                    vel.mult(0.98); // Damping
+
+                    this.prevPos.set(this.pos);
+                    this.pos.add(vel);
+                    this.pos.add(this.acc);
+                    this.acc.mult(0);
+                }
+                
+                drawCharge() {
+                    if (this.charge === -1) {
+                        p.push();
+                        p.fill(0, 100, 255, 200);
+                        p.noStroke();
+                        p.ellipse(this.pos.x, this.pos.y, 16, 16);
+                        p.fill(255);
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.text('-', this.pos.x, this.pos.y - 1);
+                        p.pop();
+                    }
+                }
+            }
+            
+            // --- Shirt Class (Now a 2D Grid) ---
+            class Shirt {
+                constructor() {
+                    this.points = [];
+                    this.clothWidth = 10; 
+                    this.clothHeight = p.floor(p.height / segmentLength);
+                    const startX = p.width - 80 - (this.clothWidth * segmentLength); 
+                    
+                    for (let y = 0; y < this.clothHeight; y++) {
+                        this.points[y] = [];
+                        for (let x = 0; x < this.clothWidth; x++) {
+                            this.points[y][x] = new ShirtPoint(startX + x * segmentLength, y * segmentLength);
+                        }
+                    }
+
+                    // Pin the top row
+                    for (let x = 0; x < this.clothWidth; x++) {
+                        this.points[0][x].isPinned = true;
+                    }
+                }
+                
+                applyConstraint(p1, p2, length) {
+                    const axis = p5.Vector.sub(p1.pos, p2.pos);
+                    const dist = axis.mag();
+                    if (dist > 0) {
+                        const diff = (dist - length) / dist;
+                        const correction = axis.mult(diff * clothStiffness * 0.5);
+                        if (!p1.isPinned) p1.pos.sub(correction);
+                        if (!p2.isPinned) p2.pos.add(correction);
+                    }
+                }
+
+                update() {
+                    // Apply forces
+                    for (let y = 0; y < this.clothHeight; y++) {
+                        for (let x = 0; x < this.clothWidth; x++) {
+                            const point = this.points[y][x];
+                            point.applyForce(gravity);
+                            if (point.charge === -1) {
+                                const attractionForce = this.calculateAttraction(point);
+                                point.applyForce(attractionForce);
+                            }
+                            point.update();
+                        }
+                    }
+                    
+                    // Apply constraints
+                    for (let i = 0; i < clothIterations; i++) {
+                        // Horizontal and Vertical
+                        for (let y = 0; y < this.clothHeight; y++) {
+                            for (let x = 0; x < this.clothWidth; x++) {
+                                if (x < this.clothWidth - 1) this.applyConstraint(this.points[y][x], this.points[y][x + 1], segmentLength);
+                                if (y < this.clothHeight - 1) this.applyConstraint(this.points[y][x], this.points[y + 1][x], segmentLength);
+                            }
+                        }
+                        // Diagonal (Shear)
+                        for (let y = 0; y < this.clothHeight - 1; y++) {
+                            for (let x = 0; x < this.clothWidth - 1; x++) {
+                                this.applyConstraint(this.points[y][x], this.points[y + 1][x + 1], segmentLength * p.sqrt(2));
+                                this.applyConstraint(this.points[y + 1][x], this.points[y][x + 1], segmentLength * p.sqrt(2));
+                            }
+                        }
+                        this.handleCollisions();
+                    }
+                }
+
+                handleCollisions() {
+                    for (let y = 0; y < this.clothHeight; y++) {
+                        for (let x = 0; x < this.clothWidth; x++) {
+                            if (this.points[y][x].pos.x > skin.x) {
+                                this.points[y][x].pos.x = skin.x;
+                            }
+                        }
+                    }
+                }
+                
+                calculateAttraction(point) {
+                    let attraction = p.createVector(0, 0, 0);
+                    let distX = skin.x - point.pos.x;
+                    if (distX > 0 && distX < 200) {
+                        let forceMag = p.map(distX, 0, 200, 0.5, 0, true);
+                        attraction.x = forceMag;
+                    }
+                    return attraction;
+                }
+
+                draw() {
+                    // Draw fabric texture
+                    for (let y = 0; y < this.clothHeight - 1; y++) {
+                        for (let x = 0; x < this.clothWidth - 1; x++) {
+                            const p1 = this.points[y][x];
+                            const p2 = this.points[y][x + 1];
+                            const p3 = this.points[y + 1][x + 1];
+                            const p4 = this.points[y + 1][x];
+                            
+                            const v1 = p5.Vector.sub(p2.pos, p1.pos);
+                            const v2 = p5.Vector.sub(p4.pos, p1.pos);
+                            const normal = v1.cross(v2).normalize();
+                            const lighting = p.max(0, p5.Vector.dot(normal, lightDir));
+                            
+                            const highColor = p.color(160, 210, 255);
+                            const lowColor = p.color(30, 50, 100);
+
+                            const stitchColor = p.lerpColor(lowColor, highColor, lighting);
+                            const bgColor = p.lerpColor(p.color(20,40,80), lowColor, lighting);
+                            
+                            p.fill(bgColor);
+                            p.noStroke();
+                            p.quad(p1.pos.x, p1.pos.y, p2.pos.x, p2.pos.y, p3.pos.x, p3.pos.y, p4.pos.x, p4.pos.y);
+
+                            p.stroke(stitchColor);
+                            p.strokeWeight(2);
+                            p.noFill();
+
+                            const leftMid = p5.Vector.lerp(p1.pos, p4.pos, 0.5);
+                            const rightMid = p5.Vector.lerp(p2.pos, p3.pos, 0.5);
+                            const bottomMid = p5.Vector.lerp(p4.pos, p3.pos, 0.5);
+
+                            p.line(leftMid.x, leftMid.y, bottomMid.x, bottomMid.y);
+                            p.line(rightMid.x, rightMid.y, bottomMid.x, bottomMid.y);
+                        }
+                    }
+
+                    // Draw buttons
+                    for (let y = 0; y < this.clothHeight - 1; y++) {
+                        // Place a button every 6 segments, skipping the very top
+                        if (y > 0 && y % 6 === 0) {
+                            const buttonColumn = 0; // Use the first column for the placket
+                            if (this.clothWidth > buttonColumn + 1) {
+                                const p1 = this.points[y][buttonColumn];
+                                const p2 = this.points[y][buttonColumn + 1];
+                                const p4 = this.points[y + 1][buttonColumn];
+
+                                const v1 = p5.Vector.sub(p2.pos, p1.pos);
+                                const v2 = p5.Vector.sub(p4.pos, p1.pos);
+                                const normal = v1.cross(v2).normalize();
+                                const lighting = p.max(0, p5.Vector.dot(normal, lightDir));
+
+                                const buttonHigh = p.color(240);
+                                const buttonLow = p.color(180);
+                                const buttonColor = p.lerpColor(buttonLow, buttonHigh, lighting);
+                                const borderColor = p.lerpColor(p.color(100), p.color(150), lighting);
+
+                                p.fill(buttonColor);
+                                p.stroke(borderColor);
+                                p.strokeWeight(1);
+                                p.ellipse(p1.pos.x, p1.pos.y, 8, 8);
+
+                                // Draw the center hole of the button
+                                p.fill(borderColor);
+                                p.noStroke();
+                                p.ellipse(p1.pos.x, p1.pos.y, 3, 3);
+                            }
+                        }
+                    }
+                    
+                    // Draw charges on top
+                    for (let y = 0; y < this.clothHeight; y++) {
+                        for (let x = 0; x < this.clothWidth; x++) {
+                            this.points[y][x].drawCharge();
+                        }
+                    }
+                }
+            }
+
+            // --- Skin Class ---
+            class Skin {
+                constructor(x, y, w, h) {
+                    this.x = x;
+                    this.y = y;
+                    this.w = w;
+                    this.h = h;
+                    
+                    this.textureGraphics = p.createGraphics(w, h);
+                    
+                    const noiseScale = 0.05;
+                    const lineDensity = (w * h) / 40; 
+                    
+                    for (let i = 0; i < lineDensity; i++) {
+                        const tx = p.random(w);
+                        const ty = p.random(h);
+                        const noiseVal = p.noise(tx * noiseScale, ty * noiseScale);
+                        
+                        const angle = p.map(noiseVal, 0, 1, 0, p.TWO_PI);
+                        const len = p.map(p.noise(tx * noiseScale + 10, ty * noiseScale + 10), 0, 1, 2, 6);
+                        
+                        this.textureGraphics.stroke(240, 200, 170, 120);
+                        this.textureGraphics.strokeWeight(1);
+                        
+                        this.textureGraphics.push();
+                        this.textureGraphics.translate(tx, ty);
+                        this.textureGraphics.rotate(angle);
+                        this.textureGraphics.line(0, 0, len, 0);
+                        this.textureGraphics.pop();
+                    }
+                }
+
+                draw() {
+                    p.noStroke();
+                    p.fill(252, 220, 186);
+                    p.rect(this.x, this.y, this.w, this.h);
+
+                    p.image(this.textureGraphics, this.x, this.y);
+
+                    p.fill(255, 80, 80, 200);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    for (const charge of positiveCharges) {
+                        p.ellipse(charge.x, charge.y, 16, 16);
+                        p.fill(255);
+                        p.text('+', charge.x, charge.y - 1);
+                        p.fill(255, 80, 80, 200);
+                    }
+                }
+            }
+
+            // --- Main p5.js Functions ---
+            p.setup = () => {
+                p.createCanvas(600, 500); 
+                p.textFont('Roboto Mono');
+                p.textSize(14);
+                
+                skin = new Skin(p.width - 60, 0, 60, p.height);
+                shirt = new Shirt();
+
+                const resetButton = document.getElementById('reset-button');
+                resetButton.addEventListener('click', () => {
+                    // Reset charges on the shirt
+                    for (let y = 0; y < shirt.clothHeight; y++) {
+                        for (let x = 0; x < shirt.clothWidth; x++) {
+                            shirt.points[y][x].charge = 0;
+                        }
+                    }
+                    // Reset charges on the skin
+                    positiveCharges.length = 0;
+                });
+            };
+
+            p.draw = () => {
+                p.background(220, 230, 240);
+
+                if (p.mouseIsPressed) {
+                    for (let y = 0; y < shirt.clothHeight; y++) {
+                        for (let x = 0; x < shirt.clothWidth; x++) {
+                            const point = shirt.points[y][x];
+                            const d = p.dist(p.mouseX, p.mouseY, point.pos.x, point.pos.y);
+                            
+                            if (d < rubRadius) {
+                                if (point.charge === 0) {
+                                    point.charge = -1;
+                                    positiveCharges.push(p.createVector(skin.x + p.random(15, 45), point.pos.y));
+                                } else if (point.charge === -1) {
+                                    point.charge = 0;
+                                    let closestChargeIndex = -1;
+                                    let minDistance = Infinity;
+                                    for (let i = 0; i < positiveCharges.length; i++) {
+                                        const distY = p.abs(positiveCharges[i].y - point.pos.y);
+                                        if (distY < minDistance) {
+                                            minDistance = distY;
+                                            closestChargeIndex = i;
+                                        }
+                                    }
+                                    if (closestChargeIndex !== -1 && minDistance < segmentLength * 3) {
+                                        positiveCharges.splice(closestChargeIndex, 1);
+                                    }
+                                    let pullForce = p.createVector(-1, 0);
+                                    pullForce.setMag(1.5);
+                                    point.applyForce(pullForce);
+                                 }
+                            }
+                        }
+                    }
+                }
+                
+                shirt.update();
+                skin.draw();
+                shirt.draw();
+            };
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>
