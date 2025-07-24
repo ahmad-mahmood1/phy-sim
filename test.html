@@ -1,285 +1,303 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thermistor Simulation</title>
-  <script type="importmap">
-    {
-      "imports": {
-        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-      }
-    }
-  </script>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      background-color: #f0f0f0;
-      font-family: Arial, sans-serif;
-    }
-    .simulation-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .canvas-container {
-      display: flex;
-      gap: 20px;
-    }
-    .controls {
-      margin-top: 20px;
-    }
-    button {
-      padding: 8px 16px;
-      font-size: 16px;
-      cursor: pointer;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mechanical NOR Logic Gate Simulation</title>
+    <style>
+        body { margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #111; }
+    </style>
 </head>
 <body>
-  <div class="simulation-container">
-    <div id="canvas-container" class="canvas-container"></div>
-    <div class="controls">
-      <button id="restart-button">Restart</button>
-    </div>
-  </div>
-
-  <script type="module">
+<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+<script type="importmap">
+    {
+        "imports": {
+            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.4/+esm"
+        }
+    }
+</script>
+<script type="module">
     import p5 from 'p5';
 
-    // Thermistor simulation parameters
-    let temp = 20; // Initial temperature in °C
-    let resistance = 10000; // Initial resistance in Ω
-    let tempStep = 0.5; // Temperature increment per frame
-    let tempMax = 150; // Maximum temperature
-    let tempMin = 20; // Minimum temperature
-    let cooling = false; // Cooling state
-
-    // Graph settings
-    let graphPoints = [];
-    let graphBuffer;
-
-    // Sketch function
     const sketch = (p) => {
-      let canvas;
-      let heatSource;
-      let thermistor;
+        // --- Core Mechanics & Physics ---
+        let pendulums = []; // Each pendulum: {x, y, angle, length, angVelocity, angAccel, mass, dragging, activationZoneTop}
+        let levers = [];    // Levers that tilt based on activation: {x, y, angle, height, width, targetAngle}
+        let outputLight;    // Indicator for NOR result
 
-      p.setup = () => {
-        // Create canvas with double the width for simulation and graph
-        const canvasWidth = 1000;
-        const canvasHeight = 600;
-        canvas = p.createCanvas(canvasWidth, canvasHeight);
-        canvas.parent('canvas-container');
+        // --- Simulation State ---
+        let gravity = 0.4;  // Standard gravity for pendulums
+        let draggingPendulum = null;
+        let dt = 1;         // Simulation time step (constant for simplicity)
 
-        // Create visual elements
-        heatSource = {
-          x: 150,
-          y: p.height / 2,
-          width: 60,
-          height: 80
+        // --- Constants ---
+        const PENDULUM_LENGTH = 180;
+        const PENDULUM_MASS = 10;
+        const PENDULUM_Y0 = 140;        // Pivot point height
+        const LEVER_MASS = 5;           // Mass for lever physics
+        const LEVER_SPRING_K = 0.5;     // Spring constant for lever return
+        const ACTIVATION_ZONE_HEIGHT = 30;
+        const OUTPUT_Y = 450;           // Y-position of output indicator and levers
+        const LEVER_TARGET_ANGLE = 0;   // Resting angle for levers
+        const LEVER_DAMPING = 0.92;     // Damping factor for lever oscillation
+        const OUTPUT_ON_COLOR = "#FFFF00"; // Yellow when ON
+        const OUTPUT_OFF_COLOR = "#555";   // Dark gray when OFF
+
+        p.setup = () => {
+            p.createCanvas(800, 600);
+            p.angleMode(p.DEGREES);
+
+            // --- Initialize Pendulums ---
+            const pendulumX1 = p.width / 3;
+            const pendulumX2 = (p.width * 2) / 3;
+            pendulums = [
+                createPendulum(pendulumX1, PENDULUM_Y0, -10), // Start slightly left
+                createPendulum(pendulumX2, PENDULUM_Y0, 10)   // Start slightly right
+            ];
+
+            // --- Initialize Levers ---
+            levers = [
+                createLever(pendulumX1, OUTPUT_Y),
+                createLever(pendulumX2, OUTPUT_Y)
+            ];
+
+            // --- Initialize Output Indicator ---
+            outputLight = {
+                x: p.width / 2,
+                y: OUTPUT_Y,
+                radius: 40,
+                color: OUTPUT_OFF_COLOR, // Start OFF
+                glowAmount: 0
+            };
         };
 
-        thermistor = {
-          x: 350,
-          y: p.height / 2,
-          size: 30
+        p.draw = () => {
+            p.background("#2b2b2b");
+            p.stroke(255);
+            p.strokeWeight(1);
+
+            // --- Physics Updates ---
+            updatePendulums();
+            updateLevers();
+
+            // --- Draw Components ---
+            drawPendulums();
+            drawLevers();
+            drawOutputLight();
+
+            // --- State Display ---
+            const inputA = isPendulumActivated(pendulums[0]) ? 1 : 0;
+            const inputB = isPendulumActivated(pendulums[1]) ? 1 : 0;
+            const output = inputA === 0 && inputB === 0 ? 1 : 0;
+            displayState(inputA, inputB, output);
+            displayTruthTable();
         };
 
-        // Initialize graph buffer
-        graphBuffer = p.createGraphics(canvasWidth / 2, canvasHeight);
-        resetGraph();
-
-        // Initialize graph points
-        graphPoints = [];
-        for (let t = tempMin; t <= tempMax; t += 5) {
-          const r = calculateResistance(t);
-          graphPoints.push(p.createVector(t, r));
-        }
-      };
-
-      p.draw = () => {
-        p.background(240);
-
-        // Draw divider line
-        p.stroke(200);
-        p.strokeWeight(2);
-        p.line(p.width / 2, 0, p.width / 2, p.height);
-
-        // Update temperature and resistance
-        if (!cooling) {
-          temp += tempStep;
-          if (temp >= tempMax) {
-            cooling = true;
-          }
-        } else {
-          temp -= tempStep;
-          if (temp <= tempMin) {
-            cooling = false;
-          }
-        }
-        resistance = calculateResistance(temp);
-
-        // Draw simulation section (left half)
-        drawSimulation();
-
-        // Draw graph section (right half)
-        drawGraph();
-      };
-
-      // Reset simulation function
-      p.resetSimulation = () => {
-        temp = tempMin;
-        cooling = false;
-        resetGraph();
-      };
-
-      // Helper function to calculate resistance
-      function calculateResistance(t) {
-        // Thermistor formula approximation: R = R0 * exp(B * (1/T - 1/T0))
-        // Simplified for demonstration purposes
-        const R0 = 10000; // Resistance at 25°C
-        const B = 3950; // Beta coefficient
-        const T0 = 298.15; // 25°C in Kelvin
-        const T = t + 273.15; // Convert to Kelvin
-
-        return R0 * Math.exp(B * (1 / T - 1 / T0));
-      }
-
-      // Draw simulation elements
-      function drawSimulation() {
-        // Draw heat source
-        p.fill(200, 0, 0);
-        p.stroke(100, 0, 0);
-        p.strokeWeight(2);
-        p.rect(heatSource.x, heatSource.y - heatSource.height/2, heatSource.width, heatSource.height, 5);
-
-        // Draw heat glow
-        p.noStroke();
-        p.fill(255, 100, 100, 150);
-        p.ellipse(heatSource.x + heatSource.width/2, heatSource.y, 80, 80);
-
-        // Draw heat rays
-        p.stroke(255, 100, 100, 100);
-        p.strokeWeight(2);
-        for (let i = 0; i < 5; i++) {
-          const angle = p.PI + (i - 2) * p.PI / 8;
-          const x2 = heatSource.x + heatSource.width/2 + Math.cos(angle) * 100;
-          const y2 = heatSource.y + Math.sin(angle) * 100;
-          p.line(heatSource.x + heatSource.width/2, heatSource.y, x2, y2);
+        // --- Physics Simulation Functions ---
+        function updatePendulums() {
+            pendulums.forEach(pendulum => {
+                if (pendulum.dragging) {
+                    // Reset velocity while dragging to prevent momentum issues
+                    pendulum.angVelocity = 0;
+                    return;
+                }
+                // Standard pendulum physics: angular acceleration based on gravity
+                pendulum.angAccel = - (gravity / pendulum.length) * p.sin(pendulum.angle);
+                pendulum.angVelocity += pendulum.angAccel * dt;
+                pendulum.angVelocity *= 0.995; // Light damping
+                pendulum.angle += pendulum.angVelocity * dt;
+            });
         }
 
-        // Draw thermistor
-        p.fill(50, 100, 200);
-        p.stroke(0, 50, 150);
-        p.strokeWeight(2);
-        p.rect(thermistor.x, thermistor.y - thermistor.size/2, thermistor.size, thermistor.size, 5);
+        function updateLevers() {
+            // --- Determine Target Angles Based on Pendulum Activation ---
+            const activationA = isPendulumActivated(pendulums[0]);
+            const activationB = isPendulumActivated(pendulums[1]);
+            levers[0].targetAngle = activationA ? 30 : LEVER_TARGET_ANGLE;
+            levers[1].targetAngle = activationB ? -30 : LEVER_TARGET_ANGLE;
 
-        // Draw temperature indicator
-        const indicatorHeight = p.map(temp, tempMin, tempMax, 0, thermistor.size * 3);
-        p.fill(255, 100, 100);
-        p.noStroke();
-        p.rect(thermistor.x - 15, thermistor.y + thermistor.size/2, 8, -indicatorHeight, 2);
-
-        // Draw labels
-        p.fill(0);
-        p.noStroke();
-        p.textSize(16);
-        p.text(`Temperature: ${temp.toFixed(1)} °C`, 20, 30);
-        p.text(`Resistance: ${resistance.toFixed(0)} Ω`, 20, 60);
-
-        // Draw section title
-        p.textSize(20);
-        p.textStyle(p.BOLD);
-        p.text("Thermistor Simulation", 20, p.height - 20);
-      }
-
-      // Reset graph buffer
-      function resetGraph() {
-        graphBuffer.background(255);
-        graphBuffer.stroke(0);
-        graphBuffer.strokeWeight(1);
-        graphBuffer.fill(0);
-        graphBuffer.textSize(12);
-      }
-
-      // Draw graph
-      function drawGraph() {
-        // Clear graph buffer
-        resetGraph();
-
-        // Draw graph axes
-        const margin = 40;
-        const plotWidth = graphBuffer.width - margin * 2;
-        const plotHeight = graphBuffer.height - margin * 2;
-
-        graphBuffer.line(margin, graphBuffer.height - margin, graphBuffer.width - margin, graphBuffer.height - margin); // X-axis
-        graphBuffer.line(margin, margin, margin, graphBuffer.height - margin); // Y-axis
-
-        // Draw axis labels
-        graphBuffer.textStyle(p.BOLD);
-        graphBuffer.textSize(14);
-        graphBuffer.text("Temperature (°C)", graphBuffer.width / 2 - 40, graphBuffer.height - margin + 25);
-        graphBuffer.push();
-        graphBuffer.translate(margin - 20, graphBuffer.height / 2);
-        graphBuffer.rotate(-p.HALF_PI);
-        graphBuffer.text("Resistance (Ω)", 0, 0);
-        graphBuffer.pop();
-
-        // Draw axis ticks and labels
-        for (let i = 0; i <= 5; i++) {
-          const x = margin + (i * plotWidth / 5);
-          const tempVal = p.map(i, 0, 5, tempMin, tempMax);
-          graphBuffer.line(x, graphBuffer.height - margin, x, graphBuffer.height - margin + 5);
-          graphBuffer.text(tempVal.toFixed(0), x - 10, graphBuffer.height - margin + 20);
+            // --- Spring-Physics for Lever Movement ---
+            levers.forEach(lever => {
+                const angleDiff = lever.targetAngle - lever.angle;
+                // Simple spring force: F = k * x (k is LEVER_SPRING_K, x is angleDiff)
+                const springForce = LEVER_SPRING_K * angleDiff;
+                // Angular acceleration: torque (force * distance) / moment of inertia (proportional to mass)
+                const angAccel = springForce / LEVER_MASS;
+                lever.angVelocity += angAccel * dt;
+                lever.angVelocity *= LEVER_DAMPING; // Apply damping
+                lever.angle += lever.angVelocity * dt;
+            });
         }
 
-        // Calculate max resistance for Y-axis scaling
-        const maxR = calculateResistance(tempMin);
-        for (let i = 0; i <= 5; i++) {
-          const y = graphBuffer.height - margin - (i * plotHeight / 5);
-          const rVal = p.map(i, 0, 5, 0, maxR);
-          graphBuffer.line(margin - 5, y, margin, y);
-          graphBuffer.text(rVal.toFixed(0), margin - 30, y + 5);
+        // --- Drawing Functions ---
+        function drawPendulums() {
+            pendulums.forEach(pendulum => {
+                const pendulumColor = pendulum.dragging ? "#FFA500" : "#DDDDDD"; // Orange when dragging
+                p.stroke(pendulumColor);
+                p.strokeWeight(2);
+                const bobX = pendulum.x + p.cos(pendulum.angle) * pendulum.length;
+                const bobY = pendulum.y + p.sin(pendulum.angle) * pendulum.length;
+
+                // Draw rod
+                p.line(pendulum.x, pendulum.y, bobX, bobY);
+
+                // Draw bob
+                p.fill(pendulumColor);
+                p.ellipse(bobX, bobY, pendulum.mass * 2, pendulum.mass * 2);
+
+                // Draw activation zone
+                p.noStroke();
+                p.fill(255, 100, 100, 80); // Semi-transparent red
+                p.rectMode(p.CENTER);
+                p.rect(pendulum.x, pendulum.activationZoneTop + ACTIVATION_ZONE_HEIGHT / 2,
+                    30, ACTIVATION_ZONE_HEIGHT);
+                p.rectMode(p.CORNER);
+            });
         }
 
-        // Plot graph points
-        graphBuffer.stroke(0, 100, 200);
-        graphBuffer.strokeWeight(2);
+        function drawLevers() {
+            p.stroke(180);
+            p.strokeWeight(3);
+            levers.forEach(lever => {
+                p.push(); // Save current transformation matrix
+                p.translate(lever.x, lever.y);
+                p.rotate(lever.angle);
 
-        // Plot pre-calculated points
-        graphBuffer.beginShape();
-        for (const point of graphPoints) {
-          const x = p.map(point.x, tempMin, tempMax, margin, graphBuffer.width - margin);
-          const y = p.map(point.y, 0, maxR, graphBuffer.height - margin, margin);
-          graphBuffer.vertex(x, y);
+                // Draw lever bar
+                p.fill(220);
+                p.rectMode(p.CENTER);
+                p.rect(0, -lever.height / 2, lever.width, lever.height);
+                p.rectMode(p.CORNER);
+
+                // Draw pivot point
+                p.fill(100);
+                p.ellipse(0, 0, 10, 10);
+
+                p.pop(); // Restore transformation matrix
+            });
         }
-        graphBuffer.endShape();
 
-        // Plot real-time point
-        const x = p.map(temp, tempMin, tempMax, margin, graphBuffer.width - margin);
-        const y = p.map(resistance, 0, maxR, graphBuffer.height - margin, margin);
-        graphBuffer.fill(255, 0, 0);
-        graphBuffer.noStroke();
-        graphBuffer.ellipse(x, y, 8, 8);
+        function drawOutputLight() {
+            // --- Glow Effect ---
+            p.noStroke();
+            const glowRadius = outputLight.radius + outputLight.glowAmount * 20;
+            const glowAlpha = 150 - outputLight.glowAmount * 100;
+            p.fill(255, 255, 0, glowAlpha);
+            p.ellipse(outputLight.x, outputLight.y, glowRadius, glowRadius);
 
-        // Display graph buffer on main canvas
-        p.image(graphBuffer, p.width / 2, 0);
-      }
+            // --- Main Light ---
+            p.fill(outputLight.color);
+            p.ellipse(outputLight.x, outputLight.y, outputLight.radius, outputLight.radius);
+
+            // --- Glow Animation ---
+            if (outputLight.color === OUTPUT_ON_COLOR) {
+                outputLight.glowAmount += 0.05;
+                if (outputLight.glowAmount > 1) outputLight.glowAmount = 0;
+            } else {
+                outputLight.glowAmount = 0; // Reset glow when OFF
+            }
+        }
+
+        // --- State Display Functions ---
+        function displayState(a, b, out) {
+            p.fill(255);
+            p.noStroke();
+            p.textSize(18);
+            p.textAlign(p.CENTER);
+            p.text(`A: ${a}, B: ${b}, Output: ${out}`, p.width / 2, 30);
+            p.textAlign(p.LEFT); // Reset alignment
+        }
+
+        function displayTruthTable() {
+            p.fill(255);
+            p.noStroke();
+            p.textSize(14);
+            p.textAlign(p.LEFT);
+            const tableX = 20;
+            const tableY = 60;
+            p.text("NOR Truth Table:", tableX, tableY);
+            const rows = [
+                "A | B | Out",
+                "0 | 0 | 1",
+                "0 | 1 | 0",
+                "1 | 0 | 0",
+                "1 | 1 | 0"
+            ];
+            const currentA = isPendulumActivated(pendulums[0]) ? 1 : 0;
+            const currentB = isPendulumActivated(pendulums[1]) ? 1 : 0;
+
+            rows.forEach((row, i) => {
+                const yPos = tableY + 20 + i * 18;
+                if (i > 0) {
+                    const [ra, rb] = row.split('|').map(s => s.trim()).slice(0, 2).map(s => parseInt(s));
+                    if (ra === currentA && rb === currentB) {
+                        p.fill(255, 255, 0); // Highlight current state
+                    } else {
+                        p.fill(200); // Normal text
+                    }
+                }
+                p.text(row, tableX, yPos);
+            });
+            p.fill(255); // Reset fill color
+        }
+
+        // --- Utility Functions ---
+        function isPendulumActivated(pendulum) {
+            const bobX = pendulum.x + p.cos(pendulum.angle) * pendulum.length;
+            const bobY = pendulum.y + p.sin(pendulum.angle) * pendulum.length;
+            // Check if bob is within the horizontal range and below the top of the zone
+            return (bobX > pendulum.x - 15 && bobX < pendulum.x + 15) &&
+                   (bobY > pendulum.activationZoneTop);
+        }
+
+        // --- Event Handling ---
+        p.mousePressed = () => {
+            pendulums.forEach(pendulum => {
+                const bobX = pendulum.x + p.cos(pendulum.angle) * pendulum.length;
+                const bobY = pendulum.y + p.sin(pendulum.angle) * pendulum.length;
+                const distance = p.dist(p.mouseX, p.mouseY, bobX, bobY);
+                if (distance < pendulum.mass) {
+                    pendulum.dragging = true;
+                    draggingPendulum = pendulum;
+                }
+            });
+        };
+
+        p.mouseDragged = () => {
+            if (draggingPendulum) {
+                const dx = p.mouseX - draggingPendulum.x;
+                const dy = p.mouseY - draggingPendulum.y;
+                draggingPendulum.angle = p.atan2(dy, dx) - 90; // Convert to pendulum angle
+            }
+        };
+
+        p.mouseReleased = () => {
+            if (draggingPendulum) {
+                draggingPendulum.dragging = false;
+                draggingPendulum = null;
+            }
+        };
+
+        // --- Factory Functions ---
+        function createPendulum(x, y0, startAngle) {
+            const length = PENDULUM_LENGTH;
+            const activationZoneTop = y0 + length * 0.85;
+            return {
+                x, y: y0, angle: startAngle, length, angVelocity: 0, angAccel: 0,
+                mass: PENDULUM_MASS, dragging: false, activationZoneTop
+            };
+        }
+
+        function createLever(x, y) {
+            return {
+                x, y, angle: 0, height: 20, width: 100, targetAngle: 0,
+                angVelocity: 0
+            };
+        }
     };
 
-    // Create new p5 instance
     new p5(sketch, document.body);
-
-    // Add event listener to restart button
-    document.getElementById('restart-button').addEventListener('click', () => {
-      p5.prototype.resetSimulation();
-    });
-  </script>
+</script>
 </body>
 </html>
