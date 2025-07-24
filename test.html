@@ -2,149 +2,284 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>2D Space Simulation</title>
-  <style>
-    body { margin: 0; padding: 20px; font-family: Arial; text-align: center; }
-    canvas { display: block; margin: 20px auto; border: 1px solid #ccc; }
-    #controls {
-      display: inline-block;
-      margin-top: 10px;
-      padding: 10px;
-      border: 1px solid #ccc;
-      background-color: #f0f0f0;
-      text-align: left;
-    }
-    label { display: inline-block; width: 160px; margin-bottom: 5px; }
-    input[type="range"] { width: 150px; vertical-align: middle; }
-    .value-display { display: inline-block; width: 40px; text-align: right; margin-left: 5px; }
-    button { padding: 5px 15px; font-size: 14px; margin-top: 10px; }
-  </style>
-  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thermistor Simulation</title>
   <script type="importmap">
-  {
-    "imports": {
-      "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+    {
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+      }
     }
-  }
   </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+    }
+    .simulation-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .canvas-container {
+      display: flex;
+      gap: 20px;
+    }
+    .controls {
+      margin-top: 20px;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-  <h2>2D Space Simulation</h2>
-  <div id="canvas-container"></div>
-  <div id="controls">
-    <label for="velocity">Launch Velocity:</label>
-    <input type="range" id="velocity" min="0" max="10" step="0.1" value="2">
-    <span id="velocity-value" class="value-display">2</span>
-    <br>
-    <label for="angle">Launch Angle (degrees):</label>
-    <input type="range" id="angle" min="0" max="90" step="1" value="45">
-    <span id="angle-value" class="value-display">45</span>
-    <br>
-    <button id="launch">Launch</button>
-    <button id="reset">Reset</button>
+  <div class="simulation-container">
+    <div id="canvas-container" class="canvas-container"></div>
+    <div class="controls">
+      <button id="restart-button">Restart</button>
+    </div>
   </div>
 
   <script type="module">
     import p5 from 'p5';
 
+    // Thermistor simulation parameters
+    let temp = 20; // Initial temperature in °C
+    let resistance = 10000; // Initial resistance in Ω
+    let tempStep = 0.5; // Temperature increment per frame
+    let tempMax = 150; // Maximum temperature
+    let tempMin = 20; // Minimum temperature
+    let cooling = false; // Cooling state
+
+    // Graph settings
+    let graphPoints = [];
+    let graphBuffer;
+
+    // Sketch function
     const sketch = (p) => {
-      let earthRadius = 100;
-      let earthCenterX, earthCenterY;
-      let ship;
-      let trail = [];
-      let launched = false;
-      let G = 1;
-      let M = 10000;
-      let dt = 0.5;
-
-      class Spacecraft {
-        constructor(x, y, vx, vy) {
-          this.x = x;
-          this.y = y;
-          this.vx = vx;
-          this.vy = vy;
-          this.radius = 5;
-          this.history = [];
-        }
-
-        update() {
-          let dx = earthCenterX - this.x;
-          let dy = earthCenterY - this.y;
-          let dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < earthRadius + this.radius) dist = earthRadius + this.radius;
-          let force = (G * M) / (dist * dist);
-          let angle = Math.atan2(dy, dx);
-          let ax = force * Math.cos(angle);
-          let ay = force * Math.sin(angle);
-          this.vx += ax * dt;
-          this.vy += ay * dt;
-          this.x += this.vx * dt;
-          this.y += this.vy * dt;
-          this.history.push({ x: this.x, y: this.y });
-          if (this.history.length > 1000) this.history.shift();
-          return dist <= earthRadius + this.radius;
-        }
-
-        show() {
-          p.noStroke();
-          p.fill(255, 0, 0);
-          p.ellipse(this.x, this.y, this.radius * 2);
-        }
-      }
+      let canvas;
+      let heatSource;
+      let thermistor;
 
       p.setup = () => {
-        let canvas = p.createCanvas(600, 600);
+        // Create canvas with double the width for simulation and graph
+        const canvasWidth = 1000;
+        const canvasHeight = 600;
+        canvas = p.createCanvas(canvasWidth, canvasHeight);
         canvas.parent('canvas-container');
-        earthCenterX = p.width / 2;
-        earthCenterY = p.height / 2;
-        ship = new Spacecraft(earthCenterX, earthCenterY + earthRadius, 0, 0);
-        document.getElementById('launch').addEventListener('click', () => {
-          if (!launched) {
-            let velocity = parseFloat(document.getElementById('velocity').value);
-            let angle = parseFloat(document.getElementById('angle').value) * Math.PI / 180;
-            ship.vx = velocity * Math.cos(angle);
-            ship.vy = -velocity * Math.sin(angle);
-            launched = true;
-            trail = [];
-          }
-        });
-        document.getElementById('reset').addEventListener('click', () => {
-          ship = new Spacecraft(earthCenterX, earthCenterY + earthRadius, 0, 0);
-          launched = false;
-          trail = [];
-        });
-        document.getElementById('velocity').addEventListener('input', (e) => {
-          document.getElementById('velocity-value').textContent = e.target.value;
-        });
-        document.getElementById('angle').addEventListener('input', (e) => {
-          document.getElementById('angle-value').textContent = e.target.value;
-        });
+
+        // Create visual elements
+        heatSource = {
+          x: 150,
+          y: p.height / 2,
+          width: 60,
+          height: 80
+        };
+
+        thermistor = {
+          x: 350,
+          y: p.height / 2,
+          size: 30
+        };
+
+        // Initialize graph buffer
+        graphBuffer = p.createGraphics(canvasWidth / 2, canvasHeight);
+        resetGraph();
+
+        // Initialize graph points
+        graphPoints = [];
+        for (let t = tempMin; t <= tempMax; t += 5) {
+          const r = calculateResistance(t);
+          graphPoints.push(p.createVector(t, r));
+        }
       };
 
       p.draw = () => {
-        p.background(0);
-        p.fill(0, 0, 255);
-        p.noStroke();
-        p.ellipse(earthCenterX, earthCenterY, earthRadius * 2);
-        if (launched) {
-          let collision = ship.update();
-          ship.show();
-          p.stroke(255);
-          p.noFill();
-          p.beginShape();
-          ship.history.forEach(pt => p.vertex(pt.x, pt.y));
-          p.endShape();
-          if (collision) {
-            p.noLoop();
-            alert("Spacecraft crashed!");
+        p.background(240);
+
+        // Draw divider line
+        p.stroke(200);
+        p.strokeWeight(2);
+        p.line(p.width / 2, 0, p.width / 2, p.height);
+
+        // Update temperature and resistance
+        if (!cooling) {
+          temp += tempStep;
+          if (temp >= tempMax) {
+            cooling = true;
           }
         } else {
-          ship.show();
+          temp -= tempStep;
+          if (temp <= tempMin) {
+            cooling = false;
+          }
         }
+        resistance = calculateResistance(temp);
+
+        // Draw simulation section (left half)
+        drawSimulation();
+
+        // Draw graph section (right half)
+        drawGraph();
       };
+
+      // Reset simulation function
+      p.resetSimulation = () => {
+        temp = tempMin;
+        cooling = false;
+        resetGraph();
+      };
+
+      // Helper function to calculate resistance
+      function calculateResistance(t) {
+        // Thermistor formula approximation: R = R0 * exp(B * (1/T - 1/T0))
+        // Simplified for demonstration purposes
+        const R0 = 10000; // Resistance at 25°C
+        const B = 3950; // Beta coefficient
+        const T0 = 298.15; // 25°C in Kelvin
+        const T = t + 273.15; // Convert to Kelvin
+
+        return R0 * Math.exp(B * (1 / T - 1 / T0));
+      }
+
+      // Draw simulation elements
+      function drawSimulation() {
+        // Draw heat source
+        p.fill(200, 0, 0);
+        p.stroke(100, 0, 0);
+        p.strokeWeight(2);
+        p.rect(heatSource.x, heatSource.y - heatSource.height/2, heatSource.width, heatSource.height, 5);
+
+        // Draw heat glow
+        p.noStroke();
+        p.fill(255, 100, 100, 150);
+        p.ellipse(heatSource.x + heatSource.width/2, heatSource.y, 80, 80);
+
+        // Draw heat rays
+        p.stroke(255, 100, 100, 100);
+        p.strokeWeight(2);
+        for (let i = 0; i < 5; i++) {
+          const angle = p.PI + (i - 2) * p.PI / 8;
+          const x2 = heatSource.x + heatSource.width/2 + Math.cos(angle) * 100;
+          const y2 = heatSource.y + Math.sin(angle) * 100;
+          p.line(heatSource.x + heatSource.width/2, heatSource.y, x2, y2);
+        }
+
+        // Draw thermistor
+        p.fill(50, 100, 200);
+        p.stroke(0, 50, 150);
+        p.strokeWeight(2);
+        p.rect(thermistor.x, thermistor.y - thermistor.size/2, thermistor.size, thermistor.size, 5);
+
+        // Draw temperature indicator
+        const indicatorHeight = p.map(temp, tempMin, tempMax, 0, thermistor.size * 3);
+        p.fill(255, 100, 100);
+        p.noStroke();
+        p.rect(thermistor.x - 15, thermistor.y + thermistor.size/2, 8, -indicatorHeight, 2);
+
+        // Draw labels
+        p.fill(0);
+        p.noStroke();
+        p.textSize(16);
+        p.text(`Temperature: ${temp.toFixed(1)} °C`, 20, 30);
+        p.text(`Resistance: ${resistance.toFixed(0)} Ω`, 20, 60);
+
+        // Draw section title
+        p.textSize(20);
+        p.textStyle(p.BOLD);
+        p.text("Thermistor Simulation", 20, p.height - 20);
+      }
+
+      // Reset graph buffer
+      function resetGraph() {
+        graphBuffer.background(255);
+        graphBuffer.stroke(0);
+        graphBuffer.strokeWeight(1);
+        graphBuffer.fill(0);
+        graphBuffer.textSize(12);
+      }
+
+      // Draw graph
+      function drawGraph() {
+        // Clear graph buffer
+        resetGraph();
+
+        // Draw graph axes
+        const margin = 40;
+        const plotWidth = graphBuffer.width - margin * 2;
+        const plotHeight = graphBuffer.height - margin * 2;
+
+        graphBuffer.line(margin, graphBuffer.height - margin, graphBuffer.width - margin, graphBuffer.height - margin); // X-axis
+        graphBuffer.line(margin, margin, margin, graphBuffer.height - margin); // Y-axis
+
+        // Draw axis labels
+        graphBuffer.textStyle(p.BOLD);
+        graphBuffer.textSize(14);
+        graphBuffer.text("Temperature (°C)", graphBuffer.width / 2 - 40, graphBuffer.height - margin + 25);
+        graphBuffer.push();
+        graphBuffer.translate(margin - 20, graphBuffer.height / 2);
+        graphBuffer.rotate(-p.HALF_PI);
+        graphBuffer.text("Resistance (Ω)", 0, 0);
+        graphBuffer.pop();
+
+        // Draw axis ticks and labels
+        for (let i = 0; i <= 5; i++) {
+          const x = margin + (i * plotWidth / 5);
+          const tempVal = p.map(i, 0, 5, tempMin, tempMax);
+          graphBuffer.line(x, graphBuffer.height - margin, x, graphBuffer.height - margin + 5);
+          graphBuffer.text(tempVal.toFixed(0), x - 10, graphBuffer.height - margin + 20);
+        }
+
+        // Calculate max resistance for Y-axis scaling
+        const maxR = calculateResistance(tempMin);
+        for (let i = 0; i <= 5; i++) {
+          const y = graphBuffer.height - margin - (i * plotHeight / 5);
+          const rVal = p.map(i, 0, 5, 0, maxR);
+          graphBuffer.line(margin - 5, y, margin, y);
+          graphBuffer.text(rVal.toFixed(0), margin - 30, y + 5);
+        }
+
+        // Plot graph points
+        graphBuffer.stroke(0, 100, 200);
+        graphBuffer.strokeWeight(2);
+
+        // Plot pre-calculated points
+        graphBuffer.beginShape();
+        for (const point of graphPoints) {
+          const x = p.map(point.x, tempMin, tempMax, margin, graphBuffer.width - margin);
+          const y = p.map(point.y, 0, maxR, graphBuffer.height - margin, margin);
+          graphBuffer.vertex(x, y);
+        }
+        graphBuffer.endShape();
+
+        // Plot real-time point
+        const x = p.map(temp, tempMin, tempMax, margin, graphBuffer.width - margin);
+        const y = p.map(resistance, 0, maxR, graphBuffer.height - margin, margin);
+        graphBuffer.fill(255, 0, 0);
+        graphBuffer.noStroke();
+        graphBuffer.ellipse(x, y, 8, 8);
+
+        // Display graph buffer on main canvas
+        p.image(graphBuffer, p.width / 2, 0);
+      }
     };
 
-    new p5(sketch);
+    // Create new p5 instance
+    new p5(sketch, document.body);
+
+    // Add event listener to restart button
+    document.getElementById('restart-button').addEventListener('click', () => {
+      p5.prototype.resetSimulation();
+    });
   </script>
 </body>
 </html>

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+            flex-direction: column;
+            /* Allow vertical stacking */
+        }
+
+        #simulation-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #headings-container {
+            display: flex;
+            width: 1200px;
+            /* Match canvas width */
+            margin-bottom: 15px;
+        }
+
+        .heading {
+            width: 50%;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #ccc;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #button-container {
+            margin-top: 20px;
+        }
+
+        button {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 14px;
+            padding: 10px 20px;
+            border: 2px solid #555;
+            background-color: #fff;
+            color: #333;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            background-color: #e9e9e9;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+    <script type="importmap">
+{
+    "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+    }
+}
+</script>
+
+</head>
+
+<body>
+    <div id="simulation-wrapper">
+        <div id="headings-container">
+            <div class="heading">2D Heat Simulation</div>
+            <div class="heading">Temperature-Resistance Curve</div>
+        </div>
+        <div id="canvas-container">
+        </div>
+    </div>
+    <div id="button-container">
+        <button id="restart-button">Restart Simulation</button>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation Configuration ---
+            const CANVAS_WIDTH = 1200;
+            const CANVAS_HEIGHT = 450;
+            const SIM_AREA_WIDTH = CANVAS_WIDTH / 2;
+
+            // Thermistor Properties
+            const R0 = 10000;
+            const B_COEFFICIENT = 3950;
+            const T0 = 25 + 273.15;
+
+            // Environment and Initial State
+            const AMBIENT_TEMP = 20;
+            const HEATER_TEMP = 300;
+            const HEATING_RATE = 0.005;
+
+            let heatGun;
+            let thermistor;
+            let graphPoints = [];
+            let maxResistance = 0;
+            let heatParticles = [];
+
+            /**
+             * Resets the simulation to its initial state.
+             */
+            function restartSimulation() {
+                thermistor.tempC = AMBIENT_TEMP;
+                thermistor.resistance = calculateResistance(thermistor.tempC);
+                graphPoints = [];
+                maxResistance = thermistor.resistance;
+                heatParticles = [];
+                p.loop();
+            }
+
+            // p5.js setup function
+            p.setup = () => {
+                p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+                p.colorMode(p.HSB, 360, 100, 100, 1);
+                p.textFont('Roboto Mono');
+                p.rectMode(p.CENTER);
+
+                heatGun = {
+                    x: SIM_AREA_WIDTH / 4,
+                    y: p.height / 2,
+                    nozzleX: 0, // Will be calculated in draw function
+                    nozzleY: 0
+                };
+
+                thermistor = {
+                    x: SIM_AREA_WIDTH * 3 / 4,
+                    y: p.height / 2,
+                    tempC: AMBIENT_TEMP,
+                    resistance: 0
+                };
+
+                restartSimulation();
+
+                const restartButton = p.select('#restart-button');
+                restartButton.mousePressed(restartSimulation);
+            };
+
+            // p5.js draw function
+            p.draw = () => {
+                p.background(240, 5, 98);
+
+                updateState();
+                drawSimulationArea();
+                drawGraphArea();
+            };
+
+            /**
+             * Updates simulation state.
+             */
+            function updateState() {
+                if (thermistor.tempC < HEATER_TEMP - 1) {
+                    let tempDifference = HEATER_TEMP - thermistor.tempC;
+                    thermistor.tempC += tempDifference * HEATING_RATE;
+                    thermistor.resistance = calculateResistance(thermistor.tempC);
+                    graphPoints.push({ temp: thermistor.tempC, res: thermistor.resistance });
+                } else {
+                    p.noLoop();
+                }
+
+                // Update heat particles
+                for (let i = heatParticles.length - 1; i >= 0; i--) {
+                    let particle = heatParticles[i];
+                    particle.update();
+                    if (particle.isFinished()) {
+                        heatParticles.splice(i, 1);
+                    }
+                }
+                // Add new particles if simulation is running
+                if (p.isLooping()) {
+                    if (p.frameCount % 2 === 0) {
+                        heatParticles.push(new HeatParticle(heatGun.nozzleX, heatGun.nozzleY));
+                    }
+                }
+            }
+
+            /**
+             * Calculates thermistor resistance.
+             */
+            function calculateResistance(tempC) {
+                const tempK = tempC + 273.15;
+                return R0 * Math.exp(B_COEFFICIENT * (1 / tempK - 1 / T0));
+            }
+
+            /**
+             * Draws the simulation area (left side).
+             */
+            function drawSimulationArea() {
+                p.push();
+                p.rectMode(p.CORNER);
+
+                p.stroke(0, 0, 80);
+                p.line(SIM_AREA_WIDTH, 0, SIM_AREA_WIDTH, p.height);
+
+                drawHeatGun();
+                drawHeatEffect();
+                drawThermistor();
+
+                p.pop();
+            }
+
+            /**
+             * Draws the heat gun model and its label.
+             */
+            function drawHeatGun() {
+                const gunX = heatGun.x;
+                const gunY = heatGun.y;
+
+                // Draw the gun body
+                p.push();
+                p.translate(gunX, gunY);
+
+                // Nozzle
+                const nozzleWidth = 80;
+                const nozzleHeight = 35;
+                p.fill(0, 0, 50); // Dark grey
+                p.noStroke();
+                p.rectMode(p.CORNER);
+                p.rect(0, -nozzleHeight / 2, nozzleWidth, nozzleHeight);
+                heatGun.nozzleX = gunX + nozzleWidth;
+                heatGun.nozzleY = gunY;
+
+                // Body
+                p.fill(10, 80, 90); // Red body
+                p.rect(-60, -25, 60, 50);
+
+                // Handle
+                p.fill(0, 0, 20); // Black handle
+                p.quad(-40, 25, -20, 25, -40, 90, -60, 90);
+
+                // Vents
+                p.stroke(0, 0, 10);
+                p.strokeWeight(2);
+                for (let i = 0; i < 3; i++) {
+                    p.line(-50, -15 + i * 10, -10, -15 + i * 10);
+                }
+                p.pop();
+
+                // Draw the label for the heat gun
+                p.noStroke();
+                p.fill(0, 0, 20);
+                p.textAlign(p.CENTER, p.TOP);
+                p.textSize(12);
+                p.text("Heat Gun", gunX, gunY + 95); // Positioned below the handle
+            }
+
+            /**
+             * Draws the heat effect from the gun.
+             */
+            function drawHeatEffect() {
+                for (let particle of heatParticles) {
+                    particle.draw();
+                }
+            }
+
+            /**
+             * Draws the diode-style thermistor.
+             */
+            function drawThermistor() {
+                const bodyWidth = 50;
+                const bodyHeight = 25;
+                const leadLength = 30;
+                const x = thermistor.x;
+                const y = thermistor.y;
+
+                p.stroke(0, 0, 60);
+                p.strokeWeight(2);
+                p.line(x - bodyWidth / 2, y, x - bodyWidth / 2 - leadLength, y);
+                p.line(x + bodyWidth / 2, y, x + bodyWidth / 2 + leadLength, y);
+
+                let thermistorColor = p.map(thermistor.tempC, AMBIENT_TEMP, HEATER_TEMP, 240, 0, true);
+                p.noStroke();
+                p.fill(thermistorColor, 80, 85);
+
+                const internalWidth = bodyWidth * 0.4;
+                const internalHeight = bodyHeight * 0.8;
+                const gap = bodyWidth * 0.08;
+
+                p.rectMode(p.CORNER);
+                p.rect(x - gap / 2 - internalWidth, y - internalHeight / 2, internalWidth, internalHeight);
+                p.rect(x + gap / 2, y - internalHeight / 2, internalWidth, internalHeight);
+
+                p.fill(220, 10, 100, 0.3);
+                p.stroke(0, 0, 80);
+                p.strokeWeight(1.5);
+                p.rectMode(p.CENTER);
+                p.rect(x, y, bodyWidth, bodyHeight, 8);
+
+                p.noStroke();
+                p.fill(0, 0, 20);
+                p.textAlign(p.CENTER, p.TOP);
+                p.textSize(12);
+                p.text("Thermistor", x, y + bodyHeight / 2 + 15);
+                p.text(`Temp: ${thermistor.tempC.toFixed(1)} °C`, x, y + bodyHeight / 2 + 30);
+                p.text(`Res: ${thermistor.resistance.toFixed(0)} Ohm`, x, y + bodyHeight / 2 + 45);
+            }
+
+            /**
+             * Draws the graph area (right side).
+             */
+            function drawGraphArea() {
+                p.push();
+                p.translate(SIM_AREA_WIDTH, 0);
+                p.rectMode(p.CORNER);
+
+                const margin = 60;
+                p.stroke(0, 0, 20);
+                p.strokeWeight(1);
+                p.line(margin, margin, margin, p.height - margin);
+                p.line(margin, p.height - margin, SIM_AREA_WIDTH - margin, p.height - margin);
+
+                p.push();
+                p.noStroke();
+                p.fill(0, 0, 20);
+                p.textSize(12);
+                p.textAlign(p.CENTER, p.CENTER);
+                p.text("Temp (°C)", SIM_AREA_WIDTH / 2, p.height - margin + 30);
+                p.translate(margin - 45, p.height / 2);
+                p.rotate(-p.HALF_PI);
+                p.text("Resistance (Ohm)", 0, 0);
+                p.pop();
+
+                p.noStroke();
+                p.textAlign(p.CENTER, p.TOP);
+                for (let t = AMBIENT_TEMP; t <= HEATER_TEMP; t += 50) {
+                    let x = p.map(t, AMBIENT_TEMP, HEATER_TEMP, margin, SIM_AREA_WIDTH - margin);
+                    p.text(t, x, p.height - margin + 5);
+                }
+                p.textAlign(p.RIGHT, p.CENTER);
+                for (let r = 0; r <= maxResistance; r += (maxResistance / 5)) {
+                    let y = p.map(r, 0, maxResistance, p.height - margin, margin);
+                    p.text(Math.round(r), margin - 5, y);
+                }
+
+                if (graphPoints.length < 2) return;
+
+                p.noFill();
+                p.stroke(200, 80, 80);
+                p.strokeWeight(2);
+                p.beginShape();
+                for (let i = 0; i < graphPoints.length; i++) {
+                    const point = graphPoints[i];
+                    let x = p.map(point.temp, AMBIENT_TEMP, HEATER_TEMP, margin, SIM_AREA_WIDTH - margin);
+                    let y = p.map(point.res, 0, maxResistance, p.height - margin, margin);
+                    p.vertex(x, y);
+                }
+                p.endShape();
+
+                p.pop();
+            }
+
+            // A class for the heat particles
+            class HeatParticle {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y + p.random(-10, 10);
+                    this.vx = p.random(2, 4); // Horizontal speed
+                    this.vy = p.random(-0.5, 0.5); // Vertical drift
+                    this.alpha = 1;
+                    this.color = p.color(p.random(30, 60), 90, 100, this.alpha);
+                }
+
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.alpha -= 0.02;
+                    this.color.setAlpha(this.alpha);
+                }
+
+                draw() {
+                    p.noStroke();
+                    p.fill(this.color);
+                    p.ellipse(this.x, this.y, p.random(5, 10));
+                }
+
+                isFinished() {
+                    return this.alpha <= 0;
+                }
+            }
+        };
+
+        const container = window.document.getElementById('canvas-container');
+        new p5(sketch, container);
+
+    </script>
+</body>
+
+</html>
