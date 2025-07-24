@@ -3,301 +3,396 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mechanical NOR Logic Gate Simulation</title>
+    <title>Earth's Axial Wobble Simulation</title>
     <style>
-        body { margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #111; }
+        body { margin: 0; font-family: Arial, sans-serif; }
+        #canvas-container { display: flex; justify-content: center; padding-top: 20px; }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-size: 18px;
+            text-shadow: 1px 1px 2px black;
+            pointer-events: none;
+        }
+        #controls {
+            position: absolute;
+            top: 40px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            width: 220px;
+        }
+        .slider-container {
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .value-display {
+            float: right;
+            font-weight: normal;
+        }
+        #legend {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 250px;
+        }
+        h3 {
+            margin-top: 0;
+            margin-bottom: 5px;
+        }
+        .graph-label {
+            font-size: 12px;
+            color: #333;
+        }
+        .color-swatch {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+            border: 1px solid #333;
+        }
     </style>
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
 </head>
 <body>
-<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-<script type="importmap">
-    {
-        "imports": {
-            "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.4/+esm"
-        }
-    }
-</script>
-<script type="module">
-    import p5 from 'p5';
+    <div id="info">Earth's Axial Wobble Simulation</div>
+    <div id="controls">
+        <h3>Controls</h3>
+        <div class="slider-container">
+            <label for="speed">Simulation Speed <span id="speed-value" class="value-display">1.0x</span></label>
+            <input type="range" id="speed" min="0.1" max="5" step="0.1" value="1">
+        </div>
+        <div class="slider-container">
+            <label for="tilt">Base Axial Tilt <span id="tilt-value" class="value-display">23.4°</span></label>
+            <input type="range" id="tilt" min="0" max="30" step="0.1" value="23.4">
+        </div>
+        <div class="slider-container">
+            <label for="wobble">Wobble Magnitude <span id="wobble-value" class="value-display">5.0°</span></label>
+            <input type="range" id="wobble" min="0" max="10" step="0.1" value="5">
+        </div>
+    </div>
+    <div id="legend">
+        <h3>Legend</h3>
+        <p>
+            <span class="color-swatch" style="background-color: #0000FF;"></span>
+            Temperature (°C)<br>
+            <span class="color-swatch" style="background-color: #FF0000;"></span>
+            Daylight Hours (hrs)
+        </p>
+        <p>
+            Earth's color indicates average Northern Hemisphere temperature:<br>
+            <span style="color: #00A;">-20°C to 0°C (Blue to Cyan)</span><br>
+            <span style="color: #0A0;">0°C to 15°C (Cyan to Green)</span><br>
+            <span style="color: #A50;">15°C to 30°C (Green to Red)</span>
+        </p>
+    </div>
+    <div id="canvas-container"></div>
 
-    const sketch = (p) => {
-        // --- Core Mechanics & Physics ---
-        let pendulums = []; // Each pendulum: {x, y, angle, length, angVelocity, angAccel, mass, dragging, activationZoneTop}
-        let levers = [];    // Levers that tilt based on activation: {x, y, angle, height, width, targetAngle}
-        let outputLight;    // Indicator for NOR result
+    <script type="module">
+        import p5 from 'p5';
 
-        // --- Simulation State ---
-        let gravity = 0.4;  // Standard gravity for pendulums
-        let draggingPendulum = null;
-        let dt = 1;         // Simulation time step (constant for simplicity)
+        const sketch = (p) => {
+            // Simulation parameters
+            let speed = 1;
+            let baseTilt = 23.4; // Earth's axial tilt in degrees
+            let wobbleMagnitude = 5;
+            let orbitDays = 365; // Days in a year
+            let currentDay = 0;
 
-        // --- Constants ---
-        const PENDULUM_LENGTH = 180;
-        const PENDULUM_MASS = 10;
-        const PENDULUM_Y0 = 140;        // Pivot point height
-        const LEVER_MASS = 5;           // Mass for lever physics
-        const LEVER_SPRING_K = 0.5;     // Spring constant for lever return
-        const ACTIVATION_ZONE_HEIGHT = 30;
-        const OUTPUT_Y = 450;           // Y-position of output indicator and levers
-        const LEVER_TARGET_ANGLE = 0;   // Resting angle for levers
-        const LEVER_DAMPING = 0.92;     // Damping factor for lever oscillation
-        const OUTPUT_ON_COLOR = "#FFFF00"; // Yellow when ON
-        const OUTPUT_OFF_COLOR = "#555";   // Dark gray when OFF
+            // Orbital parameters
+            const ORBIT_CENTER_X = 0;
+            const ORBIT_CENTER_Y = 0;
+            const ORBIT_A = 250; // Semi-major axis
+            const ORBIT_B = 200; // Semi-minor axis
+            const SUN_RADIUS = 20;
+            
+            // Physics constants
+            const DEG_TO_RAD = p.PI / 180;
+            const EARTH_RADIUS = 15;
+            const AXIS_LENGTH = EARTH_RADIUS * 2;
+            
+            // Temperature and daylight calculation constants
+            const MIN_TEMP = -20;
+            const MAX_TEMP = 30;
+            const MIN_DAYLIGHT = 0;
+            const MAX_DAYLIGHT = 24;
+            
+            // Arrays to store data for graphing
+            let tempHistory = [];
+            let daylightHistory = [];
+            const MAX_HISTORY = 365;
 
-        p.setup = () => {
-            p.createCanvas(800, 600);
-            p.angleMode(p.DEGREES);
+            // Element references
+            let speedSlider, tiltSlider, wobbleSlider;
+            let speedValue, tiltValue, wobbleValue;
 
-            // --- Initialize Pendulums ---
-            const pendulumX1 = p.width / 3;
-            const pendulumX2 = (p.width * 2) / 3;
-            pendulums = [
-                createPendulum(pendulumX1, PENDULUM_Y0, -10), // Start slightly left
-                createPendulum(pendulumX2, PENDULUM_Y0, 10)   // Start slightly right
-            ];
+            p.setup = () => {
+                const canvas = p.createCanvas(800, 600);
+                canvas.parent('canvas-container');
 
-            // --- Initialize Levers ---
-            levers = [
-                createLever(pendulumX1, OUTPUT_Y),
-                createLever(pendulumX2, OUTPUT_Y)
-            ];
+                // Get slider elements
+                speedSlider = document.getElementById('speed');
+                tiltSlider = document.getElementById('tilt');
+                wobbleSlider = document.getElementById('wobble');
+                
+                // Get value display elements
+                speedValue = document.getElementById('speed-value');
+                tiltValue = document.getElementById('tilt-value');
+                wobbleValue = document.getElementById('wobble-value');
 
-            // --- Initialize Output Indicator ---
-            outputLight = {
-                x: p.width / 2,
-                y: OUTPUT_Y,
-                radius: 40,
-                color: OUTPUT_OFF_COLOR, // Start OFF
-                glowAmount: 0
-            };
-        };
+                // Add event listeners to sliders
+                speedSlider.addEventListener('input', updateControls);
+                tiltSlider.addEventListener('input', updateControls);
+                wobbleSlider.addEventListener('input', updateControls);
 
-        p.draw = () => {
-            p.background("#2b2b2b");
-            p.stroke(255);
-            p.strokeWeight(1);
-
-            // --- Physics Updates ---
-            updatePendulums();
-            updateLevers();
-
-            // --- Draw Components ---
-            drawPendulums();
-            drawLevers();
-            drawOutputLight();
-
-            // --- State Display ---
-            const inputA = isPendulumActivated(pendulums[0]) ? 1 : 0;
-            const inputB = isPendulumActivated(pendulums[1]) ? 1 : 0;
-            const output = inputA === 0 && inputB === 0 ? 1 : 0;
-            displayState(inputA, inputB, output);
-            displayTruthTable();
-        };
-
-        // --- Physics Simulation Functions ---
-        function updatePendulums() {
-            pendulums.forEach(pendulum => {
-                if (pendulum.dragging) {
-                    // Reset velocity while dragging to prevent momentum issues
-                    pendulum.angVelocity = 0;
-                    return;
+                // Initialize data history arrays
+                for (let i = 0; i < MAX_HISTORY; i++) {
+                    tempHistory.push(0);
+                    daylightHistory.push(0);
                 }
-                // Standard pendulum physics: angular acceleration based on gravity
-                pendulum.angAccel = - (gravity / pendulum.length) * p.sin(pendulum.angle);
-                pendulum.angVelocity += pendulum.angAccel * dt;
-                pendulum.angVelocity *= 0.995; // Light damping
-                pendulum.angle += pendulum.angVelocity * dt;
-            });
-        }
+            };
 
-        function updateLevers() {
-            // --- Determine Target Angles Based on Pendulum Activation ---
-            const activationA = isPendulumActivated(pendulums[0]);
-            const activationB = isPendulumActivated(pendulums[1]);
-            levers[0].targetAngle = activationA ? 30 : LEVER_TARGET_ANGLE;
-            levers[1].targetAngle = activationB ? -30 : LEVER_TARGET_ANGLE;
-
-            // --- Spring-Physics for Lever Movement ---
-            levers.forEach(lever => {
-                const angleDiff = lever.targetAngle - lever.angle;
-                // Simple spring force: F = k * x (k is LEVER_SPRING_K, x is angleDiff)
-                const springForce = LEVER_SPRING_K * angleDiff;
-                // Angular acceleration: torque (force * distance) / moment of inertia (proportional to mass)
-                const angAccel = springForce / LEVER_MASS;
-                lever.angVelocity += angAccel * dt;
-                lever.angVelocity *= LEVER_DAMPING; // Apply damping
-                lever.angle += lever.angVelocity * dt;
-            });
-        }
-
-        // --- Drawing Functions ---
-        function drawPendulums() {
-            pendulums.forEach(pendulum => {
-                const pendulumColor = pendulum.dragging ? "#FFA500" : "#DDDDDD"; // Orange when dragging
-                p.stroke(pendulumColor);
-                p.strokeWeight(2);
-                const bobX = pendulum.x + p.cos(pendulum.angle) * pendulum.length;
-                const bobY = pendulum.y + p.sin(pendulum.angle) * pendulum.length;
-
-                // Draw rod
-                p.line(pendulum.x, pendulum.y, bobX, bobY);
-
-                // Draw bob
-                p.fill(pendulumColor);
-                p.ellipse(bobX, bobY, pendulum.mass * 2, pendulum.mass * 2);
-
-                // Draw activation zone
+            p.draw = () => {
+                p.background(0);
+                
+                // Update simulation time based on speed
+                currentDay = (currentDay + 0.1 * speed) % orbitDays;
+                
+                // Calculate Earth's position in elliptical orbit
+                const angle = p.map(currentDay, 0, orbitDays, 0, p.TWO_PI);
+                const x = ORBIT_CENTER_X + ORBIT_A * p.cos(angle);
+                const y = ORBIT_CENTER_Y + ORBIT_B * p.sin(angle);
+                
+                // Calculate current axial tilt with wobble
+                const wobblePeriod = 365 * 26 * 1000; // Approximate period of Earth's axial precession (years)
+                const wobbleOffset = p.map(currentDay, 0, orbitDays, 0, p.TWO_PI);
+                const currentTilt = baseTilt + wobbleMagnitude * p.sin(wobbleOffset * p.TWO_PI / wobblePeriod);
+                
+                // Calculate seasonal temperature based on Earth's position and tilt
+                const temperature = calculateTemperature(angle, currentTilt);
+                
+                // Calculate daylight hours based on Earth's position and tilt
+                const daylightHours = calculateDaylightHours(angle, currentTilt);
+                
+                // Add current values to history arrays
+                tempHistory.push(temperature);
+                daylightHistory.push(daylightHours);
+                
+                // Limit history size
+                if (tempHistory.length > MAX_HISTORY) {
+                    tempHistory.shift();
+                    daylightHistory.shift();
+                }
+                
+                // Update Earth color based on temperature
+                const earthColor = getTemperatureColor(temperature);
+                
+                // Draw the Sun
+                p.fill(255, 200, 0);
                 p.noStroke();
-                p.fill(255, 100, 100, 80); // Semi-transparent red
-                p.rectMode(p.CENTER);
-                p.rect(pendulum.x, pendulum.activationZoneTop + ACTIVATION_ZONE_HEIGHT / 2,
-                    30, ACTIVATION_ZONE_HEIGHT);
-                p.rectMode(p.CORNER);
-            });
-        }
-
-        function drawLevers() {
-            p.stroke(180);
-            p.strokeWeight(3);
-            levers.forEach(lever => {
-                p.push(); // Save current transformation matrix
-                p.translate(lever.x, lever.y);
-                p.rotate(lever.angle);
-
-                // Draw lever bar
-                p.fill(220);
-                p.rectMode(p.CENTER);
-                p.rect(0, -lever.height / 2, lever.width, lever.height);
-                p.rectMode(p.CORNER);
-
-                // Draw pivot point
-                p.fill(100);
-                p.ellipse(0, 0, 10, 10);
-
-                p.pop(); // Restore transformation matrix
-            });
-        }
-
-        function drawOutputLight() {
-            // --- Glow Effect ---
-            p.noStroke();
-            const glowRadius = outputLight.radius + outputLight.glowAmount * 20;
-            const glowAlpha = 150 - outputLight.glowAmount * 100;
-            p.fill(255, 255, 0, glowAlpha);
-            p.ellipse(outputLight.x, outputLight.y, glowRadius, glowRadius);
-
-            // --- Main Light ---
-            p.fill(outputLight.color);
-            p.ellipse(outputLight.x, outputLight.y, outputLight.radius, outputLight.radius);
-
-            // --- Glow Animation ---
-            if (outputLight.color === OUTPUT_ON_COLOR) {
-                outputLight.glowAmount += 0.05;
-                if (outputLight.glowAmount > 1) outputLight.glowAmount = 0;
-            } else {
-                outputLight.glowAmount = 0; // Reset glow when OFF
-            }
-        }
-
-        // --- State Display Functions ---
-        function displayState(a, b, out) {
-            p.fill(255);
-            p.noStroke();
-            p.textSize(18);
-            p.textAlign(p.CENTER);
-            p.text(`A: ${a}, B: ${b}, Output: ${out}`, p.width / 2, 30);
-            p.textAlign(p.LEFT); // Reset alignment
-        }
-
-        function displayTruthTable() {
-            p.fill(255);
-            p.noStroke();
-            p.textSize(14);
-            p.textAlign(p.LEFT);
-            const tableX = 20;
-            const tableY = 60;
-            p.text("NOR Truth Table:", tableX, tableY);
-            const rows = [
-                "A | B | Out",
-                "0 | 0 | 1",
-                "0 | 1 | 0",
-                "1 | 0 | 0",
-                "1 | 1 | 0"
-            ];
-            const currentA = isPendulumActivated(pendulums[0]) ? 1 : 0;
-            const currentB = isPendulumActivated(pendulums[1]) ? 1 : 0;
-
-            rows.forEach((row, i) => {
-                const yPos = tableY + 20 + i * 18;
-                if (i > 0) {
-                    const [ra, rb] = row.split('|').map(s => s.trim()).slice(0, 2).map(s => parseInt(s));
-                    if (ra === currentA && rb === currentB) {
-                        p.fill(255, 255, 0); // Highlight current state
-                    } else {
-                        p.fill(200); // Normal text
-                    }
+                p.ellipse(ORBIT_CENTER_X, ORBIT_CENTER_Y, SUN_RADIUS * 2);
+                
+                // Draw Earth's orbit
+                p.noFill();
+                p.stroke(100);
+                p.strokeWeight(1);
+                p.ellipse(ORBIT_CENTER_X, ORBIT_CENTER_Y, ORBIT_A * 2, ORBIT_B * 2);
+                
+                // Draw Earth
+                p.fill(earthColor);
+                p.noStroke();
+                p.ellipse(x, y, EARTH_RADIUS * 2);
+                
+                // Draw Earth's axis
+                const axisAngle = currentTilt * DEG_TO_RAD;
+                const axisX1 = x - AXIS_LENGTH * p.sin(axisAngle);
+                const axisY1 = y + AXIS_LENGTH * p.cos(axisAngle);
+                const axisX2 = x + AXIS_LENGTH * p.sin(axisAngle);
+                const axisY2 = y - AXIS_LENGTH * p.cos(axisAngle);
+                
+                p.stroke(255);
+                p.strokeWeight(2);
+                p.line(axisX1, axisY1, axisX2, axisY2);
+                
+                // Draw graphs
+                const graphY = p.height - 150;
+                const graphHeight = 100;
+                
+                // Draw temperature graph
+                p.stroke(0, 0, 255);
+                p.noFill();
+                p.beginShape();
+                for (let i = 0; i < tempHistory.length; i++) {
+                    const xPos = p.map(i, 0, MAX_HISTORY, 50, p.width - 50);
+                    const yPos = p.map(tempHistory[i], MIN_TEMP, MAX_TEMP, graphY + graphHeight, graphY);
+                    p.vertex(xPos, yPos);
                 }
-                p.text(row, tableX, yPos);
-            });
-            p.fill(255); // Reset fill color
-        }
-
-        // --- Utility Functions ---
-        function isPendulumActivated(pendulum) {
-            const bobX = pendulum.x + p.cos(pendulum.angle) * pendulum.length;
-            const bobY = pendulum.y + p.sin(pendulum.angle) * pendulum.length;
-            // Check if bob is within the horizontal range and below the top of the zone
-            return (bobX > pendulum.x - 15 && bobX < pendulum.x + 15) &&
-                   (bobY > pendulum.activationZoneTop);
-        }
-
-        // --- Event Handling ---
-        p.mousePressed = () => {
-            pendulums.forEach(pendulum => {
-                const bobX = pendulum.x + p.cos(pendulum.angle) * pendulum.length;
-                const bobY = pendulum.y + p.sin(pendulum.angle) * pendulum.length;
-                const distance = p.dist(p.mouseX, p.mouseY, bobX, bobY);
-                if (distance < pendulum.mass) {
-                    pendulum.dragging = true;
-                    draggingPendulum = pendulum;
+                p.endShape();
+                
+                // Draw daylight hours graph
+                p.stroke(255, 0, 0);
+                p.beginShape();
+                for (let i = 0; i < daylightHistory.length; i++) {
+                    const xPos = p.map(i, 0, MAX_HISTORY, 50, p.width - 50);
+                    const yPos = p.map(daylightHistory[i], MIN_DAYLIGHT, MAX_DAYLIGHT, graphY + graphHeight, graphY);
+                    p.vertex(xPos, yPos);
                 }
-            });
-        };
+                p.endShape();
+                
+                // Add graph labels
+                p.fill(255);
+                p.noStroke();
+                p.textSize(12);
+                p.textAlign(p.CENTER);
+                p.text("Temperature (°C)", 50, graphY - 5);
+                p.text("Daylight Hours (hrs)", p.width - 50, graphY - 5);
+                
+                // Add graph tick marks
+                p.stroke(100);
+                p.strokeWeight(1);
+                for (let i = 0; i <= 4; i++) {
+                    const yTemp = p.map(i * (MAX_TEMP - MIN_TEMP) / 4 + MIN_TEMP, MIN_TEMP, MAX_TEMP, graphY + graphHeight, graphY);
+                    p.line(45, yTemp, 50, yTemp);
+                    p.fill(255);
+                    p.noStroke();
+                    p.textAlign(p.RIGHT);
+                    p.text(Math.round(i * (MAX_TEMP - MIN_TEMP) / 4 + MIN_TEMP), 40, yTemp + 3);
+                    
+                    const yDaylight = p.map(i * (MAX_DAYLIGHT - MIN_DAYLIGHT) / 4 + MIN_DAYLIGHT, MIN_DAYLIGHT, MAX_DAYLIGHT, graphY + graphHeight, graphY);
+                    p.line(p.width - 50, yDaylight, p.width - 45, yDaylight);
+                    p.fill(255);
+                    p.noStroke();
+                    p.textAlign(p.LEFT);
+                    p.text(Math.round(i * (MAX_DAYLIGHT - MIN_DAYLIGHT) / 4 + MIN_DAYLIGHT), p.width - 40, yDaylight + 3);
+                }
+                
+                // Add graph x-axis labels
+                p.textAlign(p.CENTER);
+                p.text("0 days", 50, graphY + graphHeight + 15);
+                p.text(Math.round(MAX_HISTORY / 2) + " days", p.width / 2, graphY + graphHeight + 15);
+                p.text(MAX_HISTORY + " days", p.width - 50, graphY + graphHeight + 15);
+                
+                // Draw x and y axes
+                p.stroke(100);
+                p.strokeWeight(1);
+                p.line(50, graphY, 50, graphY + graphHeight); // y-axis
+                p.line(50, graphY + graphHeight, p.width - 50, graphY + graphHeight); // x-axis
+                
+                // Add title to graphs
+                p.fill(255);
+                p.noStroke();
+                p.textSize(14);
+                p.textAlign(p.CENTER);
+                p.text("Temperature and Daylight Hours Over Time", p.width / 2, graphY - 25);
+                
+                // Display information
+                p.fill(255);
+                p.noStroke();
+                p.textSize(14);
+                p.textAlign(p.LEFT);
+                p.text(`Day of Year: ${Math.round(currentDay)}`, 10, 20);
+                p.text(`Current Tilt: ${currentTilt.toFixed(1)}°`, 10, 40);
+                p.text(`Temperature: ${temperature.toFixed(1)}°C`, 10, 60);
+                p.text(`Daylight Hours: ${daylightHours.toFixed(1)} hrs`, 10, 80);
+            };
 
-        p.mouseDragged = () => {
-            if (draggingPendulum) {
-                const dx = p.mouseX - draggingPendulum.x;
-                const dy = p.mouseY - draggingPendulum.y;
-                draggingPendulum.angle = p.atan2(dy, dx) - 90; // Convert to pendulum angle
+            function calculateTemperature(angle, tilt) {
+                // Calculate seasonal temperature based on Earth's position and axial tilt
+                // This is a simplified model that assumes temperature is directly related to 
+                // solar intensity, which depends on the tilt and the position in the orbit
+                
+                // Normalize the angle to 0-1 range
+                const normalizedAngle = (angle / p.TWO_PI + 0.25) % 1;
+                
+                // Calculate temperature based on the position in the orbit
+                // The temperature is highest at the summer solstice and lowest at the winter solstice
+                let temp = MIN_TEMP + (MAX_TEMP - MIN_TEMP) * p.sin(normalizedAngle * p.PI);
+                
+                // Adjust temperature based on axial tilt - greater tilt causes more extreme seasons
+                const tiltFactor = p.map(tilt, 15, 30, 0.5, 1.5);
+                temp = (temp - (MAX_TEMP + MIN_TEMP) / 2) * tiltFactor + (MAX_TEMP + MIN_TEMP) / 2;
+                
+                return temp;
+            }
+
+            function calculateDaylightHours(angle, tilt) {
+                // Calculate daylight hours based on Earth's position and axial tilt
+                // This is a simplified model that assumes daylight hours are directly related to
+                // the tilt and the position in the orbit
+                
+                // Normalize the angle to 0-1 range
+                const normalizedAngle = (angle / p.TWO_PI + 0.25) % 1;
+                
+                // Calculate daylight hours based on the position in the orbit
+                // The daylight hours are longest at the summer solstice and shortest at the winter solstice
+                let daylight = MIN_DAYLIGHT + (MAX_DAYLIGHT - MIN_DAYLIGHT) * p.sin(normalizedAngle * p.PI);
+                
+                // Adjust daylight hours based on axial tilt - greater tilt causes more extreme seasons
+                const tiltFactor = p.map(tilt, 15, 30, 0.5, 1.5);
+                daylight = (daylight - (MAX_DAYLIGHT + MIN_DAYLIGHT) / 2) * tiltFactor + (MAX_DAYLIGHT + MIN_DAYLIGHT) / 2;
+                
+                return daylight;
+            }
+
+            function getTemperatureColor(temp) {
+                // Map temperature to a color gradient
+                // Blue (cold) to Red (hot)
+                
+                let r, g, b;
+                
+                if (temp < 0) {
+                    // Blue to Cyan
+                    const ratio = p.map(temp, MIN_TEMP, 0, 0, 1);
+                    r = 0;
+                    g = p.map(ratio, 0, 1, 0, 255);
+                    b = 255;
+                } else if (temp < 15) {
+                    // Cyan to Green
+                    const ratio = p.map(temp, 0, 15, 0, 1);
+                    r = 0;
+                    g = 255;
+                    b = p.map(ratio, 0, 1, 255, 0);
+                } else {
+                    // Green to Red
+                    const ratio = p.map(temp, 15, MAX_TEMP, 0, 1);
+                    r = p.map(ratio, 0, 1, 0, 255);
+                    g = p.map(ratio, 0, 1, 255, 0);
+                    b = 0;
+                }
+                
+                return p.color(r, g, b);
+            }
+
+            function updateControls() {
+                speed = parseFloat(speedSlider.value);
+                baseTilt = parseFloat(tiltSlider.value);
+                wobbleMagnitude = parseFloat(wobbleSlider.value);
+                
+                speedValue.textContent = speed.toFixed(1) + 'x';
+                tiltValue.textContent = baseTilt.toFixed(1) + '°';
+                wobbleValue.textContent = wobbleMagnitude.toFixed(1) + '°';
             }
         };
 
-        p.mouseReleased = () => {
-            if (draggingPendulum) {
-                draggingPendulum.dragging = false;
-                draggingPendulum = null;
-            }
-        };
-
-        // --- Factory Functions ---
-        function createPendulum(x, y0, startAngle) {
-            const length = PENDULUM_LENGTH;
-            const activationZoneTop = y0 + length * 0.85;
-            return {
-                x, y: y0, angle: startAngle, length, angVelocity: 0, angAccel: 0,
-                mass: PENDULUM_MASS, dragging: false, activationZoneTop
-            };
-        }
-
-        function createLever(x, y) {
-            return {
-                x, y, angle: 0, height: 20, width: 100, targetAngle: 0,
-                angVelocity: 0
-            };
-        }
-    };
-
-    new p5(sketch, document.body);
-</script>
+        new p5(sketch);
+    </script>
 </body>
 </html>

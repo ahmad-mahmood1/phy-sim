@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Earth's Axial Wobble Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+        }
+
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 1200px;
+            padding: 20px;
+        }
+        
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 1rem;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+
+        #simulation-wrapper {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            gap: 20px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #444;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+            flex-grow: 1;
+            aspect-ratio: 16 / 9;
+            min-width: 0; /* Important for flexbox shrinking */
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #info-card {
+            width: 220px;
+            flex-shrink: 0;
+            background-color: #2a2a2a;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #444;
+        }
+        
+        #info-card h3 {
+            color: #00e5ff;
+            margin-top: 0;
+            font-size: 1rem;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+
+        #info-card p {
+            font-size: 0.85rem;
+            line-height: 1.5;
+            margin-bottom: 15px;
+        }
+        
+        .legend-gradient {
+            width: 100%;
+            height: 20px;
+            background: linear-gradient(to right, #6496ff, #ff9664);
+            border-radius: 5px;
+            margin-bottom: 5px;
+        }
+        
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #ccc;
+        }
+
+        #controls-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            width: 100%;
+            background-color: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #444;
+        }
+
+        .control-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            color: #00e5ff;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #444;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #00e5ff;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #1a1a1a;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #00e5ff;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #1a1a1a;
+        }
+
+        .value-display {
+            margin-top: 5px;
+            font-size: 0.9rem;
+            text-align: right;
+            color: #f0f0f0;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 960px) {
+            #simulation-wrapper {
+                flex-direction: column;
+                align-items: center;
+            }
+            #info-card {
+                width: 100%;
+            }
+            #canvas-container {
+                width: 100%;
+            }
+        }
+
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="main-container">
+        <h1>Earth's Axial Wobble Simulation</h1>
+        <div id="simulation-wrapper">
+            <div id="canvas-container"></div>
+            <div id="info-card">
+                <h3>Earth Color Key</h3>
+                <p>The Earth's color shows the temperature in the Northern Hemisphere.</p>
+                <div class="legend-gradient"></div>
+                <div class="legend-labels">
+                    <span>Colder</span>
+                    <span>Warmer</span>
+                </div>
+                
+                <h3 style="margin-top: 20px; border-top: 1px solid #444; padding-top: 10px;">Graph Key</h3>
+                <p>These graphs plot the following Northern Hemisphere data over a full year:</p>
+                <p style="font-size: 0.8rem; margin-bottom: 5px; display: flex; align-items: center;"><span style="color: #ff5050; font-size: 1.5rem; line-height: 1; margin-right: 5px;">•</span> <strong>Temp Anomaly:</strong> Shows how much the temperature deviates from the yearly average.</p>
+                <p style="font-size: 0.8rem; margin-bottom: 0; display: flex; align-items: center;"><span style="color: #ffdc00; font-size: 1.5rem; line-height: 1; margin-right: 5px;">•</span> <strong>Daylight Hours:</strong> Shows the number of daylight hours.</p>
+            </div>
+        </div>
+        <div id="controls-container">
+            <div class="control-item">
+                <label for="speed">Simulation Speed</label>
+                <input type="range" id="speed" min="0.1" max="5" value="1" step="0.1">
+                <span class="value-display" id="speed-value">1.0x</span>
+            </div>
+            <div class="control-item">
+                <label for="tilt">Base Axial Tilt</label>
+                <input type="range" id="tilt" min="0" max="45" value="23.5" step="0.5">
+                <span class="value-display" id="tilt-value">23.5°</span>
+            </div>
+            <div class="control-item">
+                <label for="wobble">Wobble Magnitude</label>
+                <input type="range" id="wobble" min="0" max="10" value="2" step="0.1">
+                <span class="value-display" id="wobble-value">2.0°</span>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const container = document.getElementById('canvas-container');
+
+        const sketch = (p) => {
+            // --- DOM Elements ---
+            let speedSlider, tiltSlider, wobbleSlider;
+            let speedValue, tiltValue, wobbleValue;
+
+            // --- Simulation Variables ---
+            let yearAngle = 0; // Represents Earth's position in orbit (0-360 degrees)
+            let orbitalRadiusX, orbitalRadiusY;
+            let earthRadius;
+            let sunRadius;
+            
+            // --- Data for Graphs ---
+            let tempHistory = [];
+            let daylightHistory = [];
+            const historyLength = 365; // Store data for one year
+
+            p.setup = () => {
+                p.createCanvas(container.offsetWidth, container.offsetHeight);
+                p.angleMode(p.DEGREES);
+
+                // Initialize radii based on canvas size
+                calculateSizes();
+
+                // --- Connect to HTML Sliders ---
+                speedSlider = p.select('#speed');
+                tiltSlider = p.select('#tilt');
+                wobbleSlider = p.select('#wobble');
+                speedValue = p.select('#speed-value');
+                tiltValue = p.select('#tilt-value');
+                wobbleValue = p.select('#wobble-value');
+            };
+            
+            function calculateSizes() {
+                orbitalRadiusX = p.width * 0.35;
+                orbitalRadiusY = p.width * 0.15;
+                earthRadius = p.constrain(p.width * 0.03, 5, 20);
+                sunRadius = p.constrain(p.width * 0.06, 10, 40);
+            }
+
+            p.windowResized = () => {
+                p.resizeCanvas(container.offsetWidth, container.offsetHeight);
+                // Recalculate sizes on resize
+                calculateSizes();
+            };
+
+            p.draw = () => {
+                p.background(10, 10, 20); // Deep space color
+                
+                // --- Get values from sliders ---
+                const simSpeed = speedSlider.value();
+                const baseTilt = tiltSlider.value();
+                const wobbleMagnitude = wobbleSlider.value();
+
+                // Update display values
+                speedValue.html(`${parseFloat(simSpeed).toFixed(1)}x`);
+                tiltValue.html(`${parseFloat(baseTilt).toFixed(1)}°`);
+                wobbleValue.html(`${parseFloat(wobbleMagnitude).toFixed(1)}°`);
+
+                // --- Update Simulation State ---
+                yearAngle += simSpeed;
+                if (yearAngle >= 360) {
+                    yearAngle = 0;
+                    // Clear history for the new year
+                    tempHistory = [];
+                    daylightHistory = [];
+                }
+
+                // --- Calculate Wobble ---
+                // A slow wobble over many "years" for dramatic effect
+                const wobble = p.sin(yearAngle / 5) * wobbleMagnitude; 
+                const currentTilt = baseTilt + wobble;
+
+                // --- Main Visualization (centered) ---
+                p.push();
+                p.translate(p.width / 2, p.height / 2.2); // Center the orbit visually
+
+                drawOrbit();
+                drawSun();
+                
+                // --- Earth Calculations & Drawing ---
+                const earthX = p.cos(yearAngle) * orbitalRadiusX;
+                const earthY = p.sin(yearAngle) * orbitalRadiusY;
+                
+                const tiltEffect = p.sin(yearAngle) * currentTilt;
+                const tempAnomaly = p.map(tiltEffect, -currentTilt, currentTilt, -1, 1, true); 
+                const daylightHours = p.map(tiltEffect, -currentTilt, currentTilt, 8, 16, true);
+
+                if (p.frameCount % 2 === 0 && tempHistory.length < historyLength) {
+                    tempHistory.push(tempAnomaly);
+                    daylightHistory.push(p.map(daylightHours, 8, 16, 0, 1)); // Normalize for graphing
+                }
+
+                drawEarth(earthX, earthY, currentTilt, tempAnomaly);
+                p.pop();
+
+                // --- Draw UI and Graphs ---
+                drawGraphs(currentTilt);
+                drawInfoPanel(currentTilt, tempAnomaly, daylightHours);
+            };
+            
+            function drawOrbit() {
+                p.noFill();
+                p.stroke(100, 100, 120);
+                p.strokeWeight(1);
+                p.ellipse(0, 0, orbitalRadiusX * 2, orbitalRadiusY * 2);
+            }
+
+            function drawSun() {
+                p.fill(255, 220, 0);
+                p.noStroke();
+                const pulse = p.sin(p.frameCount * 2) * 2;
+                p.ellipse(0, 0, sunRadius + pulse, sunRadius + pulse);
+                p.fill(255, 220, 0, 30);
+                p.ellipse(0, 0, sunRadius * 2.5 + pulse, sunRadius * 2.5 + pulse);
+            }
+
+            function drawEarth(x, y, tilt, temp) {
+                p.push();
+                p.translate(x, y);
+
+                const earthColor = p.lerpColor(p.color(100, 150, 255), p.color(255, 150, 100), p.map(temp, -1, 1, 0, 1));
+                p.fill(earthColor);
+                p.noStroke();
+                p.ellipse(0, 0, earthRadius * 2, earthRadius * 2);
+
+                p.push();
+                p.rotate(-tilt);
+                p.stroke(255, 100, 100, 200);
+                p.strokeWeight(2);
+                p.line(0, -earthRadius * 1.5, 0, earthRadius * 1.5);
+                p.pop();
+                
+                p.pop();
+            }
+            
+            function drawGraphs() {
+                const graphHeight = p.height * 0.2;
+                const graphY = p.height - graphHeight - 10;
+
+                const graphWidth = p.width * 0.6;
+                const graphX = (p.width - graphWidth) / 2;
+
+                p.fill(20, 20, 30, 150);
+                p.noStroke();
+                p.rect(graphX, graphY, graphWidth, graphHeight, 5);
+
+                // --- Draw Temperature Graph (Red) ---
+                p.beginShape();
+                p.noFill();
+                p.stroke(255, 80, 80);
+                p.strokeWeight(2);
+                for (let i = 0; i < tempHistory.length; i++) {
+                    const x = p.map(i, 0, historyLength, graphX, graphX + graphWidth);
+                    const y = p.map(tempHistory[i], -1, 1, graphY + graphHeight, graphY);
+                    p.vertex(x, y);
+                }
+                p.endShape();
+
+                // --- Draw Daylight Graph (Yellow) ---
+                p.beginShape();
+                p.noFill();
+                p.stroke(255, 220, 0);
+                p.strokeWeight(1);
+                for (let i = 0; i < daylightHistory.length; i++) {
+                    const x = p.map(i, 0, historyLength, graphX, graphX + graphWidth);
+                    const y = p.map(daylightHistory[i], 0, 1, graphY + graphHeight, graphY);
+                    p.vertex(x, y);
+                }
+                p.endShape();
+                
+                // --- Add axis labels ---
+                p.push();
+                p.textSize(p.constrain(p.width * 0.012, 11, 14)); 
+                p.fill(255); 
+                p.noStroke();
+
+                // Y-Axis labels for Temp (left side)
+                p.textAlign(p.RIGHT, p.CENTER);
+                p.text("Warmer", graphX - 10, graphY + graphHeight * 0.1);
+                p.text("Colder", graphX - 10, graphY + graphHeight * 0.9);
+
+                // Y-Axis labels for Daylight (right side)
+                p.textAlign(p.LEFT, p.CENTER);
+                p.text("16h", graphX + graphWidth + 10, graphY + graphHeight * 0.1);
+                p.text("12h", graphX + graphWidth + 10, graphY + graphHeight / 2);
+                p.text("8h", graphX + graphWidth + 10, graphY + graphHeight * 0.9);
+                p.pop();
+            }
+
+            function drawInfoPanel(tilt, temp, daylight) {
+                const dayOfYear = Math.floor(p.map(yearAngle, 0, 360, 1, 365));
+                p.fill(220);
+                p.noStroke();
+                p.textSize(p.constrain(p.width * 0.015, 10, 14));
+                p.textAlign(p.LEFT, p.TOP);
+                
+                const infoText = [
+                    `Day of Year: ${dayOfYear}`,
+                    `Current Tilt: ${tilt.toFixed(2)}°`,
+                    `N. Hemi Temp Anomaly: ${temp.toFixed(2)}`,
+                    `N. Hemi Daylight: ${daylight.toFixed(2)} hrs`
+                ];
+                
+                infoText.forEach((line, i) => {
+                    p.text(line, 15, 15 + i * (p.constrain(p.width * 0.018, 12, 18)));
+                });
+            }
+        };
+
+        // This is the instance mode setup, attaching the sketch to the container div
+        new p5(sketch, container);
+    </script>
+</body>
+
+</html>
