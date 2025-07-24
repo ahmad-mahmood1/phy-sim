@@ -1,281 +1,150 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polyester Shirt Static Cling Simulation</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 20px;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background-color: #f0f0f0;
-        }
-        #reset-button {
-            margin-bottom: 10px;
-            padding: 10px 20px;
-            font-size: 16px;
-            cursor: pointer;
-        }
-        #simulation-container {
-            border: 1px solid #ccc;
-        }
-    </style>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://esm.sh/p5@1.6.0"
-            }
-        }
-    </script>
+  <meta charset="UTF-8" />
+  <title>2D Space Simulation</title>
+  <style>
+    body { margin: 0; padding: 20px; font-family: Arial; text-align: center; }
+    canvas { display: block; margin: 20px auto; border: 1px solid #ccc; }
+    #controls {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background-color: #f0f0f0;
+      text-align: left;
+    }
+    label { display: inline-block; width: 160px; margin-bottom: 5px; }
+    input[type="range"] { width: 150px; vertical-align: middle; }
+    .value-display { display: inline-block; width: 40px; text-align: right; margin-left: 5px; }
+    button { padding: 5px 15px; font-size: 14px; margin-top: 10px; }
+  </style>
+  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+    }
+  }
+  </script>
 </head>
 <body>
-    <button id="reset-button">Reset Charges</button>
-    <div id="simulation-container"></div>
-    <script type="module">
-        import p5 from "p5";
+  <h2>2D Space Simulation</h2>
+  <div id="canvas-container"></div>
+  <div id="controls">
+    <label for="velocity">Launch Velocity:</label>
+    <input type="range" id="velocity" min="0" max="10" step="0.1" value="2">
+    <span id="velocity-value" class="value-display">2</span>
+    <br>
+    <label for="angle">Launch Angle (degrees):</label>
+    <input type="range" id="angle" min="0" max="90" step="1" value="45">
+    <span id="angle-value" class="value-display">45</span>
+    <br>
+    <button id="launch">Launch</button>
+    <button id="reset">Reset</button>
+  </div>
 
-        const sketch = (p) => {
-            // Simulation parameters
-            let shirtPoints = [];
-            let skinPoints = [];
-            let isDragging = false;
-            let chargeRadius = 20;
-            let chargeStrength = 0.3;
-            let baseSpacing = 30;
-            let shirtWidth = 200;
-            let shirtHeight = 400;
-            let skinX = 500;
+  <script type="module">
+    import p5 from 'p5';
 
-            // Charge class
-            class Charge {
-                constructor(x, y, strength, type) {
-                    this.x = x;
-                    this.y = y;
-                    this.strength = strength;
-                    this.type = type; // '-' or '+'
-                }
+    const sketch = (p) => {
+      let earthRadius = 100;
+      let earthCenterX, earthCenterY;
+      let ship;
+      let trail = [];
+      let launched = false;
+      let G = 1;
+      let M = 10000;
+      let dt = 0.5;
 
-                display() {
-                    p.textSize(20);
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.fill(this.type === '-' ? p.color(255, 0, 0) : p.color(0, 0, 255));
-                    p.text(this.type, this.x, this.y);
-                }
-            }
+      class Spacecraft {
+        constructor(x, y, vx, vy) {
+          this.x = x;
+          this.y = y;
+          this.vx = vx;
+          this.vy = vy;
+          this.radius = 5;
+          this.history = [];
+        }
 
-            // Shirt point class
-            class ShirtPoint {
-                constructor(x, y) {
-                    this.x = x;
-                    this.y = y;
-                    this.origX = x;
-                    this.origY = y;
-                    this.charge = null;
-                    this.connected = false;
-                    this.attachedTo = null;
-                    this.velocity = { x: 0, y: 0 };
-                }
+        update() {
+          let dx = earthCenterX - this.x;
+          let dy = earthCenterY - this.y;
+          let dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < earthRadius + this.radius) dist = earthRadius + this.radius;
+          let force = (G * M) / (dist * dist);
+          let angle = Math.atan2(dy, dx);
+          let ax = force * Math.cos(angle);
+          let ay = force * Math.sin(angle);
+          this.vx += ax * dt;
+          this.vy += ay * dt;
+          this.x += this.vx * dt;
+          this.y += this.vy * dt;
+          this.history.push({ x: this.x, y: this.y });
+          if (this.history.length > 1000) this.history.shift();
+          return dist <= earthRadius + this.radius;
+        }
 
-                applyForce(force) {
-                    this.velocity.x += force.x;
-                    this.velocity.y += force.y;
-                }
+        show() {
+          p.noStroke();
+          p.fill(255, 0, 0);
+          p.ellipse(this.x, this.y, this.radius * 2);
+        }
+      }
 
-                update() {
-                    if (!this.connected) {
-                        this.x += this.velocity.x;
-                        this.y += this.velocity.y;
-                        this.velocity.x *= 0.9; // Damping
-                        this.velocity.y *= 0.9;
+      p.setup = () => {
+        let canvas = p.createCanvas(600, 600);
+        canvas.parent('canvas-container');
+        earthCenterX = p.width / 2;
+        earthCenterY = p.height / 2;
+        ship = new Spacecraft(earthCenterX, earthCenterY + earthRadius, 0, 0);
+        document.getElementById('launch').addEventListener('click', () => {
+          if (!launched) {
+            let velocity = parseFloat(document.getElementById('velocity').value);
+            let angle = parseFloat(document.getElementById('angle').value) * Math.PI / 180;
+            ship.vx = velocity * Math.cos(angle);
+            ship.vy = -velocity * Math.sin(angle);
+            launched = true;
+            trail = [];
+          }
+        });
+        document.getElementById('reset').addEventListener('click', () => {
+          ship = new Spacecraft(earthCenterX, earthCenterY + earthRadius, 0, 0);
+          launched = false;
+          trail = [];
+        });
+        document.getElementById('velocity').addEventListener('input', (e) => {
+          document.getElementById('velocity-value').textContent = e.target.value;
+        });
+        document.getElementById('angle').addEventListener('input', (e) => {
+          document.getElementById('angle-value').textContent = e.target.value;
+        });
+      };
 
-                        // Elastic force to original position
-                        let dx = this.origX - this.x;
-                        let dy = this.origY - this.y;
-                        this.applyForce({ x: dx * 0.05, y: dy * 0.05 });
+      p.draw = () => {
+        p.background(0);
+        p.fill(0, 0, 255);
+        p.noStroke();
+        p.ellipse(earthCenterX, earthCenterY, earthRadius * 2);
+        if (launched) {
+          let collision = ship.update();
+          ship.show();
+          p.stroke(255);
+          p.noFill();
+          p.beginShape();
+          ship.history.forEach(pt => p.vertex(pt.x, pt.y));
+          p.endShape();
+          if (collision) {
+            p.noLoop();
+            alert("Spacecraft crashed!");
+          }
+        } else {
+          ship.show();
+        }
+      };
+    };
 
-                        // Check for collision with skin points
-                        for (let skinPoint of skinPoints) {
-                            if (skinPoint.charge && skinPoint.charge.type === '+') {
-                                let d = p.dist(this.x, this.y, skinPoint.x, skinPoint.y);
-                                if (d < 10) {
-                                    this.connected = true;
-                                    this.attachedTo = skinPoint;
-                                    skinPoint.connected = true;
-                                    skinPoint.attachedTo = this;
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        // Stick to attached skin point
-                        if (this.attachedTo) {
-                            this.x = this.attachedTo.x - 10;
-                            this.y = this.attachedTo.y;
-                        }
-                    }
-                }
-
-                display() {
-                    p.stroke(0);
-                    p.strokeWeight(1);
-                    p.fill(200);
-                    p.ellipse(this.x, this.y, 8, 8);
-
-                    if (this.charge) {
-                        this.charge.x = this.x;
-                        this.charge.y = this.y;
-                        this.charge.display();
-                    }
-                }
-            }
-
-            // Skin point class
-            class SkinPoint {
-                constructor(x, y) {
-                    this.x = x;
-                    this.y = y;
-                    this.charge = null;
-                    this.connected = false;
-                    this.attachedTo = null;
-                }
-
-                display() {
-                    p.stroke(0);
-                    p.strokeWeight(1);
-                    p.fill(255, 200, 200);
-                    p.ellipse(this.x, this.y, 8, 8);
-
-                    if (this.charge) {
-                        this.charge.x = this.x;
-                        this.charge.y = this.y;
-                        this.charge.display();
-                    }
-                }
-            }
-
-            // Setup the canvas and initial state
-            p.setup = () => {
-                const canvas = p.createCanvas(600, 600);
-                canvas.parent('simulation-container');
-
-                // Create shirt points
-                for (let y = 0; y < shirtHeight; y += baseSpacing) {
-                    for (let x = p.width / 2 - shirtWidth / 2; x <= p.width / 2 + shirtWidth / 2; x += baseSpacing) {
-                        shirtPoints.push(new ShirtPoint(x, y));
-                    }
-                }
-
-                // Create skin points
-                for (let y = 0; y < p.height; y += baseSpacing) {
-                    skinPoints.push(new SkinPoint(skinX, y));
-                }
-
-                // Event listeners
-                p.canvas.addEventListener('mousedown', () => {
-                    isDragging = true;
-                });
-
-                p.canvas.addEventListener('mouseup', () => {
-                    isDragging = false;
-                });
-
-                p.canvas.addEventListener('mousemove', (event) => {
-                    if (isDragging) {
-                        let mouseX = event.clientX - p.canvas.offsetLeft;
-                        let mouseY = event.clientY - p.canvas.offsetTop;
-
-                        // Add charges to shirt points near mouse
-                        for (let point of shirtPoints) {
-                            let d = p.dist(mouseX, mouseY, point.x, point.y);
-                            if (d < chargeRadius && !point.charge) {
-                                point.charge = new Charge(point.x, point.y, chargeStrength, '-');
-
-                                // Find corresponding skin point and add opposite charge
-                                let skinPoint = skinPoints.find(sp => 
-                                    p.abs(sp.y - point.y) < baseSpacing / 2
-                                );
-
-                                if (skinPoint && !skinPoint.charge) {
-                                    skinPoint.charge = new Charge(skinPoint.x, skinPoint.y, chargeStrength, '+');
-                                }
-                            }
-                        }
-                    }
-                });
-
-                // Reset button event listener
-                document.getElementById('reset-button').addEventListener('click', resetCharges);
-            };
-
-            // Reset charges function
-            function resetCharges() {
-                for (let point of shirtPoints) {
-                    point.charge = null;
-                    point.connected = false;
-                    point.attachedTo = null;
-                    point.x = point.origX;
-                    point.y = point.origY;
-                    point.velocity = { x: 0, y: 0 };
-                }
-
-                for (let point of skinPoints) {
-                    point.charge = null;
-                    point.connected = false;
-                    point.attachedTo = null;
-                }
-            }
-
-            // Draw the simulation
-            p.draw = () => {
-                p.background(240);
-
-                // Apply attraction forces
-                for (let shirtPoint of shirtPoints) {
-                    if (shirtPoint.charge) {
-                        for (let skinPoint of skinPoints) {
-                            if (skinPoint.charge && skinPoint.charge.type === '+') {
-                                let dx = skinPoint.x - shirtPoint.x;
-                                let dy = skinPoint.y - shirtPoint.y;
-                                let d = p.max(p.dist(shirtPoint.x, shirtPoint.y, skinPoint.x, skinPoint.y), 5);
-                                let forceMag = (shirtPoint.charge.strength * skinPoint.charge.strength) / (d * d);
-                                shirtPoint.applyForce({ 
-                                    x: dx * forceMag * 0.01,
-                                    y: dy * forceMag * 0.01
-                                });
-                            }
-                        }
-                    }
-                }
-
-                // Update and display points
-                for (let point of shirtPoints) {
-                    point.update();
-                }
-
-                for (let point of skinPoints) {
-                    point.display();
-                }
-
-                for (let point of shirtPoints) {
-                    point.display();
-                }
-
-                // Draw connections between connected points
-                p.stroke(100, 100, 255);
-                p.strokeWeight(2);
-                for (let point of shirtPoints) {
-                    if (point.connected && point.attachedTo) {
-                        p.line(point.x, point.y, point.attachedTo.x, point.attachedTo.y);
-                    }
-                }
-            };
-        };
-
-        new p5(sketch);
-    </script>
+    new p5(sketch);
+  </script>
 </body>
 </html>

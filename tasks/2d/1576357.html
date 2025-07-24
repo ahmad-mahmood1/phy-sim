@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escape Velocity Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #0c0a18;
+            color: #e0e0e0;
+            overflow-y: auto; /* Allow scrolling on smaller screens */
+        }
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem; /* 24px */
+            padding: 1rem; /* 16px */
+            width: 100%;
+        }
+        #simulation-wrapper {
+            display: flex;
+            flex-direction: column; /* Stack canvas and controls vertically */
+            align-items: center; /* Center items horizontally */
+            gap: 2rem; /* 32px */
+            width: 100%;
+        }
+        #canvas-container {
+            position: relative;
+            border: 2px solid #4a5568;
+            border-radius: 0.5rem; /* 8px */
+            box-shadow: 0 0 25px rgba(74, 85, 104, 0.5);
+            background-color: #1a202c;
+            overflow: hidden;
+            flex-shrink: 0; /* Prevent canvas from shrinking in flex layout */
+        }
+        #info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(26, 32, 44, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            line-height: 1.6;
+            pointer-events: none;
+        }
+        #controls-panel {
+            display: flex;
+            flex-direction: row; /* Align controls horizontally */
+            flex-wrap: wrap; /* Allow controls to wrap on smaller screens */
+            justify-content: center; /* Center controls */
+            align-items: center; /* Vertically align controls */
+            gap: 2rem; /* 32px */
+            padding: 1.5rem; /* 24px */
+            background-color: #2d3748;
+            border-radius: 0.5rem; /* 8px */
+            width: 100%;
+            max-width: 900px; /* Adjust max-width for horizontal layout */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem; /* 8px */
+            min-width: 200px; /* Give controls some minimum width */
+        }
+        label {
+            font-weight: bold;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #4a5568;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #a0aec0;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #a0aec0;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        .button-group {
+            display: flex;
+            gap: 1rem; /* 16px */
+        }
+        button {
+            flex-grow: 1;
+            padding: 1rem 2rem; /* 16px 32px */
+            border: none;
+            border-radius: 0.5rem; /* 8px */
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        #launchButton {
+            background-color: #2b6cb0; 
+            color: white;
+        }
+         #launchButton:disabled {
+            background-color: #687585;
+            cursor: not-allowed;
+            transform: none;
+        }
+        #resetButton {
+            background-color: #c05621;
+            color: white;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="main-container">
+        <h1 class="text-3xl font-bold text-center text-gray-200">Escape Velocity Simulator</h1>
+        
+        <div id="simulation-wrapper">
+            <div id="canvas-container">
+                 <div id="info-panel"></div>
+            </div>
+            <div id="controls-panel">
+                <div class="control-group">
+                    <label for="velocitySlider">Launch Velocity: <span id="velocityValue">10.0</span> km/s</label>
+                    <input type="range" id="velocitySlider" min="4.0" max="12.0" value="10.0" step="0.1">
+                </div>
+                <div class="control-group">
+                    <label for="angleSlider">Launch Angle (0° = vertical): <span id="angleValue">30</span>°</label>
+                    <input type="range" id="angleSlider" min="-40" max="40" value="30" step="2">
+                </div>
+                <button id="launchButton">Launch</button>
+                <button id="resetButton">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation State & Constants ---
+            let earth, ship;
+            let simulationState = 'IDLE'; // IDLE, LAUNCHED, CRASHED, LOST
+            let trajectory = [];
+            let stars = [];
+            
+            // --- Physics Constants ---
+            // Scaled for visualization. 1 pixel/s is mapped to 1 km/s
+            const G = 0.6; // Reduced gravitational constant
+            const EARTH_MASS = 1200; // Reduced mass to lower escape velocity
+            const EARTH_RADIUS = 75; // in pixels
+            const SHIP_MASS = 1;
+            const EARTH_ROTATIONAL_SPEED = 0.47; // km/s, scaled for simulation
+
+            // --- UI Elements ---
+            let velocitySlider, angleSlider, launchButton, resetButton;
+            let velocityValueSpan, angleValueSpan, infoPanel;
+
+            // --- Planet Class ---
+            class Planet {
+                constructor(x, y, mass, radius) {
+                    this.pos = p.createVector(x, y);
+                    this.mass = mass;
+                    this.radius = radius;
+                    this.gravityRadius = this.radius + 5 * 60; // Increased gravity field
+                }
+
+                draw() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+
+                    // Draw Gravitational Field
+                    p.noFill();
+                    p.strokeWeight(1);
+                    for (let i = 1; i <= 5; i++) { // Draw 5 rings
+                        p.stroke(255, 255, 255, 40 - i * 5); 
+                        let r = this.radius + i * 60;
+                        p.circle(0, 0, r * 2);
+                    }
+
+                    // Base Ocean
+                    p.noStroke();
+                    p.fill(66, 153, 225);
+                    p.circle(0, 0, this.radius * 2);
+
+                    // Continents
+                    p.fill(140, 200, 80);
+                    p.beginShape();
+                    p.vertex(this.radius * 0.1, this.radius * 0.8);
+                    p.vertex(-this.radius * 0.2, this.radius * 0.6);
+                    p.vertex(-this.radius * 0.4, this.radius * 0.2);
+                    p.vertex(-this.radius * 0.3, -this.radius * 0.1);
+                    p.vertex(-this.radius * 0.1, -this.radius * 0.5);
+                    p.vertex(this.radius * 0.2, -this.radius * 0.8);
+                    p.vertex(this.radius * 0.5, -this.radius * 0.7);
+                    p.vertex(this.radius * 0.6, -this.radius * 0.4);
+                    p.vertex(this.radius * 0.5, -this.radius * 0.1);
+                    p.vertex(this.radius * 0.3, this.radius * 0.4);
+                    p.endShape(p.CLOSE);
+                    
+                    // Atmosphere glow
+                    for (let i = 10; i > 0; i--) {
+                        p.noStroke();
+                        p.fill(173, 216, 230, 80 / i);
+                        p.circle(0, 0, this.radius * 2 + i * 2);
+                    }
+
+                    p.pop();
+                }
+
+                attract(body) {
+                    let force = p5.Vector.sub(this.pos, body.pos);
+                    let distanceSq = p.constrain(force.magSq(), 100, 10000);
+                    let strength = (G * this.mass * body.mass) / distanceSq;
+                    force.setMag(strength);
+                    return force;
+                }
+            }
+
+            // --- Spacecraft Class ---
+            class Spacecraft {
+                constructor() {
+                    this.mass = SHIP_MASS;
+                    this.reset();
+                }
+                
+                reset() {
+                    // Start the ship at the equator (0 degrees) for launch
+                    const placementAngle = p.radians(0);
+                    let x = earth.pos.x + (EARTH_RADIUS + 15) * p.cos(placementAngle);
+                    let y = earth.pos.y + (EARTH_RADIUS + 15) * p.sin(placementAngle);
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(0, 0);
+                    this.acc = p.createVector(0, 0);
+                    trajectory = []; // Clear the old trajectory
+                }
+
+                applyForce(force) {
+                    let f = p5.Vector.div(force, this.mass);
+                    this.acc.add(f);
+                }
+                
+                setLaunchVelocity(vel) {
+                    this.vel = vel;
+                }
+
+                update() {
+                    this.vel.add(this.acc);
+                    this.pos.add(this.vel);
+                    this.acc.mult(0);
+
+                    // Record the new position for the trajectory path
+                    if (p.frameCount % 3 === 0) { 
+                        trajectory.push(this.pos.copy());
+                        if (trajectory.length > 300) {
+                            trajectory.shift();
+                        }
+                    }
+                }
+
+                draw() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+
+                    if (simulationState === 'LAUNCHED' || simulationState === 'CRASHED' || simulationState === 'LOST') {
+                        if (this.vel.mag() > 0.01) {
+                             p.rotate(this.vel.heading());
+                        }
+                        if(this.vel.mag() > 0.1) this.drawFlame();
+                    } else { 
+                        let upAngle = p.atan2(this.pos.y - earth.pos.y, this.pos.x - earth.pos.x);
+                        let launchAngleOffset = p.radians(angleSlider.value());
+                        p.rotate(upAngle + launchAngleOffset);
+                        this.drawLaunchIndicator();
+                    }
+                    
+                    this.drawBody();
+                    p.pop();
+                }
+
+                drawLaunchIndicator() {
+                    let vel = velocitySlider.value();
+                    p.stroke(255, 100, 100, 150);
+                    p.strokeWeight(2);
+                    p.line(15, 0, vel * 2 + 15, 0);
+                }
+
+                drawFlame() {
+                    p.noStroke();
+                    let flameSize = this.vel.mag() * 1.5;
+                    for (let i = 0; i < 10; i++) {
+                        let r = p.random(200, 255);
+                        let g = p.random(100, 200);
+                        let b = 0;
+                        let flameLength = p.constrain(p.random(5, 20) * flameSize, 5, 60);
+                        let flameWidth = p.random(5, 12);
+                        p.fill(r, g, b, 150);
+                        p.ellipse(-15 - flameLength / 2, 0, flameLength, flameWidth);
+                    }
+                }
+
+                drawBody() {
+                    p.rectMode(p.CENTER);
+                    p.noStroke();
+                    p.fill(200, 200, 210);
+                    p.rect(0, 0, 25, 12);
+                    p.fill(240, 240, 250);
+                    p.triangle(12.5, 0, 22, -5, 22, 5);
+                }
+            }
+
+            p.setup = () => {
+                const canvasW = window.innerWidth * 0.85;
+                const canvasH = 600;
+                p.createCanvas(canvasW, canvasH).parent('canvas-container');
+                p.angleMode(p.RADIANS);
+                
+                velocitySlider = p.select('#velocitySlider');
+                angleSlider = p.select('#angleSlider');
+                launchButton = p.select('#launchButton');
+                resetButton = p.select('#resetButton');
+                velocityValueSpan = p.select('#velocityValue');
+                angleValueSpan = p.select('#angleValue');
+                infoPanel = p.select('#info-panel');
+
+                earth = new Planet(p.width / 2, p.height / 2, EARTH_MASS, EARTH_RADIUS);
+                ship = new Spacecraft();
+
+                for (let i = 0; i < 500; i++) {
+                    stars.push({
+                        x: p.random(p.width),
+                        y: p.random(p.height),
+                        size: p.random(0.5, 2),
+                        alpha: p.random(100, 255)
+                    });
+                }
+
+                velocitySlider.input(() => velocityValueSpan.html(parseFloat(velocitySlider.value()).toFixed(1)));
+                angleSlider.input(() => angleValueSpan.html(angleSlider.value()));
+                
+                launchButton.mousePressed(launch);
+                resetButton.mousePressed(resetSimulation);
+                
+                resetSimulation();
+            };
+
+            p.draw = () => {
+                p.background(12, 10, 24);
+                drawStars();
+                earth.draw();
+
+                // --- Simulation Logic ---
+                if (simulationState === 'LAUNCHED') {
+                    const outOfBoundsBuffer = 100;
+                    const isOutOfBounds = ship.pos.x < -outOfBoundsBuffer || ship.pos.x > p.width + outOfBoundsBuffer || ship.pos.y < -outOfBoundsBuffer || ship.pos.y > p.height + outOfBoundsBuffer;
+                    
+                    const distFromCenter = p.dist(ship.pos.x, ship.pos.y, earth.pos.x, earth.pos.y);
+                    const altitude = distFromCenter - earth.radius;
+
+                    if (isOutOfBounds) {
+                        simulationState = 'LOST';
+                        // Re-enable controls, but don't clear trajectory yet
+                        launchButton.removeAttribute('disabled');
+                        velocitySlider.removeAttribute('disabled');
+                        angleSlider.removeAttribute('disabled');
+                    } else if (altitude < 0) {
+                        simulationState = 'CRASHED';
+                        ship.vel.mult(0); // Stop the ship
+                        // Re-enable controls, but don't clear trajectory yet
+                        launchButton.removeAttribute('disabled');
+                        velocitySlider.removeAttribute('disabled');
+                        angleSlider.removeAttribute('disabled');
+                    } else {
+                        // Continue simulation if still flying
+                        if (distFromCenter < earth.gravityRadius) {
+                            let gravity = earth.attract(ship);
+                            ship.applyForce(gravity);
+                        }
+                        ship.update();
+                    }
+                }
+
+                // --- Trajectory Clearing Logic ---
+                // If the flight is over, gradually remove the trajectory path
+                if ((simulationState === 'CRASHED' || simulationState === 'LOST') && trajectory.length > 0) {
+                    // Remove a few points each frame for a "dissolving" effect
+                    for (let i = 0; i < 2; i++) { // This number controls the speed of removal
+                        if (trajectory.length > 0) {
+                            trajectory.shift();
+                        }
+                    }
+                }
+                
+                // --- Drawing ---
+                drawTrajectory(); // Draw the (potentially shrinking) trajectory line
+                ship.draw();
+                updateInfoPanel();
+            };
+
+            function drawStars() {
+                p.noStroke();
+                for (const star of stars) {
+                    p.fill(255, 255, 255, star.alpha);
+                    p.circle(star.x, star.y, star.size);
+                }
+            }
+            
+            function drawTrajectory() {
+                p.noFill();
+                p.stroke(255, 255, 0, 150);
+                p.strokeWeight(2);
+                p.beginShape();
+                for (let pos of trajectory) {
+                    p.vertex(pos.x, pos.y);
+                }
+                p.endShape();
+            }
+
+            function updateInfoPanel() {
+                let statusText = 'Ready to Launch';
+                let distFromCenter = p.dist(ship.pos.x, ship.pos.y, earth.pos.x, earth.pos.y);
+                let altitude = distFromCenter - earth.radius;
+                let currentSpeed = ship.vel.mag();
+                
+                let escapeVelocity = p.sqrt((2 * G * earth.mass) / distFromCenter);
+
+                if (simulationState === 'LAUNCHED') {
+                    if (distFromCenter > earth.gravityRadius) {
+                        statusText = 'Escaped Gravity!';
+                    } else if (currentSpeed > escapeVelocity && altitude > 0) {
+                        statusText = 'Escaping...';
+                    } else {
+                        statusText = 'In Orbit / Falling';
+                    }
+                } else if (simulationState === 'CRASHED') {
+                    statusText = 'Crashed!';
+                } else if (simulationState === 'LOST') {
+                    statusText = 'Lost in Space';
+                }
+
+                infoPanel.html(
+                    `Status: ${statusText}<br>` +
+                    `Altitude: ${altitude.toFixed(2)} km<br>` +
+                    `Speed: ${currentSpeed.toFixed(2)} km/s<br>` +
+                    `Escape Velocity: ${escapeVelocity.toFixed(2)} km/s`
+                );
+            }
+
+            function launch() {
+                // Allow launching a new ship if the old one is done (crashed, lost) or if we are starting fresh (idle).
+                if (simulationState === 'IDLE' || simulationState === 'CRASHED' || simulationState === 'LOST') {
+                    ship.reset(); // Reset the ship's state (position, velocity, trajectory)
+                    simulationState = 'LAUNCHED';
+                    
+                    // 1. Get the rocket's launch vector relative to the surface
+                    let upAngle = p.atan2(ship.pos.y - earth.pos.y, ship.pos.x - earth.pos.x);
+                    let launchAngleOffset = p.radians(angleSlider.value());
+                    let finalAngle = upAngle + launchAngleOffset;
+                    let rocketVelocity = p5.Vector.fromAngle(finalAngle, velocitySlider.value());
+
+                    // 2. Get the velocity from Earth's rotation (tangent to the surface)
+                    let rotationalAngle = upAngle + p.radians(90); // 90 degrees from "up"
+                    let rotationalVelocity = p5.Vector.fromAngle(rotationalAngle, EARTH_ROTATIONAL_SPEED);
+                    
+                    // 3. Add the vectors together for the final launch velocity
+                    let totalLaunchVelocity = p5.Vector.add(rocketVelocity, rotationalVelocity);
+                    
+                    ship.setLaunchVelocity(totalLaunchVelocity);
+                    
+                    launchButton.attribute('disabled', '');
+                    velocitySlider.attribute('disabled', '');
+                    angleSlider.attribute('disabled', '');
+                }
+            }
+
+            function resetSimulation() {
+                simulationState = 'IDLE';
+                ship.reset();
+                launchButton.removeAttribute('disabled');
+                velocitySlider.removeAttribute('disabled');
+                angleSlider.removeAttribute('disabled');
+            }
+        };
+
+        new p5(sketch);
+    </script>
+</body>
+
+</html>
