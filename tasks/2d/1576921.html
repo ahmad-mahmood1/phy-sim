@@ -107,14 +107,15 @@
 
             // Environment and Initial State
             const AMBIENT_TEMP = 20;
-            const HEATER_TEMP = 300;
-            const HEATING_RATE = 0.005;
+            const HEATER_TEMP = 250;
+            const HEATING_RATE = 0.009;
 
             let heatGun;
             let thermistor;
             let graphPoints = [];
             let maxResistance = 0;
             let heatParticles = [];
+            let thresholdReached = false
 
             /**
              * Resets the simulation to its initial state.
@@ -125,26 +126,26 @@
                 graphPoints = [];
                 maxResistance = thermistor.resistance;
                 heatParticles = [];
-                p.loop();
+                thresholdReached = false
             }
 
             // p5.js setup function
             p.setup = () => {
-                p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+                const canvas = p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+                canvas.parent('canvas-container');
                 p.colorMode(p.HSB, 360, 100, 100, 1);
                 p.textFont('Roboto Mono');
-                p.rectMode(p.CENTER);
 
                 heatGun = {
                     x: SIM_AREA_WIDTH / 4,
-                    y: p.height / 2,
-                    nozzleX: 0, // Will be calculated in draw function
+                    y: p.height * 0.4,
+                    nozzleX: 0, 
                     nozzleY: 0
                 };
 
                 thermistor = {
                     x: SIM_AREA_WIDTH * 3 / 4,
-                    y: p.height / 2,
+                    y: p.height / 2 - 50, // Positioned higher for vertical layout
                     tempC: AMBIENT_TEMP,
                     resistance: 0
                 };
@@ -165,19 +166,19 @@
             };
 
             /**
-             * Updates simulation state.
+             * Updates the state of the simulation variables frame by frame.
              */
             function updateState() {
-                if (thermistor.tempC < HEATER_TEMP - 1) {
+                if (thermistor.tempC < HEATER_TEMP - 1 && !thresholdReached) {
                     let tempDifference = HEATER_TEMP - thermistor.tempC;
                     thermistor.tempC += tempDifference * HEATING_RATE;
                     thermistor.resistance = calculateResistance(thermistor.tempC);
                     graphPoints.push({ temp: thermistor.tempC, res: thermistor.resistance });
-                } else {
-                    p.noLoop();
+                } else if (!thresholdReached) {
+                    thresholdReached = true;
+                    thermistor.resistance = 0; 
                 }
 
-                // Update heat particles
                 for (let i = heatParticles.length - 1; i >= 0; i--) {
                     let particle = heatParticles[i];
                     particle.update();
@@ -185,16 +186,17 @@
                         heatParticles.splice(i, 1);
                     }
                 }
-                // Add new particles if simulation is running
-                if (p.isLooping()) {
+
+                if (!thresholdReached) {
                     if (p.frameCount % 2 === 0) {
-                        heatParticles.push(new HeatParticle(heatGun.nozzleX, heatGun.nozzleY));
+                        // Target the thermistor bead
+                        heatParticles.push(new HeatParticle(heatGun.nozzleX, heatGun.nozzleY + (10 * p.random(-1,1)), thermistor.x , thermistor.y + (40 * p.random(-1,1))));
                     }
                 }
             }
 
             /**
-             * Calculates thermistor resistance.
+             * Calculates thermistor resistance based on its temperature.
              */
             function calculateResistance(tempC) {
                 const tempK = tempC + 273.15;
@@ -202,19 +204,15 @@
             }
 
             /**
-             * Draws the simulation area (left side).
+             * Draws the entire simulation area on the left side of the canvas.
              */
             function drawSimulationArea() {
                 p.push();
-                p.rectMode(p.CORNER);
-
                 p.stroke(0, 0, 80);
                 p.line(SIM_AREA_WIDTH, 0, SIM_AREA_WIDTH, p.height);
-
                 drawHeatGun();
                 drawHeatEffect();
                 drawThermistor();
-
                 p.pop();
             }
 
@@ -225,29 +223,24 @@
                 const gunX = heatGun.x;
                 const gunY = heatGun.y;
 
-                // Draw the gun body
                 p.push();
                 p.translate(gunX, gunY);
 
-                // Nozzle
                 const nozzleWidth = 80;
                 const nozzleHeight = 35;
-                p.fill(0, 0, 50); // Dark grey
+                p.fill(0, 0, 50); 
                 p.noStroke();
                 p.rectMode(p.CORNER);
                 p.rect(0, -nozzleHeight / 2, nozzleWidth, nozzleHeight);
                 heatGun.nozzleX = gunX + nozzleWidth;
                 heatGun.nozzleY = gunY;
 
-                // Body
-                p.fill(10, 80, 90); // Red body
+                p.fill(10, 80, 90); 
                 p.rect(-60, -25, 60, 50);
 
-                // Handle
-                p.fill(0, 0, 20); // Black handle
+                p.fill(0, 0, 20);
                 p.quad(-40, 25, -20, 25, -40, 90, -60, 90);
 
-                // Vents
                 p.stroke(0, 0, 10);
                 p.strokeWeight(2);
                 for (let i = 0; i < 3; i++) {
@@ -255,16 +248,15 @@
                 }
                 p.pop();
 
-                // Draw the label for the heat gun
                 p.noStroke();
                 p.fill(0, 0, 20);
                 p.textAlign(p.CENTER, p.TOP);
                 p.textSize(12);
-                p.text("Heat Gun", gunX, gunY + 95); // Positioned below the handle
+                p.text("Heat Gun", gunX, gunY + 95);
             }
 
             /**
-             * Draws the heat effect from the gun.
+             * Draws the heat particles streaming from the gun.
              */
             function drawHeatEffect() {
                 for (let particle of heatParticles) {
@@ -273,61 +265,88 @@
             }
 
             /**
-             * Draws the diode-style thermistor.
+             * Draws the vertical thermistor, showing heat-induced bending and a damaged state.
              */
             function drawThermistor() {
-                const bodyWidth = 50;
-                const bodyHeight = 25;
-                const leadLength = 30;
+                const beadDiameter = 20;
+                const leadLength = 80;
+                const leadSpacing = 8;
                 const x = thermistor.x;
                 const y = thermistor.y;
 
+                let bendFactor = 0;
+                
+                if (thresholdReached) {
+                    // --- Draw Damaged State ---
+                    bendFactor = 9; // Exaggerated permanent bend
+                    // Burnt bead
+                    p.fill(25, 80, 30); // Dark, burnt orange/brown
+                    p.stroke(0, 0, 10);
+                    p.strokeWeight(1);
+
+                } else {
+                    // --- Draw Normal State ---
+                    // Bending increases with temperature
+                    bendFactor = p.map(thermistor.tempC, AMBIENT_TEMP, HEATER_TEMP, 0, 8, true);
+                    // Color changes with temperature
+                    let thermistorColor = p.map(thermistor.tempC, AMBIENT_TEMP, HEATER_TEMP, 200, 0, true);
+                    p.fill(thermistorColor, 80, 95);
+                    p.stroke(0, 0, 60);
+                    p.strokeWeight(1.5);
+                }
+
+                // Draw the bead
+                p.ellipse(x, y, beadDiameter, beadDiameter);
+
+                // Draw the leads with bending
                 p.stroke(0, 0, 60);
                 p.strokeWeight(2);
-                p.line(x - bodyWidth / 2, y, x - bodyWidth / 2 - leadLength, y);
-                p.line(x + bodyWidth / 2, y, x + bodyWidth / 2 + leadLength, y);
+                p.noFill();
+                // Left lead
+                p.beginShape();
+                p.vertex(x - leadSpacing / 2, y + beadDiameter / 2);
+                p.quadraticVertex(x - leadSpacing / 2, y + leadLength * 0.7, x - leadSpacing / 2 - bendFactor, y + leadLength);
+                p.endShape();
+                // Right lead
+                p.beginShape();
+                p.vertex(x + leadSpacing / 2, y + beadDiameter / 2);
+                p.quadraticVertex(x + leadSpacing / 2, y + leadLength * 0.7, x + leadSpacing / 2 - bendFactor, y + leadLength);
+                p.endShape();
 
-                let thermistorColor = p.map(thermistor.tempC, AMBIENT_TEMP, HEATER_TEMP, 240, 0, true);
-                p.noStroke();
-                p.fill(thermistorColor, 80, 85);
 
-                const internalWidth = bodyWidth * 0.4;
-                const internalHeight = bodyHeight * 0.8;
-                const gap = bodyWidth * 0.08;
-
-                p.rectMode(p.CORNER);
-                p.rect(x - gap / 2 - internalWidth, y - internalHeight / 2, internalWidth, internalHeight);
-                p.rect(x + gap / 2, y - internalHeight / 2, internalWidth, internalHeight);
-
-                p.fill(220, 10, 100, 0.3);
-                p.stroke(0, 0, 80);
-                p.strokeWeight(1.5);
-                p.rectMode(p.CENTER);
-                p.rect(x, y, bodyWidth, bodyHeight, 8);
-
+                // --- Draw Text Labels ---
                 p.noStroke();
                 p.fill(0, 0, 20);
                 p.textAlign(p.CENTER, p.TOP);
                 p.textSize(12);
-                p.text("Thermistor", x, y + bodyHeight / 2 + 15);
-                p.text(`Temp: ${thermistor.tempC.toFixed(1)} °C`, x, y + bodyHeight / 2 + 30);
-                p.text(`Res: ${thermistor.resistance.toFixed(0)} Ohm`, x, y + bodyHeight / 2 + 45);
+                p.text("Thermistor", x, y + leadLength + 15);
+
+                if (thresholdReached) {
+                    p.fill(360, 90, 70); // Red color for warning text
+                    p.text(`STATUS: OVERHEATED`, x, y + leadLength + 30);
+                    p.text(`Res: ${thermistor.resistance.toFixed(0)} Ohm`, x, y + leadLength + 45);
+                } else {
+                    p.fill(0, 0, 20); // Black for normal text
+                    p.text(`Temp: ${thermistor.tempC.toFixed(1)} °C`, x, y + leadLength + 30);
+                    p.text(`Res: ${thermistor.resistance.toFixed(0)} Ohm`, x, y + leadLength + 45);
+                }
             }
 
             /**
-             * Draws the graph area (right side).
+             * Draws the resistance vs. temperature graph on the right side of the canvas.
              */
             function drawGraphArea() {
                 p.push();
                 p.translate(SIM_AREA_WIDTH, 0);
-                p.rectMode(p.CORNER);
 
                 const margin = 60;
+                // Axes
                 p.stroke(0, 0, 20);
                 p.strokeWeight(1);
-                p.line(margin, margin, margin, p.height - margin);
-                p.line(margin, p.height - margin, SIM_AREA_WIDTH - margin, p.height - margin);
+                p.line(margin, margin, margin, p.height - margin); // Y-axis
+                p.line(margin, p.height - margin, SIM_AREA_WIDTH - margin, p.height - margin); // X-axis
 
+                // Axis labels
                 p.push();
                 p.noStroke();
                 p.fill(0, 0, 20);
@@ -339,6 +358,7 @@
                 p.text("Resistance (Ohm)", 0, 0);
                 p.pop();
 
+                // Axis ticks
                 p.noStroke();
                 p.textAlign(p.CENTER, p.TOP);
                 for (let t = AMBIENT_TEMP; t <= HEATER_TEMP; t += 50) {
@@ -353,6 +373,7 @@
 
                 if (graphPoints.length < 2) return;
 
+                // Draw the curve
                 p.noFill();
                 p.stroke(200, 80, 80);
                 p.strokeWeight(2);
@@ -368,28 +389,30 @@
                 p.pop();
             }
 
-            // A class for the heat particles
+            /**
+             * A class representing a single heat particle for the visual effect.
+             */
             class HeatParticle {
-                constructor(x, y) {
-                    this.x = x;
-                    this.y = y + p.random(-10, 10);
-                    this.vx = p.random(2, 4); // Horizontal speed
-                    this.vy = p.random(-0.5, 0.5); // Vertical drift
+                constructor(startX, startY, targetX, targetY) {
+                    this.pos = p.createVector(startX, startY);
+                    this.target = p.createVector(targetX, targetY);
+                    let angle = p.atan2(targetY - startY, targetX - startX);
+                    this.vel = p5.Vector.fromAngle(angle);
+                    this.vel.mult(p.random(2, 4));
                     this.alpha = 1;
-                    this.color = p.color(p.random(30, 60), 90, 100, this.alpha);
+                    this.color = p.color(p.random(0, 40), 90, 100, this.alpha);
                 }
 
                 update() {
-                    this.x += this.vx;
-                    this.y += this.vy;
-                    this.alpha -= 0.02;
+                    this.pos.add(this.vel);
+                    this.alpha -= 0.03;
                     this.color.setAlpha(this.alpha);
                 }
 
                 draw() {
                     p.noStroke();
                     p.fill(this.color);
-                    p.ellipse(this.x, this.y, p.random(5, 10));
+                    p.ellipse(this.pos.x, this.pos.y, p.random(5, 10));
                 }
 
                 isFinished() {
@@ -398,8 +421,7 @@
             }
         };
 
-        const container = window.document.getElementById('canvas-container');
-        new p5(sketch, container);
+        new p5(sketch, document.getElementById('canvas-container'));
 
     </script>
 </body>

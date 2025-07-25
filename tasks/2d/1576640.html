@@ -157,9 +157,8 @@
             const MAX_SAFE_IMPACT_ANGLE = p.radians(15); 
             const MAX_SAFE_TILT_ANGLE = p.radians(20);
             const INITIAL_FUEL = 500;
-            const TERRAIN_HEIGHT_RATIO = 0.7;
+            const TERRAIN_HEIGHT_RATIO = 0.6;
             const NUM_CRATERS = 30;
-            const NUM_NOISE_POINTS = 5000;
 
             class Lander {
                 constructor(x, y) {
@@ -251,12 +250,14 @@
                 terrain = [];
                 craters = [];
                 surfaceNoise = [];
-                let xoff = p.random(1000);
+                let xoff = p.random();
+                
                 for (let x = 0; x <= p.width / terrainDetail; x++) {
                     let y = p.map(p.noise(xoff), 0, 1, p.height * TERRAIN_HEIGHT_RATIO, p.height * (TERRAIN_HEIGHT_RATIO + 0.05));
                     terrain.push(y);
                     xoff += 0.005;
                 }
+
                 for (let i = 0; i < NUM_CRATERS; i++) {
                     let craterX = p.random(p.width);
                     let terrainIndex = Math.floor(craterX / terrainDetail);
@@ -264,14 +265,6 @@
                         let craterY = p.random(terrain[terrainIndex], p.height);
                         let craterSize = p.random(20, 80);
                         craters.push({ x: craterX, y: craterY, size: craterSize });
-                    }
-                }
-                for (let i = 0; i < NUM_NOISE_POINTS; i++) {
-                    let noiseX = p.random(p.width);
-                    let terrainIndex = Math.floor(noiseX / terrainDetail);
-                    if (terrain[terrainIndex]) {
-                        let noiseY = p.random(terrain[terrainIndex], p.height);
-                        surfaceNoise.push({ x: noiseX, y: noiseY, c: p.random(140, 160) });
                     }
                 }
             }
@@ -286,14 +279,6 @@
                 }
                 p.vertex(p.width, p.height);
                 p.endShape(p.CLOSE);
-            }
-
-            function drawSurfaceNoise() {
-                p.noStroke();
-                for (const n of surfaceNoise) {
-                    p.fill(n.c, 100);
-                    p.ellipse(n.x, n.y, 2, 2);
-                }
             }
 
             function drawCraters() {
@@ -527,7 +512,6 @@
                 p.endShape(p.CLOSE);
                 p.drawingContext.clip();
                 drawCraters();
-                drawSurfaceNoise();
                 p.drawingContext.restore();
 
                 if (gameState === 'playing') {

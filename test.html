@@ -1,398 +1,285 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Earth's Axial Wobble Simulation</title>
-    <style>
-        body { margin: 0; font-family: Arial, sans-serif; }
-        #canvas-container { display: flex; justify-content: center; padding-top: 20px; }
-        #info {
-            position: absolute;
-            top: 10px;
-            width: 100%;
-            text-align: center;
-            color: white;
-            font-size: 18px;
-            text-shadow: 1px 1px 2px black;
-            pointer-events: none;
-        }
-        #controls {
-            position: absolute;
-            top: 40px;
-            left: 10px;
-            background-color: rgba(255, 255, 255, 0.8);
-            padding: 10px;
-            border-radius: 5px;
-            width: 220px;
-        }
-        .slider-container {
-            margin-bottom: 10px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        .value-display {
-            float: right;
-            font-weight: normal;
-        }
-        #legend {
-            position: absolute;
-            bottom: 10px;
-            right: 10px;
-            background-color: rgba(255, 255, 255, 0.8);
-            padding: 10px;
-            border-radius: 5px;
-            max-width: 250px;
-        }
-        h3 {
-            margin-top: 0;
-            margin-bottom: 5px;
-        }
-        .graph-label {
-            font-size: 12px;
-            color: #333;
-        }
-        .color-swatch {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            margin-right: 5px;
-            border: 1px solid #333;
-        }
-    </style>
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
-        {
-            "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-            }
-        }
-    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thermistor Simulation</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+      }
+    }
+  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+    }
+    .simulation-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .canvas-container {
+      display: flex;
+      gap: 20px;
+    }
+    .controls {
+      margin-top: 20px;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-    <div id="info">Earth's Axial Wobble Simulation</div>
-    <div id="controls">
-        <h3>Controls</h3>
-        <div class="slider-container">
-            <label for="speed">Simulation Speed <span id="speed-value" class="value-display">1.0x</span></label>
-            <input type="range" id="speed" min="0.1" max="5" step="0.1" value="1">
-        </div>
-        <div class="slider-container">
-            <label for="tilt">Base Axial Tilt <span id="tilt-value" class="value-display">23.4°</span></label>
-            <input type="range" id="tilt" min="0" max="30" step="0.1" value="23.4">
-        </div>
-        <div class="slider-container">
-            <label for="wobble">Wobble Magnitude <span id="wobble-value" class="value-display">5.0°</span></label>
-            <input type="range" id="wobble" min="0" max="10" step="0.1" value="5">
-        </div>
+  <div class="simulation-container">
+    <div id="canvas-container" class="canvas-container"></div>
+    <div class="controls">
+      <button id="restart-button">Restart</button>
     </div>
-    <div id="legend">
-        <h3>Legend</h3>
-        <p>
-            <span class="color-swatch" style="background-color: #0000FF;"></span>
-            Temperature (°C)<br>
-            <span class="color-swatch" style="background-color: #FF0000;"></span>
-            Daylight Hours (hrs)
-        </p>
-        <p>
-            Earth's color indicates average Northern Hemisphere temperature:<br>
-            <span style="color: #00A;">-20°C to 0°C (Blue to Cyan)</span><br>
-            <span style="color: #0A0;">0°C to 15°C (Cyan to Green)</span><br>
-            <span style="color: #A50;">15°C to 30°C (Green to Red)</span>
-        </p>
-    </div>
-    <div id="canvas-container"></div>
+  </div>
 
-    <script type="module">
-        import p5 from 'p5';
+  <script type="module">
+    import p5 from 'p5';
 
-        const sketch = (p) => {
-            // Simulation parameters
-            let speed = 1;
-            let baseTilt = 23.4; // Earth's axial tilt in degrees
-            let wobbleMagnitude = 5;
-            let orbitDays = 365; // Days in a year
-            let currentDay = 0;
+    // Thermistor simulation parameters
+    let temp = 20; // Initial temperature in °C
+    let resistance = 10000; // Initial resistance in Ω
+    let tempStep = 0.5; // Temperature increment per frame
+    let tempMax = 150; // Maximum temperature
+    let tempMin = 20; // Minimum temperature
+    let cooling = false; // Cooling state
 
-            // Orbital parameters
-            const ORBIT_CENTER_X = 0;
-            const ORBIT_CENTER_Y = 0;
-            const ORBIT_A = 250; // Semi-major axis
-            const ORBIT_B = 200; // Semi-minor axis
-            const SUN_RADIUS = 20;
-            
-            // Physics constants
-            const DEG_TO_RAD = p.PI / 180;
-            const EARTH_RADIUS = 15;
-            const AXIS_LENGTH = EARTH_RADIUS * 2;
-            
-            // Temperature and daylight calculation constants
-            const MIN_TEMP = -20;
-            const MAX_TEMP = 30;
-            const MIN_DAYLIGHT = 0;
-            const MAX_DAYLIGHT = 24;
-            
-            // Arrays to store data for graphing
-            let tempHistory = [];
-            let daylightHistory = [];
-            const MAX_HISTORY = 365;
+    // Graph settings
+    let graphPoints = [];
+    let graphBuffer;
 
-            // Element references
-            let speedSlider, tiltSlider, wobbleSlider;
-            let speedValue, tiltValue, wobbleValue;
+    // Sketch function
+    const sketch = (p) => {
+      let canvas;
+      let heatSource;
+      let thermistor;
 
-            p.setup = () => {
-                const canvas = p.createCanvas(800, 600);
-                canvas.parent('canvas-container');
+      p.setup = () => {
+        // Create canvas with double the width for simulation and graph
+        const canvasWidth = 1000;
+        const canvasHeight = 600;
+        canvas = p.createCanvas(canvasWidth, canvasHeight);
+        canvas.parent('canvas-container');
 
-                // Get slider elements
-                speedSlider = document.getElementById('speed');
-                tiltSlider = document.getElementById('tilt');
-                wobbleSlider = document.getElementById('wobble');
-                
-                // Get value display elements
-                speedValue = document.getElementById('speed-value');
-                tiltValue = document.getElementById('tilt-value');
-                wobbleValue = document.getElementById('wobble-value');
-
-                // Add event listeners to sliders
-                speedSlider.addEventListener('input', updateControls);
-                tiltSlider.addEventListener('input', updateControls);
-                wobbleSlider.addEventListener('input', updateControls);
-
-                // Initialize data history arrays
-                for (let i = 0; i < MAX_HISTORY; i++) {
-                    tempHistory.push(0);
-                    daylightHistory.push(0);
-                }
-            };
-
-            p.draw = () => {
-                p.background(0);
-                
-                // Update simulation time based on speed
-                currentDay = (currentDay + 0.1 * speed) % orbitDays;
-                
-                // Calculate Earth's position in elliptical orbit
-                const angle = p.map(currentDay, 0, orbitDays, 0, p.TWO_PI);
-                const x = ORBIT_CENTER_X + ORBIT_A * p.cos(angle);
-                const y = ORBIT_CENTER_Y + ORBIT_B * p.sin(angle);
-                
-                // Calculate current axial tilt with wobble
-                const wobblePeriod = 365 * 26 * 1000; // Approximate period of Earth's axial precession (years)
-                const wobbleOffset = p.map(currentDay, 0, orbitDays, 0, p.TWO_PI);
-                const currentTilt = baseTilt + wobbleMagnitude * p.sin(wobbleOffset * p.TWO_PI / wobblePeriod);
-                
-                // Calculate seasonal temperature based on Earth's position and tilt
-                const temperature = calculateTemperature(angle, currentTilt);
-                
-                // Calculate daylight hours based on Earth's position and tilt
-                const daylightHours = calculateDaylightHours(angle, currentTilt);
-                
-                // Add current values to history arrays
-                tempHistory.push(temperature);
-                daylightHistory.push(daylightHours);
-                
-                // Limit history size
-                if (tempHistory.length > MAX_HISTORY) {
-                    tempHistory.shift();
-                    daylightHistory.shift();
-                }
-                
-                // Update Earth color based on temperature
-                const earthColor = getTemperatureColor(temperature);
-                
-                // Draw the Sun
-                p.fill(255, 200, 0);
-                p.noStroke();
-                p.ellipse(ORBIT_CENTER_X, ORBIT_CENTER_Y, SUN_RADIUS * 2);
-                
-                // Draw Earth's orbit
-                p.noFill();
-                p.stroke(100);
-                p.strokeWeight(1);
-                p.ellipse(ORBIT_CENTER_X, ORBIT_CENTER_Y, ORBIT_A * 2, ORBIT_B * 2);
-                
-                // Draw Earth
-                p.fill(earthColor);
-                p.noStroke();
-                p.ellipse(x, y, EARTH_RADIUS * 2);
-                
-                // Draw Earth's axis
-                const axisAngle = currentTilt * DEG_TO_RAD;
-                const axisX1 = x - AXIS_LENGTH * p.sin(axisAngle);
-                const axisY1 = y + AXIS_LENGTH * p.cos(axisAngle);
-                const axisX2 = x + AXIS_LENGTH * p.sin(axisAngle);
-                const axisY2 = y - AXIS_LENGTH * p.cos(axisAngle);
-                
-                p.stroke(255);
-                p.strokeWeight(2);
-                p.line(axisX1, axisY1, axisX2, axisY2);
-                
-                // Draw graphs
-                const graphY = p.height - 150;
-                const graphHeight = 100;
-                
-                // Draw temperature graph
-                p.stroke(0, 0, 255);
-                p.noFill();
-                p.beginShape();
-                for (let i = 0; i < tempHistory.length; i++) {
-                    const xPos = p.map(i, 0, MAX_HISTORY, 50, p.width - 50);
-                    const yPos = p.map(tempHistory[i], MIN_TEMP, MAX_TEMP, graphY + graphHeight, graphY);
-                    p.vertex(xPos, yPos);
-                }
-                p.endShape();
-                
-                // Draw daylight hours graph
-                p.stroke(255, 0, 0);
-                p.beginShape();
-                for (let i = 0; i < daylightHistory.length; i++) {
-                    const xPos = p.map(i, 0, MAX_HISTORY, 50, p.width - 50);
-                    const yPos = p.map(daylightHistory[i], MIN_DAYLIGHT, MAX_DAYLIGHT, graphY + graphHeight, graphY);
-                    p.vertex(xPos, yPos);
-                }
-                p.endShape();
-                
-                // Add graph labels
-                p.fill(255);
-                p.noStroke();
-                p.textSize(12);
-                p.textAlign(p.CENTER);
-                p.text("Temperature (°C)", 50, graphY - 5);
-                p.text("Daylight Hours (hrs)", p.width - 50, graphY - 5);
-                
-                // Add graph tick marks
-                p.stroke(100);
-                p.strokeWeight(1);
-                for (let i = 0; i <= 4; i++) {
-                    const yTemp = p.map(i * (MAX_TEMP - MIN_TEMP) / 4 + MIN_TEMP, MIN_TEMP, MAX_TEMP, graphY + graphHeight, graphY);
-                    p.line(45, yTemp, 50, yTemp);
-                    p.fill(255);
-                    p.noStroke();
-                    p.textAlign(p.RIGHT);
-                    p.text(Math.round(i * (MAX_TEMP - MIN_TEMP) / 4 + MIN_TEMP), 40, yTemp + 3);
-                    
-                    const yDaylight = p.map(i * (MAX_DAYLIGHT - MIN_DAYLIGHT) / 4 + MIN_DAYLIGHT, MIN_DAYLIGHT, MAX_DAYLIGHT, graphY + graphHeight, graphY);
-                    p.line(p.width - 50, yDaylight, p.width - 45, yDaylight);
-                    p.fill(255);
-                    p.noStroke();
-                    p.textAlign(p.LEFT);
-                    p.text(Math.round(i * (MAX_DAYLIGHT - MIN_DAYLIGHT) / 4 + MIN_DAYLIGHT), p.width - 40, yDaylight + 3);
-                }
-                
-                // Add graph x-axis labels
-                p.textAlign(p.CENTER);
-                p.text("0 days", 50, graphY + graphHeight + 15);
-                p.text(Math.round(MAX_HISTORY / 2) + " days", p.width / 2, graphY + graphHeight + 15);
-                p.text(MAX_HISTORY + " days", p.width - 50, graphY + graphHeight + 15);
-                
-                // Draw x and y axes
-                p.stroke(100);
-                p.strokeWeight(1);
-                p.line(50, graphY, 50, graphY + graphHeight); // y-axis
-                p.line(50, graphY + graphHeight, p.width - 50, graphY + graphHeight); // x-axis
-                
-                // Add title to graphs
-                p.fill(255);
-                p.noStroke();
-                p.textSize(14);
-                p.textAlign(p.CENTER);
-                p.text("Temperature and Daylight Hours Over Time", p.width / 2, graphY - 25);
-                
-                // Display information
-                p.fill(255);
-                p.noStroke();
-                p.textSize(14);
-                p.textAlign(p.LEFT);
-                p.text(`Day of Year: ${Math.round(currentDay)}`, 10, 20);
-                p.text(`Current Tilt: ${currentTilt.toFixed(1)}°`, 10, 40);
-                p.text(`Temperature: ${temperature.toFixed(1)}°C`, 10, 60);
-                p.text(`Daylight Hours: ${daylightHours.toFixed(1)} hrs`, 10, 80);
-            };
-
-            function calculateTemperature(angle, tilt) {
-                // Calculate seasonal temperature based on Earth's position and axial tilt
-                // This is a simplified model that assumes temperature is directly related to 
-                // solar intensity, which depends on the tilt and the position in the orbit
-                
-                // Normalize the angle to 0-1 range
-                const normalizedAngle = (angle / p.TWO_PI + 0.25) % 1;
-                
-                // Calculate temperature based on the position in the orbit
-                // The temperature is highest at the summer solstice and lowest at the winter solstice
-                let temp = MIN_TEMP + (MAX_TEMP - MIN_TEMP) * p.sin(normalizedAngle * p.PI);
-                
-                // Adjust temperature based on axial tilt - greater tilt causes more extreme seasons
-                const tiltFactor = p.map(tilt, 15, 30, 0.5, 1.5);
-                temp = (temp - (MAX_TEMP + MIN_TEMP) / 2) * tiltFactor + (MAX_TEMP + MIN_TEMP) / 2;
-                
-                return temp;
-            }
-
-            function calculateDaylightHours(angle, tilt) {
-                // Calculate daylight hours based on Earth's position and axial tilt
-                // This is a simplified model that assumes daylight hours are directly related to
-                // the tilt and the position in the orbit
-                
-                // Normalize the angle to 0-1 range
-                const normalizedAngle = (angle / p.TWO_PI + 0.25) % 1;
-                
-                // Calculate daylight hours based on the position in the orbit
-                // The daylight hours are longest at the summer solstice and shortest at the winter solstice
-                let daylight = MIN_DAYLIGHT + (MAX_DAYLIGHT - MIN_DAYLIGHT) * p.sin(normalizedAngle * p.PI);
-                
-                // Adjust daylight hours based on axial tilt - greater tilt causes more extreme seasons
-                const tiltFactor = p.map(tilt, 15, 30, 0.5, 1.5);
-                daylight = (daylight - (MAX_DAYLIGHT + MIN_DAYLIGHT) / 2) * tiltFactor + (MAX_DAYLIGHT + MIN_DAYLIGHT) / 2;
-                
-                return daylight;
-            }
-
-            function getTemperatureColor(temp) {
-                // Map temperature to a color gradient
-                // Blue (cold) to Red (hot)
-                
-                let r, g, b;
-                
-                if (temp < 0) {
-                    // Blue to Cyan
-                    const ratio = p.map(temp, MIN_TEMP, 0, 0, 1);
-                    r = 0;
-                    g = p.map(ratio, 0, 1, 0, 255);
-                    b = 255;
-                } else if (temp < 15) {
-                    // Cyan to Green
-                    const ratio = p.map(temp, 0, 15, 0, 1);
-                    r = 0;
-                    g = 255;
-                    b = p.map(ratio, 0, 1, 255, 0);
-                } else {
-                    // Green to Red
-                    const ratio = p.map(temp, 15, MAX_TEMP, 0, 1);
-                    r = p.map(ratio, 0, 1, 0, 255);
-                    g = p.map(ratio, 0, 1, 255, 0);
-                    b = 0;
-                }
-                
-                return p.color(r, g, b);
-            }
-
-            function updateControls() {
-                speed = parseFloat(speedSlider.value);
-                baseTilt = parseFloat(tiltSlider.value);
-                wobbleMagnitude = parseFloat(wobbleSlider.value);
-                
-                speedValue.textContent = speed.toFixed(1) + 'x';
-                tiltValue.textContent = baseTilt.toFixed(1) + '°';
-                wobbleValue.textContent = wobbleMagnitude.toFixed(1) + '°';
-            }
+        // Create visual elements
+        heatSource = {
+          x: 150,
+          y: p.height / 2,
+          width: 60,
+          height: 80
         };
 
-        new p5(sketch);
-    </script>
+        thermistor = {
+          x: 350,
+          y: p.height / 2,
+          size: 30
+        };
+
+        // Initialize graph buffer
+        graphBuffer = p.createGraphics(canvasWidth / 2, canvasHeight);
+        resetGraph();
+
+        // Initialize graph points
+        graphPoints = [];
+        for (let t = tempMin; t <= tempMax; t += 5) {
+          const r = calculateResistance(t);
+          graphPoints.push(p.createVector(t, r));
+        }
+      };
+
+      p.draw = () => {
+        p.background(240);
+
+        // Draw divider line
+        p.stroke(200);
+        p.strokeWeight(2);
+        p.line(p.width / 2, 0, p.width / 2, p.height);
+
+        // Update temperature and resistance
+        if (!cooling) {
+          temp += tempStep;
+          if (temp >= tempMax) {
+            cooling = true;
+          }
+        } else {
+          temp -= tempStep;
+          if (temp <= tempMin) {
+            cooling = false;
+          }
+        }
+        resistance = calculateResistance(temp);
+
+        // Draw simulation section (left half)
+        drawSimulation();
+
+        // Draw graph section (right half)
+        drawGraph();
+      };
+
+      // Reset simulation function
+      p.resetSimulation = () => {
+        temp = tempMin;
+        cooling = false;
+        resetGraph();
+      };
+
+      // Helper function to calculate resistance
+      function calculateResistance(t) {
+        // Thermistor formula approximation: R = R0 * exp(B * (1/T - 1/T0))
+        // Simplified for demonstration purposes
+        const R0 = 10000; // Resistance at 25°C
+        const B = 3950; // Beta coefficient
+        const T0 = 298.15; // 25°C in Kelvin
+        const T = t + 273.15; // Convert to Kelvin
+
+        return R0 * Math.exp(B * (1 / T - 1 / T0));
+      }
+
+      // Draw simulation elements
+      function drawSimulation() {
+        // Draw heat source
+        p.fill(200, 0, 0);
+        p.stroke(100, 0, 0);
+        p.strokeWeight(2);
+        p.rect(heatSource.x, heatSource.y - heatSource.height/2, heatSource.width, heatSource.height, 5);
+
+        // Draw heat glow
+        p.noStroke();
+        p.fill(255, 100, 100, 150);
+        p.ellipse(heatSource.x + heatSource.width/2, heatSource.y, 80, 80);
+
+        // Draw heat rays
+        p.stroke(255, 100, 100, 100);
+        p.strokeWeight(2);
+        for (let i = 0; i < 5; i++) {
+          const angle = p.PI + (i - 2) * p.PI / 8;
+          const x2 = heatSource.x + heatSource.width/2 + Math.cos(angle) * 100;
+          const y2 = heatSource.y + Math.sin(angle) * 100;
+          p.line(heatSource.x + heatSource.width/2, heatSource.y, x2, y2);
+        }
+
+        // Draw thermistor
+        p.fill(50, 100, 200);
+        p.stroke(0, 50, 150);
+        p.strokeWeight(2);
+        p.rect(thermistor.x, thermistor.y - thermistor.size/2, thermistor.size, thermistor.size, 5);
+
+        // Draw temperature indicator
+        const indicatorHeight = p.map(temp, tempMin, tempMax, 0, thermistor.size * 3);
+        p.fill(255, 100, 100);
+        p.noStroke();
+        p.rect(thermistor.x - 15, thermistor.y + thermistor.size/2, 8, -indicatorHeight, 2);
+
+        // Draw labels
+        p.fill(0);
+        p.noStroke();
+        p.textSize(16);
+        p.text(`Temperature: ${temp.toFixed(1)} °C`, 20, 30);
+        p.text(`Resistance: ${resistance.toFixed(0)} Ω`, 20, 60);
+
+        // Draw section title
+        p.textSize(20);
+        p.textStyle(p.BOLD);
+        p.text("Thermistor Simulation", 20, p.height - 20);
+      }
+
+      // Reset graph buffer
+      function resetGraph() {
+        graphBuffer.background(255);
+        graphBuffer.stroke(0);
+        graphBuffer.strokeWeight(1);
+        graphBuffer.fill(0);
+        graphBuffer.textSize(12);
+      }
+
+      // Draw graph
+      function drawGraph() {
+        // Clear graph buffer
+        resetGraph();
+
+        // Draw graph axes
+        const margin = 40;
+        const plotWidth = graphBuffer.width - margin * 2;
+        const plotHeight = graphBuffer.height - margin * 2;
+
+        graphBuffer.line(margin, graphBuffer.height - margin, graphBuffer.width - margin, graphBuffer.height - margin); // X-axis
+        graphBuffer.line(margin, margin, margin, graphBuffer.height - margin); // Y-axis
+
+        // Draw axis labels
+        graphBuffer.textStyle(p.BOLD);
+        graphBuffer.textSize(14);
+        graphBuffer.text("Temperature (°C)", graphBuffer.width / 2 - 40, graphBuffer.height - margin + 25);
+        graphBuffer.push();
+        graphBuffer.translate(margin - 20, graphBuffer.height / 2);
+        graphBuffer.rotate(-p.HALF_PI);
+        graphBuffer.text("Resistance (Ω)", 0, 0);
+        graphBuffer.pop();
+
+        // Draw axis ticks and labels
+        for (let i = 0; i <= 5; i++) {
+          const x = margin + (i * plotWidth / 5);
+          const tempVal = p.map(i, 0, 5, tempMin, tempMax);
+          graphBuffer.line(x, graphBuffer.height - margin, x, graphBuffer.height - margin + 5);
+          graphBuffer.text(tempVal.toFixed(0), x - 10, graphBuffer.height - margin + 20);
+        }
+
+        // Calculate max resistance for Y-axis scaling
+        const maxR = calculateResistance(tempMin);
+        for (let i = 0; i <= 5; i++) {
+          const y = graphBuffer.height - margin - (i * plotHeight / 5);
+          const rVal = p.map(i, 0, 5, 0, maxR);
+          graphBuffer.line(margin - 5, y, margin, y);
+          graphBuffer.text(rVal.toFixed(0), margin - 30, y + 5);
+        }
+
+        // Plot graph points
+        graphBuffer.stroke(0, 100, 200);
+        graphBuffer.strokeWeight(2);
+
+        // Plot pre-calculated points
+        graphBuffer.beginShape();
+        for (const point of graphPoints) {
+          const x = p.map(point.x, tempMin, tempMax, margin, graphBuffer.width - margin);
+          const y = p.map(point.y, 0, maxR, graphBuffer.height - margin, margin);
+          graphBuffer.vertex(x, y);
+        }
+        graphBuffer.endShape();
+
+        // Plot real-time point
+        const x = p.map(temp, tempMin, tempMax, margin, graphBuffer.width - margin);
+        const y = p.map(resistance, 0, maxR, graphBuffer.height - margin, margin);
+        graphBuffer.fill(255, 0, 0);
+        graphBuffer.noStroke();
+        graphBuffer.ellipse(x, y, 8, 8);
+
+        // Display graph buffer on main canvas
+        p.image(graphBuffer, p.width / 2, 0);
+      }
+    };
+
+    // Create new p5 instance
+    new p5(sketch, document.body);
+
+    // Add event listener to restart button
+    document.getElementById('restart-button').addEventListener('click', () => {
+      p5.prototype.resetSimulation();
+    });
+  </script>
 </body>
 </html>
