@@ -169,16 +169,18 @@
              * Updates the state of the simulation variables frame by frame.
              */
             function updateState() {
+                // Check if temperature is below the failure threshold and the threshold hasn't been reached yet
                 if (thermistor.tempC < HEATER_TEMP - 1 && !thresholdReached) {
                     let tempDifference = HEATER_TEMP - thermistor.tempC;
                     thermistor.tempC += tempDifference * HEATING_RATE;
                     thermistor.resistance = calculateResistance(thermistor.tempC);
                     graphPoints.push({ temp: thermistor.tempC, res: thermistor.resistance });
                 } else if (!thresholdReached) {
+                    // Set the failure state once the temperature threshold is crossed
                     thresholdReached = true;
-                    thermistor.resistance = 0; 
                 }
 
+                // Update and manage heat particles
                 for (let i = heatParticles.length - 1; i >= 0; i--) {
                     let particle = heatParticles[i];
                     particle.update();
@@ -187,19 +189,22 @@
                     }
                 }
 
+                // Create new heat particles if the thermistor has not failed
                 if (!thresholdReached) {
                     if (p.frameCount % 2 === 0) {
-                        // Target the thermistor bead
+                        // Target the thermistor bead with some random variation
                         heatParticles.push(new HeatParticle(heatGun.nozzleX, heatGun.nozzleY + (10 * p.random(-1,1)), thermistor.x , thermistor.y + (40 * p.random(-1,1))));
                     }
                 }
             }
 
             /**
-             * Calculates thermistor resistance based on its temperature.
+             * Calculates thermistor resistance based on its temperature using the Steinhart-Hart equation model.
+             * @param {number} tempC - The temperature in Celsius.
+             * @returns {number} The calculated resistance in Ohms.
              */
             function calculateResistance(tempC) {
-                const tempK = tempC + 273.15;
+                const tempK = tempC + 273.15; // Convert Celsius to Kelvin
                 return R0 * Math.exp(B_COEFFICIENT * (1 / tempK - 1 / T0));
             }
 
@@ -209,7 +214,7 @@
             function drawSimulationArea() {
                 p.push();
                 p.stroke(0, 0, 80);
-                p.line(SIM_AREA_WIDTH, 0, SIM_AREA_WIDTH, p.height);
+                p.line(SIM_AREA_WIDTH, 0, SIM_AREA_WIDTH, p.height); // Divider line
                 drawHeatGun();
                 drawHeatEffect();
                 drawThermistor();
@@ -226,21 +231,25 @@
                 p.push();
                 p.translate(gunX, gunY);
 
+                // Nozzle
                 const nozzleWidth = 80;
                 const nozzleHeight = 35;
                 p.fill(0, 0, 50); 
                 p.noStroke();
                 p.rectMode(p.CORNER);
                 p.rect(0, -nozzleHeight / 2, nozzleWidth, nozzleHeight);
-                heatGun.nozzleX = gunX + nozzleWidth;
+                heatGun.nozzleX = gunX + nozzleWidth; // Update nozzle position for particles
                 heatGun.nozzleY = gunY;
 
+                // Body
                 p.fill(10, 80, 90); 
                 p.rect(-60, -25, 60, 50);
 
+                // Handle
                 p.fill(0, 0, 20);
                 p.quad(-40, 25, -20, 25, -40, 90, -60, 90);
 
+                // Vents
                 p.stroke(0, 0, 10);
                 p.strokeWeight(2);
                 for (let i = 0; i < 3; i++) {
@@ -248,6 +257,7 @@
                 }
                 p.pop();
 
+                // Label
                 p.noStroke();
                 p.fill(0, 0, 20);
                 p.textAlign(p.CENTER, p.TOP);
@@ -288,7 +298,7 @@
                     // --- Draw Normal State ---
                     // Bending increases with temperature
                     bendFactor = p.map(thermistor.tempC, AMBIENT_TEMP, HEATER_TEMP, 0, 8, true);
-                    // Color changes with temperature
+                    // Color changes with temperature (blue to red)
                     let thermistorColor = p.map(thermistor.tempC, AMBIENT_TEMP, HEATER_TEMP, 200, 0, true);
                     p.fill(thermistorColor, 80, 95);
                     p.stroke(0, 0, 60);
@@ -298,7 +308,7 @@
                 // Draw the bead
                 p.ellipse(x, y, beadDiameter, beadDiameter);
 
-                // Draw the leads with bending
+                // Draw the leads with bending effect
                 p.stroke(0, 0, 60);
                 p.strokeWeight(2);
                 p.noFill();
@@ -323,8 +333,8 @@
 
                 if (thresholdReached) {
                     p.fill(360, 90, 70); // Red color for warning text
-                    p.text(`STATUS: OVERHEATED`, x, y + leadLength + 30);
-                    p.text(`Res: ${thermistor.resistance.toFixed(0)} Ohm`, x, y + leadLength + 45);
+                    p.text(`STATUS: Failure occurred`, x, y + leadLength + 30);
+                    // Resistance value is not displayed because the failure mode is unknown.
                 } else {
                     p.fill(0, 0, 20); // Black for normal text
                     p.text(`Temp: ${thermistor.tempC.toFixed(1)} °C`, x, y + leadLength + 30);
