@@ -2,223 +2,316 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>4-to-1 MUX Heat Simulation</title>
-  <style>
-    body {
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    #main-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin-top: 20px;
-    }
-
-    #info-card,
-    #controls {
-      margin-top: 20px;
-      font-family: Arial, sans-serif;
-    }
-
-    #controls {
-      font-size: 1.2em;
-      font-weight: bold;
-    }
-  </style>
-  <script type="importmap">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravitational Orbit Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: space-between;
+            font-family: Arial, sans-serif;
+            background-color: #000;
+            color: white;
+        }
+        #simulation-container {
+            width: 70%;
+            height: 100vh;
+        }
+        #control-panel {
+            width: 30%;
+            height: 100vh;
+            background-color: #333;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        h2 {
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="simulation-container"></div>
+    <div id="control-panel">
+        <h2>Gravitational Orbit Simulation</h2>
+        <p>This simulation shows Earth's stable orbit around the Sun (yellow ellipse). An asteroid (blue irregular polygon) flies by, exerting gravitational force on Earth and temporarily perturbing its orbit (red ellipse section).</p>
+        <button id="restart-btn">Restart Simulation</button>
+    </div>
+    <script type="importmap">
         {
             "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+                "p5": "https://esm.sh/p5@1.9.0"
             }
         }
     </script>
-</head>
+    <script type="module">
+        import p5 from 'p5';
 
-<body>
-  <div id="main-container">
-    <div id="info-card">
-      This simulation demonstrates heat distribution on a 4-to-1 multiplexer circuit board. The active input channel
-      cycles every 2 seconds.
-    </div>
-    <div id="simulation-container"></div>
-    <div id="controls">Active Channel: <span id="channel-number">1</span></div>
-  </div>
-  <script type="module">
-    import p5 from 'p5';
+        // Main variables
+        let sun, earth, asteroid;
+        let earthOriginalOrbit = [];
+        let earthPath = [];
+        let G = 0.05; // Gravitational constant
+        let sunMass = 10000;
+        let earthMass = 1;
+        let asteroidMass = 0.1;
+        let simulationRunning = true;
+        let asteroidCrossedPerihelion = false;
+        let asteroidPerihelionDist = Infinity;
+        let asteroidClosestApproach = Infinity;
+        let p; // p5 instance
 
-    const sketch = (p) => {
-      let gridSize = 100;
-      let grid;
-      let activeChannel = 0;
-      let lastSwitchTime = 0;
-      let coolingRate = 0.01;
-      let diffusionRate = 0.1;
+        const sketch = (p) => {
+            // Setup the canvas and initial conditions
+            p.setup = () => {
+                p.createCanvas(p.windowWidth * 0.7, p.windowHeight);
+                initializeSimulation();
+            };
 
-      // Circuit coordinates
-      let chipCenter = { x: gridSize * 0.5, y: gridSize * 0.6 };
-      let inputPads = [
-        { x: gridSize * 0.2, y: gridSize * 0.2 }, // Input 0
-        { x: gridSize * 0.4, y: gridSize * 0.2 }, // Input 1
-        { x: gridSize * 0.6, y: gridSize * 0.2 }, // Input 2
-        { x: gridSize * 0.8, y: gridSize * 0.2 }  // Input 3
-      ];
-      let outputPad = { x: gridSize * 0.5, y: gridSize * 0.9 };
+            // Main draw loop
+            p.draw = () => {
+                p.background(0);
+                
+                if (simulationRunning) {
+                    updateBodies();
+                    checkSimulationEnd();
+                }
+                
+                drawBodies();
+                drawPaths();
+            };
 
-      // Trace coordinates
-      let muxCenter = { x: gridSize * 0.5, y: gridSize * 0.6 };
-      let muxInputs = [
-        { x: gridSize * 0.35, y: gridSize * 0.55 }, // Input 0
-        { x: gridSize * 0.45, y: gridSize * 0.55 }, // Input 1
-        { x: gridSize * 0.55, y: gridSize * 0.55 }, // Input 2
-        { x: gridSize * 0.65, y: gridSize * 0.55 }  // Input 3
-      ];
-      let muxOutput = { x: gridSize * 0.5, y: gridSize * 0.75 };
-      let outputJunction = { x: gridSize * 0.5, y: gridSize * 0.8 };
+            // Handle window resizing
+            p.windowResized = () => {
+                p.resizeCanvas(p.windowWidth * 0.7, p.windowHeight);
+            };
 
-      p.setup = () => {
-        let canvas = p.createCanvas(gridSize, gridSize);
-        canvas.parent('simulation-container');
-        p.frameRate(30);
-        initGrid();
-      };
-
-      p.draw = () => {
-        updateGrid();
-        render();
-      };
-
-      function initGrid() {
-        grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
-      }
-
-      function updateGrid() {
-        if (p.millis() - lastSwitchTime > 2000) {
-          activeChannel = (activeChannel + 1) % 4;
-          lastSwitchTime = p.millis();
-          document.getElementById('channel-number').textContent = activeChannel + 1;
-        }
-
-        // Diffusion and cooling
-        for (let x = 1; x < gridSize - 1; x++) {
-          for (let y = 1; y < gridSize - 1; y++) {
-            let temp = grid[x][y];
-            let neighbors = [
-              grid[x - 1][y], grid[x + 1][y],
-              grid[x][y - 1], grid[x][y + 1]
-            ].reduce((a, b) => a + b, 0) / 4;
-            grid[x][y] = temp * (1 - diffusionRate) + neighbors * diffusionRate;
-            grid[x][y] *= (1 - coolingRate);
-          }
-        }
-
-        // Inject heat into active channel
-        let activeTrace = getTracePath(activeChannel);
-        for (let point of activeTrace) {
-          grid[point.x][point.y] = 255;
-        }
-      }
-
-      function render() {
-        p.background(220);
-
-        // Render static circuit components
-        drawTraces();
-        drawPads();
-        drawChip();
-
-        // Render heat map
-        p.noStroke();
-        for (let x = 0; x < gridSize; x++) {
-          for (let y = 0; y < gridSize; y++) {
-            let temp = grid[x][y];
-            if (temp > 0) {
-              let c = p.color(255, 0, 0, temp * 0.8); // Limit max alpha for better visibility
-              p.fill(c);
-              p.rect(x, y, 1, 1);
+            // Initialize the simulation bodies
+            function initializeSimulation() {
+                // Create sun at center
+                sun = {
+                    x: p.width / 2,
+                    y: p.height / 2,
+                    mass: sunMass,
+                    radius: 20
+                };
+                
+                // Create Earth with elliptical orbit
+                const earthSemiMajorAxis = Math.min(p.width, p.height) * 0.35;
+                const earthEccentricity = 0.3;
+                
+                earth = {
+                    x: sun.x + earthSemiMajorAxis * (1 - earthEccentricity),
+                    y: sun.y,
+                    vx: 0,
+                    vy: Math.sqrt(G * sunMass * (1 + earthEccentricity) / (earthSemiMajorAxis * (1 - earthEccentricity))),
+                    mass: earthMass,
+                    radius: 8,
+                    originalOrbit: []
+                };
+                
+                // Create asteroid with hyperbolic trajectory
+                const asteroidSpeed = Math.sqrt(G * sunMass / (p.height * 0.4)) * 1.3;
+                const asteroidApproachAngle = p.PI * 0.1;
+                
+                asteroid = {
+                    x: sun.x - p.cos(asteroidApproachAngle) * p.height * 1.5,
+                    y: sun.y - p.sin(asteroidApproachAngle) * p.height * 1.5,
+                    vx: asteroidSpeed * p.cos(asteroidApproachAngle + p.PI/2),
+                    vy: asteroidSpeed * p.sin(asteroidApproachAngle + p.PI/2),
+                    mass: asteroidMass,
+                    radius: 5,
+                    rotation: 0,
+                    rotationSpeed: 0.05
+                };
+                
+                // Generate original orbit path for Earth
+                generateOriginalOrbit();
+                
+                // Clear path history
+                earthPath = [];
+                
+                // Reset tracking variables
+                asteroidCrossedPerihelion = false;
+                asteroidPerihelionDist = Infinity;
+                asteroidClosestApproach = Infinity;
+                simulationRunning = true;
             }
-          }
-        }
-      }
 
-      function drawTraces() {
-        p.stroke(139, 69, 19); // Brown color for traces
-        p.strokeWeight(2);
-        for (let i = 0; i < 4; i++) {
-          let start = inputPads[i];
-          let end = muxInputs[i];
-          p.line(start.x, start.y, end.x, end.y);
-        }
-        for (let i = 0; i < 4; i++) {
-          let start = muxInputs[i];
-          let end = muxCenter;
-          p.line(start.x, start.y, end.x, end.y);
-        }
-        p.line(muxCenter.x, muxCenter.y, muxOutput.x, muxOutput.y);
-        p.line(muxOutput.x, muxOutput.y, outputJunction.x, outputJunction.y);
-        p.line(outputJunction.x, outputJunction.y, outputPad.x, outputPad.y);
-      }
+            // Generate Earth's original orbit path
+            function generateOriginalOrbit() {
+                const steps = 100;
+                const semiMajorAxis = Math.sqrt((earth.x - sun.x) ** 2 + (earth.y - sun.y) ** 2);
+                const eccentricity = 0.3;
+                
+                for (let i = 0; i < steps; i++) {
+                    const theta = (p.TWO_PI / steps) * i;
+                    const r = semiMajorAxis * (1 - eccentricity ** 2) / (1 + eccentricity * p.cos(theta));
+                    earthOriginalOrbit.push({
+                        x: sun.x + r * p.cos(theta),
+                        y: sun.y + r * p.sin(theta)
+                    });
+                }
+            }
 
-      function drawPads() {
-        p.fill(180); // Light gray for pads
-        p.noStroke();
-        let padSize = 5;
-        for (let pad of inputPads.concat([outputPad])) {
-          p.rect(pad.x - padSize / 2, pad.y - padSize / 2, padSize, padSize);
-        }
-      }
+            // Update physics for all bodies
+            function updateBodies() {
+                // Sun doesn't move
+                sun.x = p.width / 2;
+                sun.y = p.height / 2;
+                
+                // Update Earth
+                updateBody(earth, [sun, asteroid]);
+                
+                // Update asteroid
+                updateBody(asteroid, [sun, earth]);
+                
+                // Update asteroid rotation
+                asteroid.rotation += asteroid.rotationSpeed;
+            }
 
-      function drawChip() {
-        p.fill(100); // Dark gray for chip
-        p.noStroke();
-        let chipSize = 15;
-        p.rect(chipCenter.x - chipSize / 2, chipCenter.y - chipSize / 2, chipSize, chipSize);
-      }
+            // Update position and velocity of a body based on gravitational forces
+            function updateBody(body, others) {
+                let fx = 0;
+                let fy = 0;
+                
+                // Calculate gravitational forces from all other bodies
+                for (const other of others) {
+                    const dx = other.x - body.x;
+                    const dy = other.y - body.y;
+                    const dist = p.max(p.sqrt(dx * dx + dy * dy), 5); // Prevent division by zero
+                    
+                    // Calculate force magnitude
+                    const force = G * body.mass * other.mass / (dist * dist);
+                    
+                    // Calculate force components
+                    fx += force * dx / dist;
+                    fy += force * dy / dist;
+                }
+                
+                // Update velocity
+                body.vx += fx / body.mass;
+                body.vy += fy / body.mass;
+                
+                // Update position
+                body.x += body.vx;
+                body.y += body.vy;
+            }
 
-      function getTracePath(channel) {
-        let path = [];
-        let start = inputPads[channel];
-        let end = muxInputs[channel];
+            // Check if simulation should end (asteroid has flown by)
+            function checkSimulationEnd() {
+                // Calculate distance to sun
+                const distToSun = p.dist(asteroid.x, asteroid.y, sun.x, sun.y);
+                
+                // Check if asteroid is past closest approach
+                if (!asteroidCrossedPerihelion && distToSun < asteroidPerihelionDist) {
+                    asteroidPerihelionDist = distToSun;
+                } else if (asteroidCrossedPerihelion && distToSun > asteroidPerihelionDist * 1.1) {
+                    simulationRunning = false;
+                }
+                
+                // Check distance to Earth
+                const distToEarth = p.dist(asteroid.x, asteroid.y, earth.x, earth.y);
+                if (distToEarth < asteroidClosestApproach) {
+                    asteroidClosestApproach = distToEarth;
+                }
+                
+                // Track when asteroid crosses perihelion
+                if (distToSun > asteroidPerihelionDist * 1.1) {
+                    asteroidCrossedPerihelion = true;
+                }
+            }
 
-        // Input trace
-        for (let x = p.floor(p.min(start.x, end.x)); x <= p.floor(p.max(start.x, end.x)); x++) {
-          path.push({ x, y: p.floor(start.y) });
-        }
-        // Vertical segment
-        for (let y = p.floor(p.min(start.y, end.y)); y <= p.floor(p.max(start.y, end.y)); y++) {
-          path.push({ x: p.floor(end.x), y });
-        }
+            // Draw all celestial bodies
+            function drawBodies() {
+                // Draw sun
+                p.fill(255, 204, 0);
+                p.noStroke();
+                p.ellipse(sun.x, sun.y, sun.radius * 2);
+                
+                // Draw Earth
+                p.fill(0, 100, 255);
+                p.ellipse(earth.x, earth.y, earth.radius * 2);
+                
+                // Draw asteroid with rotation
+                p.push();
+                p.translate(asteroid.x, asteroid.y);
+                p.rotate(asteroid.rotation);
+                p.fill(150);
+                p.stroke(200);
+                p.strokeWeight(1);
+                drawAsteroid(asteroid.radius * 2);
+                p.pop();
+            }
 
-        // Internal MUX path
-        for (let i = 0; i < 4; i++) {
-          let input = muxInputs[i];
-          for (let y = p.floor(p.min(input.y, muxCenter.y)); y <= p.floor(p.max(input.y, muxCenter.y)); y++) {
-            path.push({ x: p.floor(input.x), y });
-          }
-        }
-        for (let x = p.floor(p.min(muxCenter.x, muxOutput.x)); x <= p.floor(p.max(muxCenter.x, muxOutput.x)); x++) {
-          path.push({ x, y: p.floor(muxCenter.y) });
-        }
-        for (let y = p.floor(p.min(muxOutput.y, outputJunction.y)); y <= p.floor(p.max(muxOutput.y, outputJunction.y)); y++) {
-          path.push({ x: p.floor(muxOutput.x), y });
-        }
-        for (let y = p.floor(p.min(outputJunction.y, outputPad.y)); y <= p.floor(p.max(outputJunction.y, outputPad.y)); y++) {
-          path.push({ x: p.floor(outputJunction.x), y });
-        }
-        for (let x = p.floor(p.min(outputJunction.x, outputPad.x)); x <= p.floor(p.max(outputJunction.x, outputPad.x)); x++) {
-          path.push({ x, y: p.floor(outputPad.y) });
-        }
-        return path;
-      }
-    };
+            // Draw irregular asteroid shape
+            function drawAsteroid(size) {
+                const points = 8;
+                const irregularity = 0.3;
+                
+                p.beginShape();
+                for (let i = 0; i < points; i++) {
+                    const angle = p.TWO_PI / points * i;
+                    const radius = size/2 * (1 + (p.random() - 0.5) * irregularity);
+                    p.vertex(p.cos(angle) * radius, p.sin(angle) * radius);
+                }
+                p.endShape(p.CLOSE);
+            }
 
-    new p5(sketch, document.body);
-  </script>
+            // Draw orbital paths
+            function drawPaths() {
+                // Draw original orbit
+                p.stroke(100, 100, 0);
+                p.strokeWeight(1);
+                p.noFill();
+                p.beginShape();
+                for (const point of earthOriginalOrbit) {
+                    p.vertex(point.x, point.y);
+                }
+                p.endShape();
+                
+                // Draw actual path
+                if (earthPath.length > 1) {
+                    p.stroke(255, 0, 0);
+                    p.strokeWeight(2);
+                    p.noFill();
+                    p.beginShape();
+                    for (const point of earthPath) {
+                        p.vertex(point.x, point.y);
+                    }
+                    p.endShape();
+                }
+                
+                // Record current position for path
+                earthPath.push({x: earth.x, y: earth.y});
+            }
+        };
+
+        // Create p5 instance in the simulation container
+        const container = document.getElementById('simulation-container');
+        new p5(sketch, container);
+
+        // Add event listener to restart button
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            // All initialization is handled by the p5 sketch's initializeSimulation function
+            // We just need to trigger a reset
+            simulationRunning = true;
+        });
+    </script>
 </body>
 
 </html>

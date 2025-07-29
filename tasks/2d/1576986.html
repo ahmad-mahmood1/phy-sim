@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #000010;
+            color: #fff;
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden;
+        }
+
+        #main-container {
+            display: flex;
+            flex-wrap: wrap;
+            /* Allow wrapping on smaller screens */
+            justify-content: center;
+            /* Center items when wrapped */
+            align-items: center;
+            gap: 25px;
+            padding: 20px;
+            max-width: 100%;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.3);
+            flex-shrink: 0;
+        }
+
+        #title {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 1.2em;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        #info-card {
+            width: 320px;
+            padding: 25px;
+            background-color: rgba(10, 20, 40, 0.8);
+            border: 1px solid #333;
+            border-radius: 12px;
+            color: #ccc;
+            font-size: 0.95em;
+            height: fit-content;
+            max-width: 90vw;
+            /* Ensure it doesn't overflow on small screens */
+            display: flex;
+            flex-direction: column;
+        }
+
+        #info-card h3 {
+            color: #00aaff;
+            margin-top: 0;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        #info-card p {
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+
+        #restart-button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 15px;
+            background-color: #00aaff;
+            border: none;
+            border-radius: 8px;
+            color: #0e1a33;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 1em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        #restart-button:hover {
+            background-color: #0088cc;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 800px) {
+            #main-container {
+                flex-direction: column;
+                height: auto;
+            }
+
+            #info-card {
+                width: 80%;
+            }
+        }
+    </style>
+    <script type="importmap">
+{
+  "imports": {
+    "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+  }
+}
+</script>
+
+</head>
+
+<body>
+    <div id="main-container">
+        <div id="canvas-container">
+            <div id="title">Asteroid Fly-by Simulation</div>
+        </div>
+        <div id="info-card">
+            <h3>Gravitational Perturbation</h3>
+            <p>This simulation shows how a massive object, like an asteroid, can temporarily alter Earth's orbit. Earth
+                follows a stable elliptical path around the Sun (blue line).</p>
+            <p>When the asteroid passes nearby, its gravity perturbs Earth's trajectory. This deviation from the normal
+                path is highlighted in red.</p>
+            <p>This illustrates the complex gravitational dynamics that govern celestial bodies. The red trail signifies
+                the moments where the asteroid's influence is strongest.</p>
+            <button id="restart-button">Restart Simulation</button>
+        </div>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            let sun;
+            let asteroid = null; // Asteroid is initialized to null
+            let asteroidLaunched = false; // Flag to track if the asteroid has been launched
+            const G = 1.5; // Gravitational constant for the asteroid
+
+            // Earth properties (kinematic)
+            let earthAngle = 0;
+            let earthPos;
+            // The earthPath stores objects with position and a flag for perturbation
+            let earthPath = [];
+            let xRadius, yRadius;
+
+            // The Body class is for physically simulated objects like the sun and asteroid.
+            class Body {
+                constructor(mass, pos, vel, color, type = 'default', pathLength = 800) {
+                    this.mass = mass;
+                    this.pos = pos;
+                    this.vel = vel;
+                    this.acc = p.createVector(0, 0);
+                    this.color = color;
+                    this.path = [];
+                    this.radius = p.sqrt(p.abs(this.mass)) * 2;
+                    this.pathLength = pathLength;
+                    this.type = type; // Differentiate bodies (e.g., 'sun', 'asteroid')
+                }
+
+                // Applies a force to the body
+                applyForce(force) {
+                    let f = p5.Vector.div(force, this.mass);
+                    this.acc.add(f);
+                }
+
+                // Calculates gravitational attraction force towards another body
+                attract(other) {
+                    let force = p5.Vector.sub(this.pos, other.pos);
+                    let distanceSq = force.magSq();
+                    if (distanceSq === 0) {
+                        return;
+                    }
+                    let strength = (G * (this.mass * other.mass)) / distanceSq;
+                    force.setMag(strength);
+                    other.applyForce(force);
+                }
+
+                // Updates the body's state
+                update() {
+                    this.vel.add(this.acc);
+                    this.pos.add(this.vel);
+                    this.acc.set(0, 0);
+
+                    this.path.push(this.pos.copy());
+                    if (this.path.length > this.pathLength) {
+                        this.path.splice(0, 1);
+                    }
+                }
+
+                // Renders the body based on its type
+                show() {
+                    if (this.type === 'asteroid') {
+                        this.drawAsteroid();
+                    } else {
+                        // Default rendering for other bodies like the Sun
+                        p.noStroke();
+                        p.fill(this.color);
+                        p.ellipse(this.pos.x, this.pos.y, this.radius * 2);
+                    }
+                }
+
+                // Custom drawing function for the asteroid
+                drawAsteroid() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    // Scale the asteroid's size for better visibility
+                    const r = this.radius * 8;
+
+                    // Rotate the asteroid for a tumbling effect
+                    p.rotate(this.pos.x / 50);
+
+                    // Main irregular polygon shape
+                    p.stroke(80); // Darker outline
+                    p.strokeWeight(1);
+                    p.fill(120); // Main grey color
+                    p.beginShape();
+                    p.vertex(-0.9 * r, -0.4 * r);
+                    p.vertex(-0.2 * r, -0.8 * r);
+                    p.vertex(0.7 * r, -0.6 * r);
+                    p.vertex(1.0 * r, 0.1 * r);
+                    p.vertex(0.5 * r, 0.8 * r);
+                    p.vertex(-0.1 * r, 0.9 * r);
+                    p.vertex(-0.8 * r, 0.5 * r);
+                    p.endShape(p.CLOSE);
+
+                    // Facet for 3D effect
+                    p.fill(150); // Lighter grey
+                    p.noStroke();
+                    p.beginShape();
+                    p.vertex(-0.2 * r, -0.8 * r);
+                    p.vertex(0.7 * r, -0.6 * r);
+                    p.vertex(0.4 * r, -0.2 * r);
+                    p.endShape(p.CLOSE);
+
+                    // Craters
+                    p.fill(90, 180); // Darker grey, semi-transparent
+                    p.ellipse(0.6 * r, 0.5 * r, r * 0.3, r * 0.25);
+                    p.ellipse(-0.5 * r, 0.6 * r, r * 0.25, r * 0.2);
+                    p.ellipse(0.1 * r, -0.5 * r, r * 0.4, r * 0.3);
+                    p.ellipse(-0.6 * r, -0.1 * r, r * 0.35, r * 0.3);
+
+                    p.pop();
+                }
+
+                // Renders the body's path
+                showPath() {
+                    p.noFill();
+                    p.stroke(p.red(this.color), p.green(this.color), p.blue(this.color), 50);
+                    p.strokeWeight(1);
+                    p.beginShape();
+                    for (let v of this.path) {
+                        p.vertex(v.x, v.y);
+                    }
+                    p.endShape();
+                }
+            }
+
+            // Function to reset the simulation state
+            function restartSimulation() {
+                earthAngle = 0;
+                earthPath = [];
+                asteroid = null;
+                asteroidLaunched = false;
+            }
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                // Calculate available width considering the info card
+                const infoCardWidth = 320 + 25 + 20; // width + gap + padding
+                const availableWidth = p.windowWidth - infoCardWidth;
+                const availableHeight = p.windowHeight * 0.9;
+
+                let size;
+                // Adjust layout for smaller screens
+                if (p.windowWidth < 800) {
+                    size = p.windowWidth * 0.9;
+                } else {
+                    size = Math.min(availableWidth, availableHeight);
+                }
+
+                p.createCanvas(size, size).parent(container);
+
+                // Create the Sun, specifying its type
+                sun = new Body(200, p.createVector(0, 0), p.createVector(0, 0), p.color(255, 204, 0), 'sun');
+
+                // Setup Earth's kinematic (non-physics) path properties
+                earthPos = p.createVector();
+                xRadius = p.width / 3;
+                yRadius = p.height / 4;
+
+                // Set up the restart button event listener
+                const restartBtn = document.getElementById('restart-button');
+                if (restartBtn) {
+                    restartBtn.onclick = restartSimulation;
+                }
+            };
+
+            p.draw = () => {
+                p.background(0, 0, 16);
+                p.translate(p.width / 2, p.height / 2);
+
+                // A flag to track if Earth is being perturbed in the current frame
+                let isCurrentlyPerturbed = false;
+
+                // --- Earth's Base Kinematic Movement ---
+                const earthBaseX = xRadius * p.cos(earthAngle);
+                const earthBaseY = yRadius * p.sin(earthAngle);
+                earthPos.set(earthBaseX, earthBaseY);
+                earthAngle += 0.015;
+
+                // --- Asteroid Launch Logic ---
+                if (earthAngle > p.TWO_PI * 0.75 && !asteroidLaunched) {
+                    let asteroidPos = p.createVector(p.width / 3, -p.height / 2);
+                    let asteroidVel = p.createVector(0, 2.5);
+                    // Create the asteroid, specifying its type and a grey color
+                    asteroid = new Body(0.5, asteroidPos, asteroidVel, p.color(120), 'asteroid');
+                    asteroidLaunched = true;
+                }
+
+                // --- Physics and Drawing for Asteroid (if it exists) ---
+                if (asteroid) {
+                    sun.attract(asteroid);
+                    asteroid.update();
+
+                    // --- Gravitational Perturbation Logic ---
+                    let force = p5.Vector.sub(asteroid.pos, earthPos);
+                    let distanceSq = force.magSq();
+                    if (distanceSq < (p.width / 4) * (p.width / 4)) {
+                        let strength = (G * (65000 * asteroid.mass)) / distanceSq;
+                        force.setMag(strength);
+                        earthPos.add(force);
+                        isCurrentlyPerturbed = true;
+                    }
+                }
+
+                // --- Drawing ---
+                sun.show();
+
+                // Store Earth's path with perturbation info
+                earthPath.push({ pos: earthPos.copy(), isPerturbed: isCurrentlyPerturbed });
+                if (earthPath.length > 500) {
+                    earthPath.splice(0, 1);
+                }
+
+                // Draw Earth's path
+                p.noFill();
+                p.strokeWeight(2);
+                for (let i = 1; i < earthPath.length; i++) {
+                    let prevPoint = earthPath[i - 1];
+                    let currentPoint = earthPath[i];
+                    if (prevPoint.isPerturbed) {
+                        p.stroke(255, 0, 0, 200); // Red for deviated path
+                    } else {
+                        p.stroke(0, 150, 255, 50); // Normal blue for path
+                    }
+                    p.line(prevPoint.pos.x, prevPoint.pos.y, currentPoint.pos.x, currentPoint.pos.y);
+                }
+
+                // Draw Earth
+                p.push();
+                p.translate(earthPos.x, earthPos.y);
+                p.rotate(earthAngle * 3);
+                p.noStroke();
+                p.fill(20, 120, 220);
+                p.ellipse(0, 0, 28, 28);
+                p.fill(40, 180, 99);
+                p.ellipse(-4, -3, 8, 6);
+                p.ellipse(4, 4, 8, 7);
+                p.ellipse(0, -7, 6, 5);
+                p.pop();
+
+                // Draw Asteroid and its path
+                if (asteroid) {
+                    asteroid.show();
+                    asteroid.showPath();
+                }
+            };
+
+            p.windowResized = () => {
+                const infoCardWidth = 320 + 25 + 20; // width + gap + padding
+                const availableWidth = p.windowWidth - infoCardWidth;
+                const availableHeight = p.windowHeight * 0.9;
+
+                let size;
+                if (p.windowWidth < 800) {
+                    size = p.windowWidth * 0.9;
+                } else {
+                    size = Math.min(availableWidth, availableHeight);
+                }
+                p.resizeCanvas(size, size);
+                xRadius = p.width / 3;
+                yRadius = p.height / 4;
+            };
+        };
+
+        // Ensure the container exists before creating the p5 instance
+        if (document.getElementById('canvas-container')) {
+            new p5(sketch, document.getElementById('canvas-container'));
+        }
+
+    </script>
+</body>
+
+</html>
