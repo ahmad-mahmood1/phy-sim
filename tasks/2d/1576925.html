@@ -19,6 +19,14 @@
             overflow: hidden;
         }
 
+        #main-container {
+            display: flex;
+            align-items: flex-start;
+            /* Align items to the top */
+            gap: 20px;
+            /* Space between canvas and info card */
+        }
+
         #canvas-container {
             position: relative;
             border: 3px solid #333;
@@ -36,7 +44,7 @@
             color: #444;
         }
 
-         #instructions {
+        #instructions {
             position: absolute;
             bottom: 15px;
             left: 50%;
@@ -45,13 +53,73 @@
             color: #555;
             text-align: center;
         }
+
+        #info-card {
+            width: 300px;
+            background-color: #fff;
+            border: 3px solid #333;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2), 0 6px 6px rgba(0, 0, 0, 0.23);
+            text-align: left;
+        }
+
+        #info-card h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+        }
+
+        #info-card ul {
+            padding-left: 20px;
+            list-style: disc;
+        }
+
+        #info-card li {
+            margin-bottom: 10px;
+        }
+
+        #reset-btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-top: 15px;
+            background-color: #e76f51;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #reset-btn:hover {
+            background-color: #f4a261;
+        }
     </style>
 </head>
 
 <body>
-    <div id="canvas-container">
-        <div id="title">Mechanical NOR Gate</div>
-        <div id="instructions">Click and drag the pendulum bobs to start the simulation.</div>
+    <div id="main-container">
+        <div id="canvas-container">
+            <div id="title">Mechanical NOR Gate</div>
+            <div id="instructions">Click and drag the pendulum bobs to control them.</div>
+        </div>
+        <div id="info-card">
+            <h3>How It Works</h3>
+            <p>This is a mechanical simulation of a <strong>NOR logic gate</strong>.</p>
+            <ul>
+                <li>Drag the pendulum bobs to start their swing.</li>
+                <li>When a pendulum passes through its green <strong>activation zone</strong>, its input (A or B)
+                    becomes '1' (ON).</li>
+                <li>The output (A NOR B) is '1' (ON) only when <strong>both</strong> Input A and Input B are '0' (OFF).
+                </li>
+                <li>The truth table on the right shows all possible states.</li>
+            </ul>
+            <button id="reset-btn">Reset Simulation</button>
+        </div>
     </div>
     <script type="module">
         import p5 from 'https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm';
@@ -65,13 +133,14 @@
 
             let pendulumA, pendulumB;
             let leverA, leverB;
+            let zoneA, zoneB;
 
             // --- Pendulum Class ---
             class Pendulum {
                 constructor(originX, originY, length) {
                     this.origin = p.createVector(originX, originY);
                     this.length = length;
-                    this.angle = p.PI / 2; // Start hanging straight down
+                    this.angle = p.PI / 2; // Start angled to the right
                     this.angularVelocity = 0;
                     this.angularAcceleration = 0;
                     this.bob = p.createVector();
@@ -79,36 +148,26 @@
                     this.inputState = 0; // 0 for false, 1 for true
                 }
 
-                // Update pendulum physics
                 update() {
                     if (!this.dragging) {
-                        // Standard pendulum physics equation
                         this.angularAcceleration = (-GRAVITY / this.length) * p.sin(this.angle);
                         this.angularVelocity += this.angularAcceleration;
-                        this.angularVelocity *= DAMPING; // Apply damping
+                        this.angularVelocity *= DAMPING;
                         this.angle += this.angularVelocity;
                     }
-
-                    // Calculate bob position
                     this.bob.set(
                         this.length * p.sin(this.angle) + this.origin.x,
                         this.length * p.cos(this.angle) + this.origin.y
                     );
                 }
 
-                // Draw the pendulum
                 display() {
-                    // Draw the pendulum rod
                     p.stroke(30);
                     p.strokeWeight(4);
                     p.line(this.origin.x, this.origin.y, this.bob.x, this.bob.y);
-                    
-                    // Draw the bob
                     p.fill(this.dragging ? '#ff6b6b' : '#4a4a4a');
                     p.noStroke();
                     p.ellipse(this.bob.x, this.bob.y, BOB_RADIUS * 2, BOB_RADIUS * 2);
-                    
-                    // Draw a more visible pivot/hanging point
                     p.stroke(40);
                     p.strokeWeight(2);
                     p.fill(120);
@@ -118,7 +177,6 @@
                     p.ellipse(this.origin.x, this.origin.y, 12, 12);
                 }
 
-                // Handle mouse interactions
                 handlePress(mx, my) {
                     if (p.dist(mx, my, this.bob.x, this.bob.y) < BOB_RADIUS) {
                         this.dragging = true;
@@ -139,60 +197,105 @@
                     }
                 }
             }
-            
-            // --- Lever Class (with realistic physics) ---
+
+            // --- Activation Zone Class ---
+            class ActivationZone {
+                constructor(origin, radius, startAngle, endAngle, leverPos) {
+                    this.origin = origin;
+                    this.radius = radius;
+                    this.startAngle = startAngle;
+                    this.endAngle = endAngle;
+                    this.leverPos = leverPos; // For drawing the connection wire
+                }
+
+                // Check if a pendulum's angle is inside the zone
+                check(pendulum) {
+                    return pendulum.angle > this.startAngle && pendulum.angle < this.endAngle;
+                }
+
+                // Draw the zone arc and connecting wire
+                display(isActive) {
+                    // Draw the arc
+                    p.noFill();
+                    p.stroke(isActive ? 'rgba(76, 175, 80, 0.8)' : 'rgba(100, 100, 100, 0.3)');
+                    p.strokeWeight(15);
+
+                    // Convert pendulum angles to p5.js arc angles (0 is right, PI/2 is down)
+                    const p5StartAngle = p.PI / 2 - this.endAngle;
+                    const p5EndAngle = p.PI / 2 - this.startAngle;
+                    p.arc(this.origin.x, this.origin.y, this.radius * 2, this.radius * 2, p5StartAngle, p5EndAngle);
+
+                    // Draw the wire from the middle of the arc to the lever
+                    const midAngle = (this.startAngle + this.endAngle) / 2;
+                    const wireStartX = this.origin.x + this.radius * p.sin(midAngle);
+                    const wireStartY = this.origin.y + this.radius * p.cos(midAngle);
+                    p.strokeWeight(2.5);
+                    p.stroke(isActive ? '#FFC107' : '#9E9E9E');
+                    p.line(wireStartX, wireStartY, this.leverPos.x, this.leverPos.y);
+                }
+            }
+
+            // --- Lever Class ---
             class Lever {
-                 constructor(x, y, width, height) {
+                constructor(x, y, width, height, reverseRotate = false) {
                     this.pos = p.createVector(x, y);
                     this.width = width;
                     this.height = height;
-
-                    // Physics properties for realistic motion
-                    this.currentAngle = 90;
+                    this.currentAngle = 0;
                     this.angularVelocity = 0;
                     this.angularAcceleration = 0;
+                    this.springStiffness = 0.009; // Snappy response
+                    this.damping = 0.85; // Less oscillation
+                    this.reverseRotate = reverseRotate ? -1 : 1
+                }
 
-                    // Constants for the spring-damper system to simulate physical movement
-                    this.springStiffness = 0.0002; // How strongly it's pulled to the target angle
-                    this.damping = 0.929;      // How much friction slows it down
-                 }
-
-                 // The lever's own physics update. It's now just a spring trying to return to neutral.
-                 // The "kick" from collisions is applied externally.
-                 update() {
-                    const targetAngle = 0; // Neutral position is always horizontal
-
-                    // Apply spring force to return to neutral
+                update(isActive) {
+                    const targetAngle = isActive ? this.reverseRotate * (p.PI / 9) : 0; // Target angle is ~20 degrees if active, else 0
                     const springForce = (targetAngle - this.currentAngle) * this.springStiffness;
                     this.angularAcceleration = springForce;
                     this.angularVelocity += this.angularAcceleration;
-                    this.angularVelocity *= this.damping; // Apply friction
+                    this.angularVelocity *= this.damping;
                     this.currentAngle += this.angularVelocity;
-                 }
+                }
 
-                 display(label, isActive) {
+                display(label, isActive) {
                     p.push();
                     p.translate(this.pos.x, this.pos.y);
                     p.rotate(this.currentAngle);
-                    
-                    // Color is now based on the passed-in active state
-                    if (isActive) {
-                        p.fill(100, 200, 100); // Green for ON
-                    } else {
-                        p.fill(200, 100, 100); // Red for OFF
-                    }
-                    
+                    p.fill(isActive ? 'rgb(100, 200, 100)' : 'rgb(200, 100, 100)');
                     p.noStroke();
                     p.rectMode(p.CENTER);
                     p.rect(0, 0, this.width, this.height, 5);
-                    
                     p.fill(255);
                     p.textSize(16);
                     p.textAlign(p.CENTER, p.CENTER);
                     p.text(label, 0, 0);
-                    
                     p.pop();
-                 }
+                }
+            }
+
+            function resetSimulation() {
+                // Reset Pendulum A
+                pendulumA.angle = p.PI / 2;
+                pendulumA.angularVelocity = 0;
+                pendulumA.angularAcceleration = 0;
+                pendulumA.inputState = 0;
+
+                // Reset Pendulum B
+                pendulumB.angle = p.PI / 2;
+                pendulumB.angularVelocity = 0;
+                pendulumB.angularAcceleration = 0;
+                pendulumB.inputState = 0;
+
+                // Reset Lever A
+                leverA.currentAngle = 0;
+                leverA.angularVelocity = 0;
+                leverA.angularAcceleration = 0;
+
+                // Reset Lever B
+                leverB.currentAngle = 0;
+                leverB.angularVelocity = 0;
+                leverB.angularAcceleration = 0;
             }
 
             // --- Setup p5 sketch ---
@@ -204,146 +307,88 @@
                 const width = p.width;
                 const height = p.height;
 
-                // Initialize pendulums
-                pendulumA = new Pendulum(width / 4, height / 4, PENDULUM_LENGTH);
-                pendulumB = new Pendulum(width * 3 / 4, height / 4, PENDULUM_LENGTH);
-                
-                // Initialize levers
-                leverA = new Lever(width / 4, height / 2 + 50, 100, 20);
-                leverB = new Lever(width * 3 / 4, height / 2 + 50, 100, 20);
+                // Lower the pendulum origin so the bob can swing over the levers
+                const PENDULUM_ORIGIN_Y = height / 4;
+
+                pendulumA = new Pendulum(width / 4, PENDULUM_ORIGIN_Y, PENDULUM_LENGTH);
+                pendulumB = new Pendulum(width * 3 / 4, PENDULUM_ORIGIN_Y, PENDULUM_LENGTH);
+
+                leverA = new Lever(width / 4, height / 2 + 80, 100, 20);
+                leverB = new Lever(width * 3 / 4, height / 2 + 80, 100, 20, true);
+
+                // --- Calculate Activation Zone Angles ---
+                const leverY = 300;
+                const cosAngle = (leverY - PENDULUM_ORIGIN_Y) / PENDULUM_LENGTH;
+                const activationAngle = p.acos(p.constrain(cosAngle, -1, 1));
+
+                zoneA = new ActivationZone(pendulumA.origin, PENDULUM_LENGTH, -activationAngle, activationAngle, leverA.pos);
+                zoneB = new ActivationZone(pendulumB.origin, PENDULUM_LENGTH, -activationAngle, activationAngle, leverB.pos);
+
+                // Attach reset button listener
+                const resetBtn = document.getElementById('reset-btn');
+                resetBtn.addEventListener('click', resetSimulation);
             };
 
             // --- Main draw loop ---
             p.draw = () => {
                 p.background(245, 245, 245);
 
-                // --- Update Physics ---
                 pendulumA.update();
                 pendulumB.update();
-                
-                // --- Handle Collisions and Update Logic States ---
-                handleCollision(pendulumA, leverA);
-                handleCollision(pendulumB, leverB);
 
-                // --- Update Levers based on their internal physics ---
-                leverA.update();
-                leverB.update();
-                
-                // --- Logic Gate Calculation ---
+                pendulumA.inputState = zoneA.check(pendulumA) ? 1 : 0;
+                pendulumB.inputState = zoneB.check(pendulumB) ? 1 : 0;
+
+                leverA.update(pendulumA.inputState === 1);
+                leverB.update(pendulumB.inputState === 1);
+
                 const norOutput = (pendulumA.inputState === 0 && pendulumB.inputState === 0) ? 1 : 0;
-                
-                // --- Display Everything ---
+
+                zoneA.display(pendulumA.inputState === 1);
+                zoneB.display(pendulumB.inputState === 1);
+
                 pendulumA.display();
                 pendulumB.display();
+
                 leverA.display(`Input A: ${pendulumA.inputState}`, pendulumA.inputState === 1);
                 leverB.display(`Input B: ${pendulumB.inputState}`, pendulumB.inputState === 1);
-                
-                // --- Draw connecting rods and output ---
+
                 drawOutputMechanism(norOutput);
-                
-                // --- Draw Truth Table ---
                 drawTruthTable(p.width - 150, 40, norOutput, pendulumA.inputState, pendulumB.inputState);
             };
-            
-            /**
-             * Handles the collision detection and physics response between a pendulum and a lever.
-             * @param {Pendulum} pendulum The pendulum object.
-             * @param {Lever} lever The lever object.
-             */
-            function handleCollision(pendulum, lever) {
-                const bob = pendulum.bob;
-                const r = BOB_RADIUS;
-
-                // Find the closest point on the (unrotated) lever rectangle to the bob's center.
-                // This is a standard circle-vs-AABB collision detection technique.
-                const leverTop = lever.pos.y - lever.height / 2;
-                const leverBottom = lever.pos.y + lever.height / 2;
-                const leverLeft = lever.pos.x - lever.width / 2;
-                const leverRight = lever.pos.x + lever.width / 2;
-
-                const closestX = p.constrain(bob.x, leverLeft, leverRight);
-                const closestY = p.constrain(bob.y, leverTop, leverBottom);
-
-                const distance = p.dist(bob.x, bob.y, closestX, closestY);
-
-                if (distance < r) {
-                    // --- COLLISION DETECTED ---
-                    pendulum.inputState = 1;
-
-                    // 1. Resolve Overlap: Move the bob so it's no longer inside the lever.
-                    const overlap = r - distance;
-                    const normal = p.createVector(bob.x - closestX, bob.y - closestY).normalize();
-                    if (normal.mag() === 0) { normal.set(0, -1); } // Handle case where bob is perfectly centered
-                    
-                    pendulum.bob.add(normal.mult(overlap));
-                    
-                    // After moving the bob, its angle must be recalculated.
-                    const newAngleVec = p5.Vector.sub(pendulum.bob, pendulum.origin);
-                    pendulum.angle = p.atan2(newAngleVec.x, newAngleVec.y);
-
-                    // 2. Apply Bounce (Collision Response)
-                    // Get the bob's velocity vector (tangential to its swing path)
-                    const velocity = p.createVector(-newAngleVec.y, newAngleVec.x).normalize().mult(pendulum.angularVelocity * pendulum.length);
-                    
-                    // Reflect the velocity vector across the collision normal.
-                    const dot = velocity.dot(normal);
-                    const reflection = normal.copy().mult(2 * dot);
-                    const newVelocity = velocity.sub(reflection);
-                    newVelocity.mult(0.6); // Apply restitution (bounciness)
-
-                    // Convert the new linear velocity back into angular velocity for the pendulum.
-                    const tangent = p.createVector(-newAngleVec.y, newAngleVec.x).normalize();
-                    const tangentialSpeed = newVelocity.dot(tangent);
-                    pendulum.angularVelocity = tangentialSpeed / pendulum.length;
-
-                    // 3. Apply a "kick" to the lever.
-                    // The impact imparts an angular velocity impulse on the lever.
-                    const impactStrength = Math.abs(dot) * 0.005; // Tunable constant for impact force
-                    const torqueDirection = (bob.x > lever.pos.x) ? 1 : -1;
-                    lever.angularVelocity += impactStrength * torqueDirection;
-
-                } else {
-                    // --- NO COLLISION ---
-                    pendulum.inputState = 0;
-                }
-            }
 
             function drawOutputMechanism(norOutput) {
                 const outputY = p.height - 100;
-                // Draw connecting rods from levers to the output mechanism
                 p.stroke(150);
                 p.strokeWeight(4);
-                p.line(leverA.pos.x, leverA.pos.y, p.width/2 - 30, outputY - 40);
-                p.line(leverB.pos.x, leverB.pos.y, p.width/2 + 30, outputY - 40);
-                
-                // Draw the output "light bulb"
+                p.line(leverA.pos.x, leverA.pos.y, p.width / 2 - 30, outputY - 40);
+                p.line(leverB.pos.x, leverB.pos.y, p.width / 2 + 30, outputY - 40);
+
                 p.push();
                 p.translate(p.width / 2, outputY - 60);
                 if (norOutput === 1) {
-                    p.fill(255, 255, 0, 200); // ON color
+                    p.fill(255, 255, 0, 200);
                     p.stroke(255, 255, 0);
-                     // Glowing effect
-                    for(let i = 20; i > 0; i--){
-                        p.fill(255, 255, 0, 150/i);
+                    for (let i = 20; i > 0; i--) {
+                        p.fill(255, 255, 0, 150 / i);
                         p.noStroke();
-                        p.ellipse(0, 0, 65 + i*2, 65 + i*2);
+                        p.ellipse(0, 0, 65 + i * 2, 65 + i * 2);
                     }
                 } else {
-                    p.fill(100); // OFF color
+                    p.fill(100);
                     p.stroke(80);
                 }
                 p.strokeWeight(3);
                 p.ellipse(0, 0, 65, 65);
                 p.pop();
 
-                // Draw the output label
                 p.fill(norOutput ? '#2a9d8f' : '#e76f51');
                 p.noStroke();
                 p.textSize(22);
                 p.textAlign(p.CENTER);
                 p.text(`A NOR B = ${norOutput}`, p.width / 2, p.height - 50);
             }
-            
+
             function drawTruthTable(x, y, currentOutput, inputA, inputB) {
                 p.push();
                 p.translate(x, y);
@@ -357,16 +402,15 @@
                 p.stroke(150);
                 p.line(0, 30, 120, 30);
 
-                const rows = [ [0, 0, 1], [0, 1, 0], [1, 0, 0], [1, 1, 0] ];
+                const rows = [[0, 0, 1], [0, 1, 0], [1, 0, 0], [1, 1, 0]];
 
                 rows.forEach((row, i) => {
                     const isCurrentState = (inputA === row[0] && inputB === row[1]);
-                    if(isCurrentState){
+                    if (isCurrentState) {
                         p.fill(255, 236, 179, 200); // Highlight current row
                         p.noStroke();
                         p.rect(0, 40 + i * 25 - 10, 120, 20, 5);
                     }
-
                     p.fill(isCurrentState ? '#000' : '#555');
                     p.textStyle(isCurrentState ? p.BOLD : p.NORMAL);
                     p.text(row[0], 20, 40 + i * 25);
@@ -394,7 +438,6 @@
             };
         };
 
-        // Create the p5 instance
         new p5(sketch, document.getElementById('canvas-container'));
     </script>
 </body>

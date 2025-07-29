@@ -1,285 +1,224 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thermistor Simulation</title>
-  <script type="importmap">
-    {
-      "imports": {
-        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
-      }
-    }
-  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>4-to-1 MUX Heat Simulation</title>
   <style>
     body {
       margin: 0;
-      padding: 0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      background-color: #f0f0f0;
-      font-family: Arial, sans-serif;
-    }
-    .simulation-container {
       display: flex;
       flex-direction: column;
       align-items: center;
     }
-    .canvas-container {
+
+    #main-container {
       display: flex;
-      gap: 20px;
-    }
-    .controls {
+      flex-direction: column;
+      align-items: center;
       margin-top: 20px;
     }
-    button {
-      padding: 8px 16px;
-      font-size: 16px;
-      cursor: pointer;
+
+    #info-card,
+    #controls {
+      margin-top: 20px;
+      font-family: Arial, sans-serif;
+    }
+
+    #controls {
+      font-size: 1.2em;
+      font-weight: bold;
     }
   </style>
+  <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
 </head>
-<body>
-  <div class="simulation-container">
-    <div id="canvas-container" class="canvas-container"></div>
-    <div class="controls">
-      <button id="restart-button">Restart</button>
-    </div>
-  </div>
 
+<body>
+  <div id="main-container">
+    <div id="info-card">
+      This simulation demonstrates heat distribution on a 4-to-1 multiplexer circuit board. The active input channel
+      cycles every 2 seconds.
+    </div>
+    <div id="simulation-container"></div>
+    <div id="controls">Active Channel: <span id="channel-number">1</span></div>
+  </div>
   <script type="module">
     import p5 from 'p5';
 
-    // Thermistor simulation parameters
-    let temp = 20; // Initial temperature in °C
-    let resistance = 10000; // Initial resistance in Ω
-    let tempStep = 0.5; // Temperature increment per frame
-    let tempMax = 150; // Maximum temperature
-    let tempMin = 20; // Minimum temperature
-    let cooling = false; // Cooling state
-
-    // Graph settings
-    let graphPoints = [];
-    let graphBuffer;
-
-    // Sketch function
     const sketch = (p) => {
-      let canvas;
-      let heatSource;
-      let thermistor;
+      let gridSize = 100;
+      let grid;
+      let activeChannel = 0;
+      let lastSwitchTime = 0;
+      let coolingRate = 0.01;
+      let diffusionRate = 0.1;
+
+      // Circuit coordinates
+      let chipCenter = { x: gridSize * 0.5, y: gridSize * 0.6 };
+      let inputPads = [
+        { x: gridSize * 0.2, y: gridSize * 0.2 }, // Input 0
+        { x: gridSize * 0.4, y: gridSize * 0.2 }, // Input 1
+        { x: gridSize * 0.6, y: gridSize * 0.2 }, // Input 2
+        { x: gridSize * 0.8, y: gridSize * 0.2 }  // Input 3
+      ];
+      let outputPad = { x: gridSize * 0.5, y: gridSize * 0.9 };
+
+      // Trace coordinates
+      let muxCenter = { x: gridSize * 0.5, y: gridSize * 0.6 };
+      let muxInputs = [
+        { x: gridSize * 0.35, y: gridSize * 0.55 }, // Input 0
+        { x: gridSize * 0.45, y: gridSize * 0.55 }, // Input 1
+        { x: gridSize * 0.55, y: gridSize * 0.55 }, // Input 2
+        { x: gridSize * 0.65, y: gridSize * 0.55 }  // Input 3
+      ];
+      let muxOutput = { x: gridSize * 0.5, y: gridSize * 0.75 };
+      let outputJunction = { x: gridSize * 0.5, y: gridSize * 0.8 };
 
       p.setup = () => {
-        // Create canvas with double the width for simulation and graph
-        const canvasWidth = 1000;
-        const canvasHeight = 600;
-        canvas = p.createCanvas(canvasWidth, canvasHeight);
-        canvas.parent('canvas-container');
-
-        // Create visual elements
-        heatSource = {
-          x: 150,
-          y: p.height / 2,
-          width: 60,
-          height: 80
-        };
-
-        thermistor = {
-          x: 350,
-          y: p.height / 2,
-          size: 30
-        };
-
-        // Initialize graph buffer
-        graphBuffer = p.createGraphics(canvasWidth / 2, canvasHeight);
-        resetGraph();
-
-        // Initialize graph points
-        graphPoints = [];
-        for (let t = tempMin; t <= tempMax; t += 5) {
-          const r = calculateResistance(t);
-          graphPoints.push(p.createVector(t, r));
-        }
+        let canvas = p.createCanvas(gridSize, gridSize);
+        canvas.parent('simulation-container');
+        p.frameRate(30);
+        initGrid();
       };
 
       p.draw = () => {
-        p.background(240);
-
-        // Draw divider line
-        p.stroke(200);
-        p.strokeWeight(2);
-        p.line(p.width / 2, 0, p.width / 2, p.height);
-
-        // Update temperature and resistance
-        if (!cooling) {
-          temp += tempStep;
-          if (temp >= tempMax) {
-            cooling = true;
-          }
-        } else {
-          temp -= tempStep;
-          if (temp <= tempMin) {
-            cooling = false;
-          }
-        }
-        resistance = calculateResistance(temp);
-
-        // Draw simulation section (left half)
-        drawSimulation();
-
-        // Draw graph section (right half)
-        drawGraph();
+        updateGrid();
+        render();
       };
 
-      // Reset simulation function
-      p.resetSimulation = () => {
-        temp = tempMin;
-        cooling = false;
-        resetGraph();
-      };
-
-      // Helper function to calculate resistance
-      function calculateResistance(t) {
-        // Thermistor formula approximation: R = R0 * exp(B * (1/T - 1/T0))
-        // Simplified for demonstration purposes
-        const R0 = 10000; // Resistance at 25°C
-        const B = 3950; // Beta coefficient
-        const T0 = 298.15; // 25°C in Kelvin
-        const T = t + 273.15; // Convert to Kelvin
-
-        return R0 * Math.exp(B * (1 / T - 1 / T0));
+      function initGrid() {
+        grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
       }
 
-      // Draw simulation elements
-      function drawSimulation() {
-        // Draw heat source
-        p.fill(200, 0, 0);
-        p.stroke(100, 0, 0);
-        p.strokeWeight(2);
-        p.rect(heatSource.x, heatSource.y - heatSource.height/2, heatSource.width, heatSource.height, 5);
-
-        // Draw heat glow
-        p.noStroke();
-        p.fill(255, 100, 100, 150);
-        p.ellipse(heatSource.x + heatSource.width/2, heatSource.y, 80, 80);
-
-        // Draw heat rays
-        p.stroke(255, 100, 100, 100);
-        p.strokeWeight(2);
-        for (let i = 0; i < 5; i++) {
-          const angle = p.PI + (i - 2) * p.PI / 8;
-          const x2 = heatSource.x + heatSource.width/2 + Math.cos(angle) * 100;
-          const y2 = heatSource.y + Math.sin(angle) * 100;
-          p.line(heatSource.x + heatSource.width/2, heatSource.y, x2, y2);
+      function updateGrid() {
+        if (p.millis() - lastSwitchTime > 2000) {
+          activeChannel = (activeChannel + 1) % 4;
+          lastSwitchTime = p.millis();
+          document.getElementById('channel-number').textContent = activeChannel + 1;
         }
 
-        // Draw thermistor
-        p.fill(50, 100, 200);
-        p.stroke(0, 50, 150);
-        p.strokeWeight(2);
-        p.rect(thermistor.x, thermistor.y - thermistor.size/2, thermistor.size, thermistor.size, 5);
+        // Diffusion and cooling
+        for (let x = 1; x < gridSize - 1; x++) {
+          for (let y = 1; y < gridSize - 1; y++) {
+            let temp = grid[x][y];
+            let neighbors = [
+              grid[x - 1][y], grid[x + 1][y],
+              grid[x][y - 1], grid[x][y + 1]
+            ].reduce((a, b) => a + b, 0) / 4;
+            grid[x][y] = temp * (1 - diffusionRate) + neighbors * diffusionRate;
+            grid[x][y] *= (1 - coolingRate);
+          }
+        }
 
-        // Draw temperature indicator
-        const indicatorHeight = p.map(temp, tempMin, tempMax, 0, thermistor.size * 3);
-        p.fill(255, 100, 100);
-        p.noStroke();
-        p.rect(thermistor.x - 15, thermistor.y + thermistor.size/2, 8, -indicatorHeight, 2);
-
-        // Draw labels
-        p.fill(0);
-        p.noStroke();
-        p.textSize(16);
-        p.text(`Temperature: ${temp.toFixed(1)} °C`, 20, 30);
-        p.text(`Resistance: ${resistance.toFixed(0)} Ω`, 20, 60);
-
-        // Draw section title
-        p.textSize(20);
-        p.textStyle(p.BOLD);
-        p.text("Thermistor Simulation", 20, p.height - 20);
+        // Inject heat into active channel
+        let activeTrace = getTracePath(activeChannel);
+        for (let point of activeTrace) {
+          grid[point.x][point.y] = 255;
+        }
       }
 
-      // Reset graph buffer
-      function resetGraph() {
-        graphBuffer.background(255);
-        graphBuffer.stroke(0);
-        graphBuffer.strokeWeight(1);
-        graphBuffer.fill(0);
-        graphBuffer.textSize(12);
+      function render() {
+        p.background(220);
+
+        // Render static circuit components
+        drawTraces();
+        drawPads();
+        drawChip();
+
+        // Render heat map
+        p.noStroke();
+        for (let x = 0; x < gridSize; x++) {
+          for (let y = 0; y < gridSize; y++) {
+            let temp = grid[x][y];
+            if (temp > 0) {
+              let c = p.color(255, 0, 0, temp * 0.8); // Limit max alpha for better visibility
+              p.fill(c);
+              p.rect(x, y, 1, 1);
+            }
+          }
+        }
       }
 
-      // Draw graph
-      function drawGraph() {
-        // Clear graph buffer
-        resetGraph();
+      function drawTraces() {
+        p.stroke(139, 69, 19); // Brown color for traces
+        p.strokeWeight(2);
+        for (let i = 0; i < 4; i++) {
+          let start = inputPads[i];
+          let end = muxInputs[i];
+          p.line(start.x, start.y, end.x, end.y);
+        }
+        for (let i = 0; i < 4; i++) {
+          let start = muxInputs[i];
+          let end = muxCenter;
+          p.line(start.x, start.y, end.x, end.y);
+        }
+        p.line(muxCenter.x, muxCenter.y, muxOutput.x, muxOutput.y);
+        p.line(muxOutput.x, muxOutput.y, outputJunction.x, outputJunction.y);
+        p.line(outputJunction.x, outputJunction.y, outputPad.x, outputPad.y);
+      }
 
-        // Draw graph axes
-        const margin = 40;
-        const plotWidth = graphBuffer.width - margin * 2;
-        const plotHeight = graphBuffer.height - margin * 2;
+      function drawPads() {
+        p.fill(180); // Light gray for pads
+        p.noStroke();
+        let padSize = 5;
+        for (let pad of inputPads.concat([outputPad])) {
+          p.rect(pad.x - padSize / 2, pad.y - padSize / 2, padSize, padSize);
+        }
+      }
 
-        graphBuffer.line(margin, graphBuffer.height - margin, graphBuffer.width - margin, graphBuffer.height - margin); // X-axis
-        graphBuffer.line(margin, margin, margin, graphBuffer.height - margin); // Y-axis
+      function drawChip() {
+        p.fill(100); // Dark gray for chip
+        p.noStroke();
+        let chipSize = 15;
+        p.rect(chipCenter.x - chipSize / 2, chipCenter.y - chipSize / 2, chipSize, chipSize);
+      }
 
-        // Draw axis labels
-        graphBuffer.textStyle(p.BOLD);
-        graphBuffer.textSize(14);
-        graphBuffer.text("Temperature (°C)", graphBuffer.width / 2 - 40, graphBuffer.height - margin + 25);
-        graphBuffer.push();
-        graphBuffer.translate(margin - 20, graphBuffer.height / 2);
-        graphBuffer.rotate(-p.HALF_PI);
-        graphBuffer.text("Resistance (Ω)", 0, 0);
-        graphBuffer.pop();
+      function getTracePath(channel) {
+        let path = [];
+        let start = inputPads[channel];
+        let end = muxInputs[channel];
 
-        // Draw axis ticks and labels
-        for (let i = 0; i <= 5; i++) {
-          const x = margin + (i * plotWidth / 5);
-          const tempVal = p.map(i, 0, 5, tempMin, tempMax);
-          graphBuffer.line(x, graphBuffer.height - margin, x, graphBuffer.height - margin + 5);
-          graphBuffer.text(tempVal.toFixed(0), x - 10, graphBuffer.height - margin + 20);
+        // Input trace
+        for (let x = p.floor(p.min(start.x, end.x)); x <= p.floor(p.max(start.x, end.x)); x++) {
+          path.push({ x, y: p.floor(start.y) });
+        }
+        // Vertical segment
+        for (let y = p.floor(p.min(start.y, end.y)); y <= p.floor(p.max(start.y, end.y)); y++) {
+          path.push({ x: p.floor(end.x), y });
         }
 
-        // Calculate max resistance for Y-axis scaling
-        const maxR = calculateResistance(tempMin);
-        for (let i = 0; i <= 5; i++) {
-          const y = graphBuffer.height - margin - (i * plotHeight / 5);
-          const rVal = p.map(i, 0, 5, 0, maxR);
-          graphBuffer.line(margin - 5, y, margin, y);
-          graphBuffer.text(rVal.toFixed(0), margin - 30, y + 5);
+        // Internal MUX path
+        for (let i = 0; i < 4; i++) {
+          let input = muxInputs[i];
+          for (let y = p.floor(p.min(input.y, muxCenter.y)); y <= p.floor(p.max(input.y, muxCenter.y)); y++) {
+            path.push({ x: p.floor(input.x), y });
+          }
         }
-
-        // Plot graph points
-        graphBuffer.stroke(0, 100, 200);
-        graphBuffer.strokeWeight(2);
-
-        // Plot pre-calculated points
-        graphBuffer.beginShape();
-        for (const point of graphPoints) {
-          const x = p.map(point.x, tempMin, tempMax, margin, graphBuffer.width - margin);
-          const y = p.map(point.y, 0, maxR, graphBuffer.height - margin, margin);
-          graphBuffer.vertex(x, y);
+        for (let x = p.floor(p.min(muxCenter.x, muxOutput.x)); x <= p.floor(p.max(muxCenter.x, muxOutput.x)); x++) {
+          path.push({ x, y: p.floor(muxCenter.y) });
         }
-        graphBuffer.endShape();
-
-        // Plot real-time point
-        const x = p.map(temp, tempMin, tempMax, margin, graphBuffer.width - margin);
-        const y = p.map(resistance, 0, maxR, graphBuffer.height - margin, margin);
-        graphBuffer.fill(255, 0, 0);
-        graphBuffer.noStroke();
-        graphBuffer.ellipse(x, y, 8, 8);
-
-        // Display graph buffer on main canvas
-        p.image(graphBuffer, p.width / 2, 0);
+        for (let y = p.floor(p.min(muxOutput.y, outputJunction.y)); y <= p.floor(p.max(muxOutput.y, outputJunction.y)); y++) {
+          path.push({ x: p.floor(muxOutput.x), y });
+        }
+        for (let y = p.floor(p.min(outputJunction.y, outputPad.y)); y <= p.floor(p.max(outputJunction.y, outputPad.y)); y++) {
+          path.push({ x: p.floor(outputJunction.x), y });
+        }
+        for (let x = p.floor(p.min(outputJunction.x, outputPad.x)); x <= p.floor(p.max(outputJunction.x, outputPad.x)); x++) {
+          path.push({ x, y: p.floor(outputPad.y) });
+        }
+        return path;
       }
     };
 
-    // Create new p5 instance
     new p5(sketch, document.body);
-
-    // Add event listener to restart button
-    document.getElementById('restart-button').addEventListener('click', () => {
-      p5.prototype.resetSimulation();
-    });
   </script>
 </body>
+
 </html>

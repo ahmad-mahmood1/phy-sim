@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Multiplexer Heat Simulation - Internal View</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden;
+        }
+
+        #main-container {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 30px;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 0 25px rgba(0, 200, 255, 0.2);
+        }
+
+        #info-card {
+            width: 300px;
+            padding: 20px;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+            height: 600px;
+        }
+
+        #info-card h3 {
+            color: cyan;
+            text-align: center;
+            margin-top: 0;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+
+        #info-card p {
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+
+        #info-card strong {
+            color: #00e6e6;
+        }
+
+
+        #controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            padding: 15px;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+            border: 1px solid #333;
+            margin-top: 20px;
+        }
+
+        #controls span {
+            font-weight: bold;
+            color: cyan;
+            background-color: #2a2a2a;
+            padding: 5px 10px;
+            border-radius: 4px;
+            min-width: 20px;
+            display: inline-block;
+            text-align: center;
+        }
+
+        #controls label {
+            margin-right: -10px;
+        }
+
+        #reset-button {
+            background-color: #3a86ff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 14px;
+            transition: background-color 0.2s ease-in-out;
+        }
+
+        #reset-button:hover {
+            background-color: #3a66d1;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <div id="main-container">
+        <div id="canvas-container">
+        </div>
+        <div id="info-card">
+            <h3>Simulation Details</h3>
+            <p>
+                This simulation models the <strong>thermal dynamics</strong> of a 4-to-1 multiplexer (MUX) circuit
+                board.
+            </p>
+            <p>
+                An <strong>active input channel</strong> is selected sequentially, generating heat. This heat propagates
+                along the copper traces, through the MUX's internal pathways, and to the single output.
+            </p>
+            <p>
+                The model includes: <br>
+                - <strong>Conduction:</strong> Heat travels along the defined traces. <br>
+                - <strong>Diffusion:</strong> Heat spreads to adjacent cells on the grid. <br>
+                - <strong>Cooling:</strong> The entire board slowly dissipates heat into the environment.
+            </p>
+            <p>
+                <strong>Color Key:</strong><br>
+                <span style="color: #ff0000;">■</span> Red: High Temperature<br>
+                <span style="color: #ffff00;">■</span> Yellow: Medium Temperature<br>
+                <span style="color: #00ffff;">■</span> Cyan: Low Temperature
+            </p>
+        </div>
+    </div>
+    <div id="controls">
+        <label>Active Input Channel:</label>
+        <span id="active-channel-id">1</span>
+        <button id="reset-button">Reset</button>
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Simulation & Grid Parameters ---
+            const GRID_WIDTH = 100;
+            const GRID_HEIGHT = 50;
+            const CELL_SIZE = 10;
+            const AMBIENT_TEMP = 0;
+            const ACTIVE_TEMP = 255;
+            const DIFFUSION_RATE = 0.2;
+            const COOLING_RATE = 0.995;
+            const CHANNEL_SWITCH_INTERVAL = 2000;
+
+            let grid, nextGrid;
+            let activeSourceIndex = 0;
+            const activeChannelSpan = window.document.getElementById('active-channel-id');
+
+            // --- Circuit Layout Parameters ---
+            const MUX_CHIP = { x: 40, y: 15, w: 20, h: 20 };
+            const INPUT_PADS = [
+                { x: 5, y: 8 }, { x: 5, y: 16 }, { x: 5, y: 24 }, { x: 5, y: 32 }
+            ];
+            const OUTPUT_PAD = { x: 85, y: 24 };
+
+            // Define the paths for the traces
+            let externalTracePaths = [];
+            let internalMuxPaths = [];
+
+            /**
+             * Resets the simulation to its initial state.
+             */
+            function resetSimulation() {
+                // Re-initialize grids with ambient temperature
+                grid = Array(GRID_WIDTH).fill(null).map(() => Array(GRID_HEIGHT).fill(AMBIENT_TEMP));
+                nextGrid = Array(GRID_WIDTH).fill(null).map(() => Array(GRID_HEIGHT).fill(AMBIENT_TEMP));
+
+                // Reset the active channel to the first one
+                activeSourceIndex = 0;
+                if (activeChannelSpan) {
+                    activeChannelSpan.textContent = activeSourceIndex + 1;
+                }
+            }
+
+            p.setup = () => {
+                const canvas = p.createCanvas(GRID_WIDTH * CELL_SIZE, GRID_HEIGHT * CELL_SIZE);
+                canvas.parent('canvas-container');
+                p.colorMode(p.HSB, 255);
+
+                resetSimulation(); // Initial setup of the grid
+                defineTracePaths();
+
+                // Set up the reset button listener
+                const resetButton = window.document.getElementById('reset-button');
+                resetButton.addEventListener('click', resetSimulation);
+
+                // Start the channel switching interval
+                setInterval(() => {
+                    activeSourceIndex = (activeSourceIndex + 1) % INPUT_PADS.length;
+                    if (activeChannelSpan) {
+                        activeChannelSpan.textContent = activeSourceIndex + 1;
+                    }
+                }, CHANNEL_SWITCH_INTERVAL);
+            };
+
+            /**
+             * Creates arrays of points for external and internal circuit traces.
+             */
+            function defineTracePaths() {
+                const muxCenterY = MUX_CHIP.y + MUX_CHIP.h / 2;
+                const muxOutputX = MUX_CHIP.x + MUX_CHIP.w - 1;
+
+                // Input traces (external) and internal MUX paths
+                INPUT_PADS.forEach((pad, index) => {
+                    const externalPath = [];
+                    const internalPath = [];
+                    const chipInputX = MUX_CHIP.x;
+                    const chipInputY = MUX_CHIP.y + 3 + index * 4;
+
+                    // External: Horizontal line from pad to chip alignment
+                    for (let x = pad.x; x < chipInputX; x++) {
+                        externalPath.push({ x, y: pad.y });
+                    }
+                    // External: Vertical line from trace to chip connection point
+                    const startY = Math.min(pad.y, chipInputY);
+                    const endY = Math.max(pad.y, chipInputY);
+                    for (let y = startY; y <= endY; y++) {
+                        externalPath.push({ x: chipInputX, y });
+                    }
+                    externalTracePaths.push(externalPath);
+
+                    // Internal: from chip input pin to center
+                    for (let x = chipInputX; x < MUX_CHIP.x + MUX_CHIP.w / 2; x++) {
+                        internalPath.push({ x, y: chipInputY });
+                    }
+                    // Internal: from center line to mux center Y
+                    const i_startY = Math.min(chipInputY, muxCenterY);
+                    const i_endY = Math.max(chipInputY, muxCenterY);
+                    for (let y = i_startY; y <= i_endY; y++) {
+                        internalPath.push({ x: Math.round(MUX_CHIP.x + MUX_CHIP.w / 2), y });
+                    }
+                    internalMuxPaths.push(internalPath);
+                });
+
+                // Output trace (external and internal)
+                const externalOutputPath = [];
+                const internalOutputPath = [];
+
+                // Internal: from MUX center to output pin
+                for (let x = Math.round(MUX_CHIP.x + MUX_CHIP.w / 2); x <= muxOutputX; x++) {
+                    internalOutputPath.push({ x, y: Math.round(muxCenterY) });
+                }
+                // This path is common for all channels, so we add it to each internal path
+                for (let i = 0; i < internalMuxPaths.length; i++) {
+                    internalMuxPaths[i].push(...internalOutputPath);
+                }
+
+
+                // External: from chip output to pad alignment
+                for (let x = muxOutputX; x < OUTPUT_PAD.x; x++) {
+                    externalOutputPath.push({ x, y: Math.round(muxCenterY) });
+                }
+                // External: Vertical line to connect to pad
+                const startY = Math.min(Math.round(muxCenterY), OUTPUT_PAD.y);
+                const endY = Math.max(Math.round(muxCenterY), OUTPUT_PAD.y);
+                for (let y = startY; y <= endY; y++) {
+                    externalOutputPath.push({ x: OUTPUT_PAD.x, y });
+                }
+                externalTracePaths.push(externalOutputPath); // Add output path as the last one
+            }
+
+            p.draw = () => {
+                // --- 1. Update Temperatures (Physics Step) ---
+                // First, calculate the next state of the grid based on the previous one.
+                for (let x = 1; x < GRID_WIDTH - 1; x++) {
+                    for (let y = 1; y < GRID_HEIGHT - 1; y++) {
+                        let neighborSum =
+                            (grid[x - 1]?.[y] ?? 0) + (grid[x + 1]?.[y] ?? 0) +
+                            (grid[x]?.[y - 1] ?? 0) + (grid[x]?.[y + 1] ?? 0);
+
+                        let newTemp = grid[x][y] * (1 - DIFFUSION_RATE) + (neighborSum / 4) * DIFFUSION_RATE;
+                        nextGrid[x][y] = newTemp * COOLING_RATE;
+                    }
+                }
+                [grid, nextGrid] = [nextGrid, grid]; // Swap grids for the next frame's calculation.
+
+                // --- 2. Inject Heat for Current Frame's Render ---
+                // This happens *after* the physics update, ensuring the heat source is at max temperature for this render.
+                const activeInput = INPUT_PADS[activeSourceIndex];
+                grid[activeInput.x][activeInput.y] = ACTIVE_TEMP;
+                grid[OUTPUT_PAD.x][OUTPUT_PAD.y] = ACTIVE_TEMP;
+
+                const activeExternalTrace = externalTracePaths[activeSourceIndex];
+                const outputExternalTrace = externalTracePaths[externalTracePaths.length - 1];
+                const activeInternalTrace = internalMuxPaths[activeSourceIndex];
+
+                [...activeExternalTrace, ...outputExternalTrace, ...activeInternalTrace].forEach(point => {
+                    // Inject slightly less heat into traces to make pads the hottest points
+                    grid[point.x][point.y] = Math.max(grid[point.x][point.y], ACTIVE_TEMP * 0.85);
+                });
+
+
+                // --- 3. Render Everything ---
+                p.background(30, 10, 15); // Dark, slightly warm PCB color
+
+                // Draw static circuit elements first, so heat map renders on top.
+                drawCircuitBoard();
+
+                // Render the heat map
+                p.noStroke();
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    for (let y = 0; y < GRID_HEIGHT; y++) {
+                        const temp = grid[x][y];
+                        if (temp > 1) { // Threshold to avoid drawing tiny amounts of heat
+                            const hue = p.map(p.constrain(temp, 0, 255), 0, 255, 170, 0);
+                            const brightness = p.map(temp, 0, 255, 120, 255);
+                            const alpha = p.map(temp, 0, 255, 60, 220);
+                            p.fill(hue, 255, brightness, alpha);
+                            p.rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        }
+                    }
+                }
+            };
+
+            function drawCircuitBoard() {
+                // Draw all external traces
+                p.noStroke();
+                p.fill(60, 100, 50);
+                externalTracePaths.forEach(path => {
+                    path.forEach(point => {
+                        p.rect(point.x * CELL_SIZE, point.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    });
+                });
+
+                // Draw MUX Chip Body
+                p.fill(0, 0, 10); // Darker chip body
+                p.noStroke();
+                p.rect(MUX_CHIP.x * CELL_SIZE, MUX_CHIP.y * CELL_SIZE, MUX_CHIP.w * CELL_SIZE, MUX_CHIP.h * CELL_SIZE, 2);
+
+                // Draw internal MUX paths (inactive)
+                p.fill(60, 100, 25); // Even darker for internal traces
+                internalMuxPaths.forEach(path => {
+                    path.forEach(point => {
+                        p.rect(point.x * CELL_SIZE, point.y * CELL_SIZE, CELL_SIZE / 2, CELL_SIZE / 2);
+                    });
+                });
+
+                // Draw Pads
+                p.fill(40, 50, 180);
+                INPUT_PADS.forEach(pad => p.rect(pad.x * CELL_SIZE, pad.y * CELL_SIZE, CELL_SIZE, CELL_SIZE));
+                p.rect(OUTPUT_PAD.x * CELL_SIZE, OUTPUT_PAD.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+
+                // Draw MUX Chip Outline
+                p.noFill();
+                p.stroke(255, 20, 50);
+                p.strokeWeight(1);
+                p.rect(MUX_CHIP.x * CELL_SIZE, MUX_CHIP.y * CELL_SIZE, MUX_CHIP.w * CELL_SIZE, MUX_CHIP.h * CELL_SIZE, 2);
+
+                // Add Labels
+                p.noStroke();
+                p.fill(255);
+                p.textSize(10);
+                p.textAlign(p.CENTER, p.CENTER);
+                p.text("INPUTS", (INPUT_PADS[0].x - 3) * CELL_SIZE, (INPUT_PADS[0].y + INPUT_PADS[3].y) / 2 * CELL_SIZE);
+                p.text("MUX", (MUX_CHIP.x + MUX_CHIP.w / 2) * CELL_SIZE, (MUX_CHIP.y - 3) * CELL_SIZE);
+                p.text("OUTPUT", (OUTPUT_PAD.x + 4) * CELL_SIZE, OUTPUT_PAD.y * CELL_SIZE);
+            }
+        };
+
+        new p5(sketch);
+    </script>
+</body>
+
+</html>
