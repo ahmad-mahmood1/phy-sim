@@ -25,6 +25,8 @@
             align-items: flex-start;
             gap: 20px;
             padding: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
         }
 
         #simulation-container {
@@ -116,7 +118,7 @@
             <div id="instructions">
                 <p><strong>2D Static Cling Simulation</strong></p>
                 <p>The fabric sways and rubs against the skin, generating charge.</p>
-                <p><strong>Drag your mouse</strong> over the fabric to "rub" it and create more static!</p>
+                <p><strong>Click and drag your mouse</strong> over the fabric for 1-2 seconds to "rub" it and create more static!</p>
             </div>
             <div id="canvas-container">
             </div>
@@ -162,7 +164,8 @@
                     this.acc = p.createVector(0, 0, 0);
                     this.charge = 0; // 0 = neutral, -1 = negative
                     this.isPinned = false;
-                    this.contactFrames = 0; // Counter for contact duration
+                    this.contactFrames = 0; // Counter for contact with skin
+                    this.rubFrames = 0; // Counter for mouse rubbing
                 }
 
                 applyForce(force) {
@@ -201,7 +204,7 @@
                     this.points = [];
                     this.clothWidth = 10;
                     this.clothHeight = p.floor(p.height / segmentLength);
-                    const startX = p.width - 65 - (this.clothWidth * segmentLength);
+                    const startX = p.width - 55 - (this.clothWidth * segmentLength);
 
                     for (let y = 0; y < this.clothHeight; y++) {
                         this.points[y] = [];
@@ -254,7 +257,6 @@
                     }
                 }
 
-                // --- Checks if a percentage of the area is full ---
                 isFullyCharged() {
                     const startY = Math.floor(this.clothHeight * 0.25);
                     let totalPoints = 0;
@@ -269,26 +271,18 @@
                         }
                     }
 
-                    // If 15% or more of the chargeable points are charged, stop swinging.
                     const chargeThreshold = 0.15;
-                    if (totalPoints > 0 && (chargedPoints / totalPoints) >= chargeThreshold) {
-                        return true;
-                    }
-
-                    return false;
+                    return totalPoints > 0 && (chargedPoints / totalPoints) >= chargeThreshold;
                 }
 
                 update() {
                     const isCharged = this.isFullyCharged();
 
-                    // Apply forces
                     for (let y = 0; y < this.clothHeight; y++) {
                         for (let x = 0; x < this.clothWidth; x++) {
                             const point = this.points[y][x];
-
                             point.applyForce(gravity);
 
-                            // Only apply sway if not fully charged
                             if (!isCharged) {
                                 const swayStrength = p.map(y, 0, this.clothHeight, 0, 0.15);
                                 const swayForce = p.createVector(p.sin(p.frameCount * 0.025 + y * 0.1) * swayStrength, 0);
@@ -303,7 +297,6 @@
                         }
                     }
 
-                    // Apply constraints
                     for (let i = 0; i < clothIterations; i++) {
                         for (let y = 0; y < this.clothHeight; y++) {
                             for (let x = 0; x < this.clothWidth; x++) {
@@ -332,7 +325,6 @@
                 }
 
                 draw() {
-                    // Drawing logic remains the same
                     for (let y = 0; y < this.clothHeight - 1; y++) {
                         for (let x = 0; x < this.clothWidth - 1; x++) {
                             const p1 = this.points[y][x];
@@ -479,32 +471,49 @@
                     positiveCharges.length = 0;
                 });
             };
+            
+            // --- Logic to handle charging fabric with the mouse ---
+            const handleMouseRubbing = () => {
+                const rubRadius = segmentLength * 2;
+                const chargeTimeFrames = 20; // Approx 1.5s at 60fps
+
+                if (p.mouseIsPressed) {
+                    for (let y = 0; y < shirt.clothHeight; y++) {
+                        for (let x = 0; x < shirt.clothWidth; x++) {
+                            const point = shirt.points[y][x];
+                            const d = p.dist(p.mouseX, p.mouseY, point.pos.x, point.pos.y);
+
+                            if (d < rubRadius) {
+                                point.rubFrames++;
+                                if (point.rubFrames > chargeTimeFrames && point.charge === 0) {
+                                    point.charge = -1;
+                                    positiveCharges.push(p.createVector(skin.x + p.random(15, 45), point.pos.y));
+                                    point.rubFrames = 0; // Reset to prevent re-charging
+                                }
+                            } else {
+                                // Reset if mouse is pressed but not over this point
+                                point.rubFrames = 0;
+                            }
+                        }
+                    }
+                } else {
+                    // Reset all counters if mouse is not pressed
+                    for (let y = 0; y < shirt.clothHeight; y++) {
+                        for (let x = 0; x < shirt.clothWidth; x++) {
+                            shirt.points[y][x].rubFrames = 0;
+                        }
+                    }
+                }
+            }
 
             p.draw = () => {
                 p.background(220, 230, 240);
 
+                handleMouseRubbing();
+
                 shirt.update();
                 skin.draw();
                 shirt.draw();
-            };
-
-            // This function is called whenever the mouse is dragged
-            p.mouseDragged = () => {
-                // Iterate over all the points in the fabric
-                for (let y = 0; y < shirt.clothHeight; y++) {
-                    for (let x = 0; x < shirt.clothWidth; x++) {
-                        const point = shirt.points[y][x];
-                        // Calculate the distance between the mouse and the fabric point
-                        const d = p.dist(p.mouseX, p.mouseY, point.pos.x, point.pos.y);
-
-                        // If the mouse is close enough and the point isn't already charged
-                        if (d < segmentLength * 1.5 && point.charge === 0) {
-                            point.charge = -1; // Give the fabric point a negative charge
-                            // Create a corresponding positive charge on the skin
-                            positiveCharges.push(p.createVector(skin.x + p.random(15, 45), point.pos.y));
-                        }
-                    }
-                }
             };
         };
 
