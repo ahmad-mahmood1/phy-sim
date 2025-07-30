@@ -135,10 +135,10 @@
                 - <strong>Diffusion:</strong> Heat spreads to adjacent cells on the grid. <br>
                 - <strong>Cooling:</strong> The entire board slowly dissipates heat into the environment.
             </p>
-            <p>
+             <p>
                 <strong>Color Key:</strong><br>
                 <span style="color: #ff0000;">■</span> Red: High Temperature<br>
-                <span style="color: #ffff00;">■</span> Yellow: Medium Temperature<br>
+                <span style="color: #00ff00;">■</span> Green: Medium Temperature<br>
                 <span style="color: #00ffff;">■</span> Cyan: Low Temperature
             </p>
         </div>
@@ -281,21 +281,37 @@
 
             p.draw = () => {
                 // --- 1. Update Temperatures (Physics Step) ---
-                // First, calculate the next state of the grid based on the previous one.
+                // Calculate the next state of the grid. Heat dissipation (diffusion and cooling)
+                // now only occurs *inside* the MUX chip.
+                const muxStartX = MUX_CHIP.x;
+                const muxEndX = MUX_CHIP.x + MUX_CHIP.w;
+                const muxStartY = MUX_CHIP.y;
+                const muxEndY = MUX_CHIP.y + MUX_CHIP.h;
+
                 for (let x = 1; x < GRID_WIDTH - 1; x++) {
                     for (let y = 1; y < GRID_HEIGHT - 1; y++) {
-                        let neighborSum =
-                            (grid[x - 1]?.[y] ?? 0) + (grid[x + 1]?.[y] ?? 0) +
-                            (grid[x]?.[y - 1] ?? 0) + (grid[x]?.[y + 1] ?? 0);
+                        // Check if the current cell is inside the MUX boundaries
+                        if (x >= muxStartX && x < muxEndX && y >= muxStartY && y < muxEndY) {
+                            // If inside, apply diffusion and cooling physics
+                            let neighborSum =
+                                (grid[x - 1][y] ?? 0) + (grid[x + 1][y] ?? 0) +
+                                (grid[x][y - 1] ?? 0) + (grid[x][y + 1] ?? 0);
 
-                        let newTemp = grid[x][y] * (1 - DIFFUSION_RATE) + (neighborSum / 4) * DIFFUSION_RATE;
-                        nextGrid[x][y] = newTemp * COOLING_RATE;
+                            let newTemp = grid[x][y] * (1 - DIFFUSION_RATE) + (neighborSum / 4) * DIFFUSION_RATE;
+                            nextGrid[x][y] = newTemp * COOLING_RATE;
+                        } else {
+                            // If outside the MUX, it has no residual heat.
+                            // It cools instantly to the ambient temperature.
+                            nextGrid[x][y] = AMBIENT_TEMP;
+                        }
                     }
                 }
                 [grid, nextGrid] = [nextGrid, grid]; // Swap grids for the next frame's calculation.
 
+
                 // --- 2. Inject Heat for Current Frame's Render ---
-                // This happens *after* the physics update, ensuring the heat source is at max temperature for this render.
+                // This happens *after* the physics update. It will "paint" heat onto the
+                // active traces for this frame, both inside and outside the MUX.
                 const activeInput = INPUT_PADS[activeSourceIndex];
                 grid[activeInput.x][activeInput.y] = ACTIVE_TEMP;
                 grid[OUTPUT_PAD.x][OUTPUT_PAD.y] = ACTIVE_TEMP;
@@ -305,7 +321,8 @@
                 const activeInternalTrace = internalMuxPaths[activeSourceIndex];
 
                 [...activeExternalTrace, ...outputExternalTrace, ...activeInternalTrace].forEach(point => {
-                    // Inject slightly less heat into traces to make pads the hottest points
+                    // Inject slightly less heat into traces to make pads the hottest points.
+                    // Use Math.max to ensure we don't lower the temp of a dissipating cell inside the MUX.
                     grid[point.x][point.y] = Math.max(grid[point.x][point.y], ACTIVE_TEMP * 0.85);
                 });
 
