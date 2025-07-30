@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scramjet Airflow Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #0a192f;
+            font-family: 'Roboto Mono', monospace;
+            color: #e6f1ff;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            position: relative;
+            width: 90vw;
+            height: 80vh;
+            border: 1px solid #173a6b;
+            box-shadow: 0 0 20px rgba(0, 191, 255, 0.3);
+            background-color: #000;
+            touch-action: none;
+        }
+
+        .info-card {
+            position: absolute;
+            top: 15px;
+            padding: 12px;
+            background-color: rgba(10, 25, 47, 0.85);
+            border-radius: 8px;
+            border: 1px solid #173a6b;
+            font-size: 14px;
+            line-height: 1.6;
+            max-width: 250px;
+        }
+
+        #info-overlay-left {
+            left: 15px;
+        }
+        
+        #info-overlay-right {
+            right: 15px;
+        }
+
+        .info-card h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #64ffda;
+            font-size: 18px;
+            border-bottom: 1px solid #173a6b;
+            padding-bottom: 5px;
+        }
+        
+        .info-card p {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        
+        .info-card ul {
+            padding-left: 20px;
+            margin: 0;
+        }
+
+        .legend {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 1px solid #e6f1ff;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="canvas-container">
+        <div id="info-overlay-left" class="info-card">
+            <h2>Hypersonic Flight</h2>
+            <span>Simulated Speed: Mach 6</span>
+            <div class="legend">
+                <div class="legend-color" style="background-color: #87ceeb;"></div>
+                <span>Freestream Air (Cool)</span>
+            </div>
+            <div class="legend">
+                <div class="legend-color" style="background-color: #ffd700;"></div>
+                <span>Post-Shock Air (Hot)</span>
+            </div>
+        </div>
+        
+        <div id="info-overlay-right" class="info-card">
+            <h2>How It Works</h2>
+            <p>This is a <strong>wind tunnel</strong> view. The jet is stationary while air rushes past, which is identical to the jet moving through air.</p>
+            <ul>
+                <li><strong>Bow Shock:</strong> Air passing through this wave is instantly compressed, raising its temperature and pressure.</li>
+                <li><strong>Heating:</strong> The glow on the jet's nose shows extreme heat at the stagnation point.</li>
+            </ul>
+        </div>
+
+    </div>
+    <script type="module">
+        import p5 from 'p5';
+
+        // --- Particle Class ---
+        // Represents a single particle of air with different states
+        class Particle {
+            constructor(p, y) {
+                this.p = p;
+                this.pos = p.createVector(p.random(-50, 0), y);
+                this.vel = p.createVector(22, 0); // High, uniform velocity for freestream
+                this.acc = p.createVector(0, 0);
+                this.maxSpeed = 25;
+                this.history = [];
+                
+                this.state = 'freestream'; // 'freestream' or 'post-shock'
+
+                // Define colors for different states
+                this.freestreamColor = p.color(135, 206, 235, 150); // Sky Blue
+                this.postShockColor = p.color(255, 255, 0, 220);   // Bright Yellow
+                this.coolingColor = p.color(255, 69, 0, 180);      // Orange-Red
+                this.currentColor = this.freestreamColor;
+            }
+
+            applyForce(force) {
+                this.acc.add(force);
+            }
+
+            // This method is called when the particle crosses the shock wave
+            triggerShock(deflection) {
+                if (this.state === 'freestream') {
+                    this.state = 'post-shock';
+                    this.currentColor = this.postShockColor;
+                    // Slow down and deflect the particle
+                    this.vel.mult(0.6);
+                    this.vel.add(deflection);
+                }
+            }
+
+            update() {
+                this.vel.add(this.acc);
+                this.vel.limit(this.maxSpeed);
+                this.pos.add(this.vel);
+                this.acc.mult(0);
+
+                // Add to history for trail effect
+                this.history.push(this.pos.copy());
+                if (this.history.length > 30) {
+                    this.history.splice(0, 1);
+                }
+                
+                // If in post-shock state, gradually cool down
+                if (this.state === 'post-shock') {
+                    this.currentColor = this.p.lerpColor(this.currentColor, this.coolingColor, 0.05);
+                }
+            }
+
+            display() {
+                this.p.noFill();
+                this.p.beginShape();
+                for (let i = 0; i < this.history.length; i++) {
+                    const pos = this.history[i];
+                    const alpha = this.p.map(i, 0, this.history.length, 0, this.p.alpha(this.currentColor));
+                    const c = this.p.color(this.p.red(this.currentColor), this.p.green(this.currentColor), this.p.blue(this.currentColor), alpha);
+                    this.p.stroke(c);
+                    this.p.vertex(pos.x, pos.y);
+                }
+                this.p.endShape();
+                
+                this.p.noStroke();
+                this.p.fill(this.currentColor);
+                this.p.ellipse(this.pos.x, this.pos.y, 4, 4);
+            }
+
+            reset(height) {
+                if (this.pos.x > this.p.width + 10 || this.pos.y < -10 || this.pos.y > height + 10) {
+                    this.pos.x = this.p.random(-50, 0);
+                    this.pos.y = this.p.random(0, height);
+                    this.vel = this.p.createVector(22, 0);
+                    this.history = [];
+                    this.state = 'freestream';
+                    this.currentColor = this.freestreamColor;
+                }
+            }
+        }
+
+        // --- Main p5.js Sketch ---
+        const sketch = (p) => {
+            let particles = [];
+            const numParticles = 500;
+            let scramjetVertices = [];
+            let shockWaveVertices = [];
+            let nosePosition;
+
+            p.setup = () => {
+                const container = document.getElementById('canvas-container');
+                const w = container.offsetWidth;
+                const h = container.offsetHeight;
+                
+                const cnv = p.createCanvas(w, h);
+                cnv.parent('canvas-container');
+                
+                // Define the scramjet shape
+                const jetWidth = p.width * 0.4;
+                const jetHeight = p.height * 0.3;
+                const centerX = p.width / 2;
+                const centerY = p.height / 2;
+
+                nosePosition = p.createVector(centerX + jetWidth * 0.5, centerY);
+                
+                // *** SCRAMJET SHAPE ***
+                scramjetVertices = [
+                    nosePosition, // 0: Nose
+                    p.createVector(centerX + jetWidth * 0.2, centerY - jetHeight * 0.1), // 1: Right forward fuselage
+                    p.createVector(centerX + jetWidth * 0.1, centerY - jetHeight * 0.4), // 2: Right wing root
+                    p.createVector(centerX - jetWidth * 0.3, centerY - jetHeight * 0.5), // 3: Right wing tip
+                    p.createVector(centerX - jetWidth * 0.4, centerY - jetHeight * 0.2), // 4: Right aft wing
+                    p.createVector(centerX - jetWidth * 0.5, centerY - jetHeight * 0.25), // 5: Right nozzle edge
+                    p.createVector(centerX - jetWidth * 0.45, centerY), // 6: Center nozzle
+                    p.createVector(centerX - jetWidth * 0.5, centerY + jetHeight * 0.25), // 7: Left nozzle edge
+                    p.createVector(centerX - jetWidth * 0.4, centerY + jetHeight * 0.2), // 8: Left aft wing
+                    p.createVector(centerX - jetWidth * 0.3, centerY + jetHeight * 0.5), // 9: Left wing tip
+                    p.createVector(centerX + jetWidth * 0.1, centerY + jetHeight * 0.4), // 10: Left wing root
+                    p.createVector(centerX + jetWidth * 0.2, centerY + jetHeight * 0.1), // 11: Left forward fuselage
+                ];
+
+
+                // Define the bow shock wave shape
+                const shockOffset = 20;
+                const shockWidth = p.width * 0.8;
+                shockWaveVertices = [
+                    p.createVector(nosePosition.x + shockOffset, centerY - shockWidth / 2),
+                    p.createVector(nosePosition.x + shockOffset, centerY),
+                    p.createVector(nosePosition.x + shockOffset, centerY + shockWidth / 2)
+                ];
+
+                // Initialize air particles
+                particles = [];
+                for (let i = 0; i < numParticles; i++) {
+                    particles.push(new Particle(p, p.random(p.height)));
+                }
+            };
+
+            p.draw = () => {
+                p.background(10, 25, 47);
+
+                // Update and display particles
+                particles.forEach(particle => {
+                    if (particle.state === 'freestream') {
+                        // Check for crossing the shock wave
+                        if (particle.pos.x > nosePosition.x + 20) {
+                            const deflectionAngle = (particle.pos.y > p.height / 2) ? -0.5 : 0.5;
+                            const deflection = p.createVector(0, deflectionAngle * p.random(2, 4));
+                            particle.triggerShock(deflection);
+                        }
+                    } else { // post-shock state
+                        // Simple repulsion from the body for post-shock particles
+                        const repulsion = checkBodyCollision(particle.pos);
+                        if (repulsion) {
+                            particle.applyForce(repulsion);
+                        }
+                    }
+
+                    particle.update();
+                    particle.display();
+                    particle.reset(p.height);
+                });
+
+                drawShockwave();
+                drawScramjet();
+            };
+            
+            p.windowResized = () => {
+                const container = document.getElementById('canvas-container');
+                const w = container.offsetWidth;
+                const h = container.offsetHeight;
+                p.resizeCanvas(w, h);
+                p.setup();
+            };
+
+            function drawScramjet() {
+                // Draw the main body
+                p.fill(180, 190, 200);
+                p.stroke(230, 240, 255);
+                p.strokeWeight(1.5);
+                p.beginShape();
+                scramjetVertices.forEach(v => p.vertex(v.x, v.y));
+                p.endShape(p.CLOSE);
+
+                // Draw heating effect on leading edges
+                p.noStroke();
+                const leadingEdges = [
+                    scramjetVertices[0], scramjetVertices[1], scramjetVertices[2], scramjetVertices[3], // Right side
+                    scramjetVertices[0], scramjetVertices[11], scramjetVertices[10], scramjetVertices[9] // Left side
+                ];
+                
+                // Draw heat along the right side
+                for (let i = 0; i < 3; i++) {
+                    const v1 = leadingEdges[i];
+                    const v2 = leadingEdges[i+1];
+                    for(let j=0; j<1; j+=0.05) {
+                        const x = p.lerp(v1.x, v2.x, j);
+                        const y = p.lerp(v1.y, v2.y, j);
+                        const heatColor = p.lerpColor(p.color(255, 255, 0, 150), p.color(255, 50, 0, 100), j);
+                        p.fill(heatColor);
+                        p.ellipse(x, y, 15, 15);
+                    }
+                }
+                 // Draw heat along the left side
+                for (let i = 4; i < 7; i++) {
+                    const v1 = leadingEdges[i];
+                    const v2 = leadingEdges[i+1];
+                    for(let j=0; j<1; j+=0.05) {
+                        const x = p.lerp(v1.x, v2.x, j);
+                        const y = p.lerp(v1.y, v2.y, j);
+                        const heatColor = p.lerpColor(p.color(255, 255, 0, 150), p.color(255, 50, 0, 100), j);
+                        p.fill(heatColor);
+                        p.ellipse(x, y, 15, 15);
+                    }
+                }
+
+                // Stagnation point heating (nose)
+                p.fill(255, 255, 255, 200);
+                p.ellipse(nosePosition.x, nosePosition.y, 25, 25);
+                p.fill(255, 255, 150, 150);
+                p.ellipse(nosePosition.x, nosePosition.y, 35, 35);
+            }
+
+            function drawShockwave() {
+                p.noFill();
+                p.strokeWeight(3);
+                
+                // Create a gradient for the shockwave to give it a glowing effect
+                const c1 = p.color(255, 220, 0, 0);
+                const c2 = p.color(255, 100, 0, 150);
+
+                for(let i=0; i<1; i+=0.1) {
+                    const inter = p.lerpColor(c1, c2, i);
+                    p.stroke(inter);
+                    p.beginShape();
+                    p.vertex(shockWaveVertices[0].x - i*20, shockWaveVertices[0].y);
+                    p.vertex(shockWaveVertices[1].x - i*30, shockWaveVertices[1].y);
+                    p.vertex(shockWaveVertices[2].x - i*20, shockWaveVertices[2].y);
+                    p.endShape();
+                }
+            }
+
+            function checkBodyCollision(particlePos) {
+                let closestDist = Infinity;
+                let closestNormal = null;
+
+                for (let i = 0; i < scramjetVertices.length; i++) {
+                    const v1 = scramjetVertices[i];
+                    const v2 = scramjetVertices[(i + 1) % scramjetVertices.length];
+                    const d = p5.Vector.sub(v2, v1);
+                    const toParticle = p5.Vector.sub(particlePos, v1);
+                    const normal = p.createVector(-d.y, d.x).normalize();
+                    
+                    if (toParticle.dot(normal) > 0) {
+                        const proj = toParticle.dot(d.normalize());
+                        if (proj > 0 && proj < d.mag()) {
+                             const distToLine = toParticle.dot(normal);
+                             if (distToLine < closestDist) {
+                                closestDist = distToLine;
+                                closestNormal = normal;
+                             }
+                        }
+                    }
+                }
+
+                const repulsionZone = 20;
+                if (closestDist < repulsionZone && closestNormal) {
+                    const strength = p.map(closestDist, 0, repulsionZone, 1.0, 0);
+                    return closestNormal.copy().mult(strength);
+                }
+                return null;
+            }
+        };
+        
+        window.addEventListener('load', () => {
+            const container = window.document.getElementById('canvas-container');
+            new p5(sketch, container);
+        });
+
+    </script>
+</body>
+
+</html>
