@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            /* Changed to column to stack heading and main container */
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f4f8;
+            font-family: 'Roboto Mono', monospace;
+            color: #333;
+            box-sizing: border-box;
+        }
+
+        #page-title {
+            text-align: center;
+            width: 100%;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            font-size: 1.8em;
+        }
+
+        #main-container {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            /* Allow wrapping on smaller screens */
+            justify-content: center;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        #simulation-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #34495e;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .info-panel {
+            padding: 15px 20px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            box-sizing: border-box;
+        }
+
+        #controls {
+            text-align: center;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        label {
+            font-weight: 700;
+            margin-right: 10px;
+        }
+
+        input[type="range"] {
+            width: 200px;
+            vertical-align: middle;
+        }
+
+        #angle-display {
+            display: inline-block;
+            min-width: 50px;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+
+        #data-container {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        #data-container h3 {
+            width: 100%;
+            text-align: center;
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+            color: #2c3e50;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 5px;
+        }
+
+        .data-section p {
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+
+        .key-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .key-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 1px solid rgba(0, 0, 0, 0.2);
+        }
+    </style>
+    <script type="importmap">
+{
+    "imports": {
+        "p5": "https://cdn.jsdelivr.net/npm/p5@1.9.0/+esm"
+    }
+}
+</script>
+
+</head>
+
+<body>
+    <h1 id="page-title">Hypersonic Jet Flight Simulator</h1>
+    <div id="main-container">
+        <div id="simulation-column">
+            <div id="canvas-container">
+                <!-- p5.js canvas will be inserted here -->
+            </div>
+            <div id="controls" class="info-panel">
+                <label for="wing-angle-slider">Wing Angle:</label>
+                <input type="range" id="wing-angle-slider" min="-20" max="5" value="2" step="0.1">
+                <span id="angle-display">2.0°</span>
+            </div>
+        </div>
+        <div id="data-container" class="info-panel">
+            <!-- Data will be populated by p5.js -->
+        </div>
+    </div>
+
+
+    <script type="module">
+        import p5 from 'p5';
+
+        const sketch = (p) => {
+            // --- Environment & Physics Constants ---
+            const GRAVITY = 9.81; // m/s^2
+            const AIR_DENSITY = 0.0889; // kg/m^3 (approx. at 20km altitude)
+            const MACH_5_SPEED = 1701; // m/s (approx. Mach 5 at 20km)
+
+            // --- Jet Properties ---
+            let jet = {
+                mass: 15000, // kg
+                wingArea: 120, // m^2
+                pos: null, // p5.Vector for position
+                vel: null, // p5.Vector for velocity
+            };
+
+            // --- Simulation State ---
+            let wingAngle = 2; // degrees, our control variable
+            let liftForce = 0;
+            let dragForce = 0;
+            let timeScale = 1; // Slow down simulation time for visibility
+            let clouds = [];
+            let groundOffset = 0;
+
+
+            // --- UI Elements ---
+            let angleSlider;
+            let angleDisplay;
+            let dataContainer;
+
+            p.setup = () => {
+                const canvasWidth = Math.min(window.innerWidth * 0.9, 800);
+                const canvasHeight = 600; 
+                const canvas = p.createCanvas(canvasWidth, canvasHeight);
+                canvas.parent('canvas-container');
+                p.angleMode(p.DEGREES);
+
+                // Initialize jet's state
+                jet.pos = p.createVector(150, p.height / 2);
+                jet.vel = p.createVector(0, 0); // Vertical velocity starts at 0
+
+                // Initialize clouds for the background
+                for (let i = 0; i < 15; i++) { // More clouds for a taller canvas
+                    clouds.push({
+                        x: p.random(0, p.width),
+                        y: p.random(20, p.height - 100),
+                        size: p.random(60, 120),
+                        speed: p.random(1, 2.5)
+                    });
+                }
+
+                // Setup slider and display
+                angleSlider = p.select('#wing-angle-slider');
+                angleDisplay = p.select('#angle-display');
+                dataContainer = p.select('#data-container');
+                angleSlider.input(() => {
+                    wingAngle = angleSlider.value();
+                    angleDisplay.html(`${p.nf(wingAngle, 1, 1)}°`);
+                });
+            };
+
+            p.draw = () => {
+                p.background(135, 206, 250); // Sky blue
+
+                drawClouds();
+                drawGround();
+
+                updatePhysics();
+
+                drawJet(jet.pos.x, jet.pos.y, wingAngle);
+                updateDataDisplay();
+                drawForceVectors(jet.pos.x, jet.pos.y);
+            };
+
+            function updatePhysics() {
+                const angleOfAttack = wingAngle;
+                const liftCoeff = angleOfAttack * 0.06;
+                const dragCoeff_parasitic = 0.015;
+                const dragCoeff_induced = 0.05 * p.pow(liftCoeff, 2);
+                const dragCoeff = dragCoeff_parasitic + dragCoeff_induced;
+
+                liftForce = 0.5 * AIR_DENSITY * p.pow(MACH_5_SPEED, 2) * jet.wingArea * liftCoeff;
+                dragForce = 0.5 * AIR_DENSITY * p.pow(MACH_5_SPEED, 2) * jet.wingArea * dragCoeff;
+
+                const gravityForce = jet.mass * GRAVITY;
+                const netForceY = liftForce - gravityForce;
+                const accelerationY = netForceY / jet.mass;
+
+                jet.vel.y += accelerationY * (p.deltaTime / 1000) * timeScale;
+                jet.pos.y -= jet.vel.y * (p.deltaTime / 1000) * timeScale;
+
+                // Boundary conditions adjusted for taller canvas
+                if (jet.pos.y > p.height - 55) {
+                    jet.pos.y = p.height - 55;
+                    jet.vel.y = 0;
+                }
+                if (jet.pos.y < 55) {
+                    jet.pos.y = 55;
+                    jet.vel.y = 0;
+                }
+            }
+
+            function drawClouds() {
+                p.noStroke();
+                p.fill(255, 255, 255, 180);
+                for (let cloud of clouds) {
+                    p.ellipse(cloud.x, cloud.y, cloud.size, cloud.size * 0.6);
+                    p.ellipse(cloud.x + cloud.size * 0.3, cloud.y + 10, cloud.size * 0.8, cloud.size * 0.5);
+                    p.ellipse(cloud.x - cloud.size * 0.3, cloud.y + 10, cloud.size * 0.8, cloud.size * 0.5);
+                    cloud.x -= cloud.speed;
+                    if (cloud.x < -cloud.size) {
+                        cloud.x = p.width + cloud.size;
+                        cloud.y = p.random(20, p.height - 100);
+                    }
+                }
+            }
+
+            function drawJet(x, y, angle) {
+                p.push();
+                p.translate(x, y);
+
+                p.noStroke();
+                if (p.frameCount % 4 < 2) {
+                    p.fill(255, 150, 0, 200);
+                    p.triangle(-55, 0, -65, 5, -65, -5);
+                } else {
+                    p.fill(255, 220, 0, 220);
+                    p.triangle(-55, 0, -70, 7, -70, -7);
+                }
+
+                p.fill(220);
+                p.stroke(50);
+                p.strokeWeight(2);
+                p.beginShape();
+                p.vertex(-50, 0); p.vertex(20, -8); p.vertex(60, 0); p.vertex(20, 8);
+                p.endShape(p.CLOSE);
+
+                p.fill(100, 150, 255);
+                p.noStroke();
+                p.arc(35, -3, 25, 15, 180, 360);
+
+                p.stroke(50);
+                p.fill(180);
+                p.push();
+                p.rotate(-angle);
+                p.rect(-20, -2, 40, 4, 2);
+                p.pop();
+
+                p.beginShape();
+                p.vertex(-45, 0); p.vertex(-30, -15); p.vertex(-25, 0);
+                p.endShape(p.CLOSE);
+
+                p.pop();
+            }
+
+            function drawGround() {
+                p.fill(115, 168, 87);
+                p.noStroke();
+                p.rect(0, p.height - 20, p.width, 20);
+
+                p.stroke(84, 122, 64);
+                p.strokeWeight(2);
+                const groundSpeed = 4;
+                groundOffset = (groundOffset - groundSpeed) % 40;
+
+                for (let x = groundOffset; x < p.width; x += 40) {
+                    p.line(x, p.height - 20, x + 15, p.height);
+                }
+            }
+
+            function updateDataDisplay() {
+                const gravityForce = jet.mass * GRAVITY;
+                const liftToGravityRatio = liftForce / gravityForce;
+                const liftToDragRatio = dragForce > 0 ? liftForce / dragForce : 0;
+
+                const flightDataHTML = `
+            <div class="data-section">
+                <h3>Flight Status</h3>
+                <p><strong>Speed:</strong> Mach 5 (${MACH_5_SPEED} m/s)</p>
+                <p><strong>Altitude:</strong> ${p.nf(20000 - (jet.pos.y - p.height / 2) * 10, 0, 0)} m</p>
+                <p><strong>Vertical Speed:</strong> ${p.nf(jet.vel.y, 1, 1)} m/s</p>
+            </div>
+            <div class="data-section">
+                <h3>Aerodynamics</h3>
+                <p><strong>Wing Angle (AoA):</strong> ${p.nf(wingAngle, 1, 1)}°</p>
+                <p><strong>Lift Force:</strong> ${p.nf(liftForce / 1000, 0, 1)} kN</p>
+                <p><strong>Drag Force:</strong> ${p.nf(dragForce / 1000, 0, 1)} kN</p>
+            </div>
+            <div class="data-section">
+                 <h3>Performance Ratios</h3>
+                <p><strong>Lift/Gravity Ratio:</strong> ${p.nf(liftToGravityRatio, 1, 2)} (Optimal: 1.0)</p>
+                <p><strong>Lift/Drag Ratio:</strong> ${p.nf(liftToDragRatio, 1, 2)} (Higher is better)</p>
+            </div>
+        `;
+
+                const keyHTML = `
+            <div class="data-section">
+                <h3>Force Key</h3>
+                <div class="key-item"><div class="key-color" style="background-color: rgb(0, 180, 0);"></div>Lift</div>
+                <div class="key-item"><div class="key-color" style="background-color: rgb(220, 0, 0);"></div>Drag</div>
+                <div class="key-item"><div class="key-color" style="background-color: rgb(0, 0, 220);"></div>Gravity</div>
+            </div>
+        `;
+
+                dataContainer.html(`${flightDataHTML}${keyHTML}`);
+            }
+
+            function drawForceVectors(x, y) {
+                const liftVis = p.constrain(liftForce / 15000, 0, 100);
+                const dragVis = p.constrain(dragForce / 10000, 0, 100);
+                const gravityVis = p.constrain((jet.mass * GRAVITY) / 15000, 0, 100);
+
+                p.push();
+                p.translate(x, y);
+
+                p.stroke(0, 180, 0); p.fill(0, 180, 0);
+                drawArrow(p.createVector(0, 0), p.createVector(0, -liftVis));
+                p.stroke(220, 0, 0); p.fill(220, 0, 0);
+                drawArrow(p.createVector(0, 0), p.createVector(-dragVis, 0));
+                p.stroke(0, 0, 220); p.fill(0, 0, 220);
+                drawArrow(p.createVector(0, 0), p.createVector(0, gravityVis));
+
+                p.pop();
+            }
+
+            function drawArrow(base, vec) {
+                p.push();
+                p.strokeWeight(2.5);
+                p.line(base.x, base.y, base.x + vec.x, base.y + vec.y);
+                p.rotate(vec.heading());
+                let arrowSize = 7;
+                p.translate(vec.mag() - arrowSize, 0);
+                p.noStroke();
+                p.triangle(0, arrowSize / 2, 0, -arrowSize / 2, arrowSize, 0);
+                p.pop();
+            }
+
+            p.windowResized = () => {
+                const canvasWidth = Math.min(window.innerWidth * 0.9, 800);
+                p.resizeCanvas(canvasWidth, 600); // Keep height consistent on resize
+                clouds.forEach(cloud => {
+                    cloud.x = p.random(0, p.width);
+                });
+            }
+        };
+
+        new p5(sketch);
+    </script>
+</body>
+
+</html>

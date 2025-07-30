@@ -1,176 +1,388 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scramjet Airflow Simulation</title>
+    <title>2D Rocket Launch Simulation</title>
     <style>
         body {
             margin: 0;
-            padding: 0;
-            overflow: hidden;
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-start;
+            padding: 20px;
             font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
         }
-        canvas {
+
+        #simulation-container {
+            display: flex;
+            flex-direction: row;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            position: relative;
+            background-color: #ffffff;
+        }
+
+        #control-panel {
+            width: 250px;
+            padding: 15px;
+            background-color: #ffffff;
+            border-left: 1px solid #ddd;
+        }
+
+        .slider-container {
+            margin-bottom: 15px;
+        }
+
+        label {
             display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
         }
-        #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.7);
+
+        input[type="range"] {
+            width: 100%;
+        }
+
+        .button-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        button {
+            padding: 8px 15px;
+            background-color: #4CAF50;
             color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #status-panel {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
             padding: 10px;
-            border-radius: 5px;
-            max-width: 300px;
-            font-size: 14px;
+        }
+
+        .status-item {
+            margin-bottom: 8px;
+        }
+
+        .status-label {
+            font-weight: bold;
+            display: inline-block;
+            width: 120px;
+        }
+
+        .status-value {
+            color: #333;
+        }
+
+        #escape-velocity {
+            font-weight: bold;
+            color: #2196F3;
+        }
+
+        .instructions {
+            margin-top: 15px;
+            font-size: 12px;
+            color: #666;
         }
     </style>
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+</head>
+
+<body>
+    <div id="simulation-container">
+        <div id="canvas-container"></div>
+        <div id="control-panel">
+            <h2>Rocket Launch Controls</h2>
+            <div class="slider-container">
+                <label for="velocity-slider">Initial Velocity (km/s): <span id="velocity-value">10</span></label>
+                <input type="range" id="velocity-slider" min="1" max="30" value="10" step="0.1">
+            </div>
+            <div class="slider-container">
+                <label for="angle-slider">Launch Angle (°): <span id="angle-value">90</span></label>
+                <input type="range" id="angle-slider" min="0" max="90" value="90" step="1">
+            </div>
+            <div class="button-container">
+                <button id="launch-button">Launch</button>
+                <button id="reset-button">Reset</button>
+            </div>
+            <div id="status-panel">
+                <div class="status-item">
+                    <span class="status-label">Current Velocity:</span>
+                    <span id="current-velocity" class="status-value">0 km/s</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Escape Velocity:</span>
+                    <span id="escape-velocity" class="status-value">11.2 km/s</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Status:</span>
+                    <span id="mission-status" class="status-value">Ready</span>
+                </div>
+            </div>
+            <div class="instructions">
+                <p>• Adjust velocity and angle using sliders</p>
+                <p>• Press Launch to start the simulation</p>
+                <p>• Reset to clear and restart</p>
+                <p>• Escape velocity for Earth: ~11.2 km/s</p>
+            </div>
+        </div>
+    </div>
+
     <script type="importmap">
         {
             "imports": {
-                "p5": "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"
+                "p5": "https://esm.sh/p5@1.4.0"
             }
         }
     </script>
-</head>
-<body>
-    <div id="info">
-        <h2>Scramjet Airflow Simulation</h2>
-        <p>Top-down view of a scramjet at Mach 6</p>
-        <p>• Blue particles: Pre-shock airflow</p>
-        <p>• Red particles: Post-shock airflow</p>
-        <p>• Yellow glow: Heating on leading edges</p>
-        <p>• White line: Bow shock wave</p>
-    </div>
-    <script type="module">
-        import 'p5';
 
-        new window.p5((sketch) => {
-            // Particle class
-            class Particle {
-                constructor(x, y) {
-                    this.position = sketch.createVector(x, y);
-                    this.velocity = sketch.createVector(sketch.random(3, 5), 0);
-                    this.shocked = false;
+    <script type="module">
+        import p5 from 'p5';
+
+        // Constants
+        const G = 6.67430e-11; // Gravitational constant (m^3 kg^-1 s^-2)
+        const M_EARTH = 5.972e24; // Mass of Earth (kg)
+        const R_EARTH = 6.371e6; // Radius of Earth (m)
+        const SCALE = 1000; // Scale factor for visualization (pixels per meter)
+        const GROUND_LEVEL = 500; // Ground level in canvas coordinates
+
+        // Calculate escape velocity from Earth's surface
+        const escapeVelocity = Math.sqrt(2 * G * M_EARTH / R_EARTH) / 1000; // Convert to km/s
+        document.getElementById('escape-velocity').textContent = escapeVelocity.toFixed(1) + " km/s";
+
+        // Simulation state
+        let isLaunched = false;
+        let isSimulationComplete = false;
+        let rocketX = 0;
+        let rocketY = 0;
+        let velocityX = 0;
+        let velocityY = 0;
+        let initialVelocity = 10 * 1000; // Initial velocity in m/s
+        let launchAngle = Math.PI / 2; // 90 degrees in radians
+        let rocketTrail = [];
+        const maxTrailLength = 200;
+
+        // Create a new p5 instance in instance mode
+        const sketch = (p) => {
+            p.setup = () => {
+                const canvas = p.createCanvas(600, 600);
+                canvas.parent('canvas-container');
+
+                // Set up UI event listeners
+                document.getElementById('launch-button').addEventListener('click', launchRocket);
+                document.getElementById('reset-button').addEventListener('click', resetSimulation);
+
+                document.getElementById('velocity-slider').addEventListener('input', updateVelocity);
+                document.getElementById('angle-slider').addEventListener('input', updateAngle);
+
+                updateVelocity();
+                updateAngle();
+                resetSimulation();
+            };
+
+            p.draw = () => {
+                p.background(240);
+
+                // Draw ground
+                p.fill(100, 200, 100);
+                p.noStroke();
+                p.rect(0, GROUND_LEVEL, p.width, p.height - GROUND_LEVEL);
+
+                // Draw Earth center
+                p.fill(50, 50, 200);
+                p.ellipse(p.width / 2, p.height - R_EARTH * SCALE / 1000, 20, 20);
+
+                // Update and draw rocket if launched
+                if (isLaunched) {
+                    updateRocket();
+                    drawRocket();
+
+                    // Check for collision with ground
+                    if (rocketY >= GROUND_LEVEL) {
+                        isLaunched = false;
+                        isSimulationComplete = true;
+                        document.getElementById('mission-status').textContent = "Crashed";
+                        document.getElementById('mission-status').style.color = "red";
+                    }
                 }
-                
-                update() {
-                    this.position.add(this.velocity);
+
+                // Draw rocket trail
+                drawTrail();
+
+                // Draw escape velocity indicator if rocket hasn't escaped yet
+                if (!isSimulationComplete) {
+                    drawEscapeVelocityIndicator();
                 }
-                
-                display() {
-                    sketch.noStroke();
-                    sketch.fill(this.shocked ? 'rgba(255, 50, 50, 0.8)' : 'rgba(0, 150, 255, 0.8)');
-                    sketch.circle(this.position.x, this.position.y, 5);
+            };
+
+            function launchRocket() {
+                if (!isLaunched) {
+                    // Convert initial velocity from km/s to m/s
+                    initialVelocity = parseFloat(document.getElementById('velocity-slider').value) * 1000;
+                    launchAngle = parseFloat(document.getElementById('angle-slider').value) * Math.PI / 180;
+
+                    // Calculate initial velocity components
+                    velocityX = initialVelocity * Math.cos(launchAngle);
+                    velocityY = -initialVelocity * Math.sin(launchAngle); // Negative because y increases downward
+
+                    // Reset rocket position and trail
+                    rocketX = 50;
+                    rocketY = GROUND_LEVEL - 10;
+                    rocketTrail = [];
+
+                    isLaunched = true;
+                    isSimulationComplete = false;
+                    document.getElementById('mission-status').textContent = "In Flight";
+                    document.getElementById('mission-status').style.color = "blue";
                 }
             }
 
-            // Scramjet shape
-            let scramjet;
-            let particles = [];
-            let shockLine = [];
-            let shockWidth = 5;
-            let heatingIntensity = 0;
+            function resetSimulation() {
+                isLaunched = false;
+                isSimulationComplete = false;
+                rocketX = 50;
+                rocketY = GROUND_LEVEL - 10;
+                velocityX = 0;
+                velocityY = 0;
+                rocketTrail = [];
+                document.getElementById('mission-status').textContent = "Ready";
+                document.getElementById('mission-status').style.color = "black";
+            }
 
-            sketch.setup = () => {
-                sketch.createCanvas(sketch.windowWidth, sketch.windowHeight);
-                sketch.background(0);
-                
-                // Define scramjet shape
-                scramjet = [
-                    sketch.createVector(200, sketch.height/2 - 50),
-                    sketch.createVector(220, sketch.height/2 - 70),
-                    sketch.createVector(250, sketch.height/2 - 80),
-                    sketch.createVector(400, sketch.height/2 - 50),
-                    sketch.createVector(400, sketch.height/2 + 50),
-                    sketch.createVector(250, sketch.height/2 + 80),
-                    sketch.createVector(220, sketch.height/2 + 70),
-                    sketch.createVector(200, sketch.height/2 + 50)
-                ];
-                
-                // Initialize particles
-                for (let i = 0; i < 3100; i++) {
-                    particles.push(new Particle(
-                        sketch.random(-50, 0),
-                        sketch.random(sketch.height)
-                    ));
-                }
-                
-                // Initialize shock line
-                for (let i = 0; i < sketch.height; i += 5) {
-                    shockLine.push(sketch.createVector(180, i));
-                }
-            };
+            function updateVelocity() {
+                const velocity = parseFloat(document.getElementById('velocity-slider').value);
+                document.getElementById('velocity-value').textContent = velocity;
+            }
 
-            sketch.draw = () => {
-                sketch.background(0);
-                
-                // Update and display particles
-                for (let i = particles.length - 1; i >= 0; i--) {
-                    const p = particles[i];
-                    p.update();
-                    
-                    // Check if particle crosses shock line
-                    if (!p.shocked && p.position.x > 180 && p.position.x < 190) {
-                        p.shocked = true;
-                        p.velocity.mult(0.6);
-                        p.velocity.rotate(sketch.random(-0.2, 0.2));
-                    }
-                    
-                    // Remove particles that go off-screen
-                    if (p.position.x > sketch.width + 50 || 
-                        p.position.y < -50 || 
-                        p.position.y > sketch.height + 50) {
-                        particles.splice(i, 1);
-                    }
-                    
-                    // Add new particles
-                    if (sketch.frameCount % 2 === 0) {
-                        // particles.push(new Particle(
-                        //     sketch.random(-50, 0),
-                        //     sketch.random(sketch.height)
-                        // ));
-                    }
-                    
-                    p.display();
+            function updateAngle() {
+                const angle = parseInt(document.getElementById('angle-slider').value);
+                document.getElementById('angle-value').textContent = angle;
+            }
+
+            function updateRocket() {
+                // Calculate distance from Earth's center to rocket
+                const dx = p.width / 2 - rocketX;
+                const dy = (p.height - R_EARTH * SCALE / 1000) - rocketY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // Calculate gravitational force (F = G * m1 * m2 / r^2)
+                // We use a simplified model where the rocket's mass is assumed to be 1
+                const forceMagnitude = G * M_EARTH / (distance * distance);
+
+                // Calculate direction of force (toward Earth's center)
+                const forceAngle = Math.atan2(dy, dx);
+
+                // Calculate acceleration components (F = ma, so a = F/m)
+                const ax = forceMagnitude * Math.cos(forceAngle);
+                const ay = forceMagnitude * Math.sin(forceAngle);
+
+                // Update velocity (v = v0 + at)
+                const dt = 0.016; // Assuming 60 FPS
+                velocityX += ax * dt;
+                velocityY += ay * dt;
+
+                // Update position (p = p0 + vt)
+                rocketX += velocityX * dt * SCALE / 1000;
+                rocketY += velocityY * dt * SCALE / 1000;
+
+                // Add current position to trail
+                rocketTrail.push({ x: rocketX, y: rocketY });
+                if (rocketTrail.length > maxTrailLength) {
+                    rocketTrail.shift();
                 }
-                
-                // Draw scramjet
-                sketch.noStroke();
-                sketch.fill(200, 200, 200, 100);
-                sketch.beginShape();
-                for (let v of scramjet) {
-                    sketch.vertex(v.x, v.y);
+
+                // Check if rocket has escaped Earth's gravity
+                const currentSpeed = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
+                document.getElementById('current-velocity').textContent = (currentSpeed / 1000).toFixed(1) + " km/s";
+
+                // If the rocket's speed exceeds escape velocity and it's moving away from Earth
+                if (!isSimulationComplete &&
+                    currentSpeed > escapeVelocity * 1000 &&
+                    Math.sqrt(dx * dx + dy * dy) > R_EARTH * SCALE / 1000 &&
+                    velocityX * dx + velocityY * dy > 0) {
+
+                    isLaunched = false;
+                    isSimulationComplete = true;
+                    document.getElementById('mission-status').textContent = "Escaped!";
+                    document.getElementById('mission-status').style.color = "green";
                 }
-                sketch.endShape(sketch.CLOSE);
-                
-                // Heating effect
-                heatingIntensity = sketch.constrain(heatingIntensity + 0.1, 0, 100);
-                sketch.fill(255, 255, 0, heatingIntensity);
-                sketch.beginShape();
-                sketch.vertex(scramjet[0].x, scramjet[0].y);
-                sketch.vertex(scramjet[1].x, scramjet[1].y);
-                sketch.vertex(scramjet[2].x, scramjet[2].y);
-                sketch.vertex(scramjet[7].x, scramjet[7].y);
-                sketch.vertex(scramjet[6].x, scramjet[6].y);
-                sketch.vertex(scramjet[5].x, scramjet[5].y);
-                sketch.endShape(sketch.CLOSE);
-                
-                // Draw shock line
-                sketch.stroke(255);
-                sketch.strokeWeight(1);
-                sketch.noFill();
-                sketch.beginShape();
-                for (let i = 0; i < shockLine.length; i++) {
-                    let v = shockLine[i];
-                    v.x = 180 + sketch.sin(i * 0.1 + sketch.frameCount * 0.05) * 5;
-                    sketch.vertex(v.x, v.y);
+            }
+
+            function drawRocket() {
+                p.push();
+                p.translate(rocketX, rocketY);
+                p.rotate(Math.atan2(velocityY, velocityX));
+
+                // Draw rocket body
+                p.fill(255, 50, 50);
+                p.stroke(0);
+                p.strokeWeight(1);
+                p.rect(-5, -15, 10, 30);
+
+                // Draw nose cone
+                p.fill(200, 200, 255);
+                p.triangle(-5, -15, 5, -15, 0, -25);
+
+                // Draw fins
+                p.fill(100, 100, 255);
+                p.triangle(-5, 15, -15, 15, -5, 25);
+                p.triangle(5, 15, 15, 15, 5, 25);
+
+                p.pop();
+            }
+
+            function drawTrail() {
+                p.stroke(255, 100, 100, 150);
+                p.strokeWeight(2);
+                p.noFill();
+
+                p.beginShape();
+                for (let i = 0; i < rocketTrail.length; i++) {
+                    p.vertex(rocketTrail[i].x, rocketTrail[i].y);
                 }
-                sketch.endShape();
-            };
-        });
+                p.endShape();
+            }
+
+            function drawEscapeVelocityIndicator() {
+                // Draw a circle showing where escape velocity would be achieved
+                const escapeRadius = R_EARTH * SCALE / 1000 * 2; // Double the Earth's radius for visual clarity
+                p.stroke(255, 200, 0, 150);
+                p.strokeWeight(1);
+                p.noFill();
+                p.ellipse(p.width / 2, p.height - R_EARTH * SCALE / 1000, escapeRadius * 2, escapeRadius * 2);
+
+                // Add label
+                p.fill(255, 200, 0);
+                p.noStroke();
+                p.textSize(12);
+                p.text("Escape Velocity Radius", p.width / 2, p.height - R_EARTH * SCALE / 1000 - escapeRadius / 2 - 10);
+            }
+        };
+
+        // Create the p5 instance
+        new p5(sketch);
     </script>
 </body>
+
 </html>

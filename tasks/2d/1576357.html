@@ -10,135 +10,6 @@
     <style>
         body {
             font-family: 'Roboto Mono', monospace;
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: #0c0a18;
-            color: #e0e0e0;
-            overflow-y: auto; /* Allow scrolling on smaller screens */
-        }
-        #main-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 1.5rem; /* 24px */
-            padding: 1rem; /* 16px */
-            width: 100%;
-        }
-        #simulation-wrapper {
-            display: flex;
-            flex-direction: column; /* Stack canvas and controls vertically */
-            align-items: center; /* Center items horizontally */
-            gap: 2rem; /* 32px */
-            width: 100%;
-        }
-        #canvas-container {
-            position: relative;
-            border: 2px solid #4a5568;
-            border-radius: 0.5rem; /* 8px */
-            box-shadow: 0 0 25px rgba(74, 85, 104, 0.5);
-            background-color: #1a202c;
-            overflow: hidden;
-            flex-shrink: 0; /* Prevent canvas from shrinking in flex layout */
-        }
-        #info-panel {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background-color: rgba(26, 32, 44, 0.8);
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 12px;
-            line-height: 1.6;
-            pointer-events: none;
-        }
-        #controls-panel {
-            display: flex;
-            flex-direction: row; /* Align controls horizontally */
-            flex-wrap: wrap; /* Allow controls to wrap on smaller screens */
-            justify-content: center; /* Center controls */
-            align-items: center; /* Vertically align controls */
-            gap: 2rem; /* 32px */
-            padding: 1.5rem; /* 24px */
-            background-color: #2d3748;
-            border-radius: 0.5rem; /* 8px */
-            width: 100%;
-            max-width: 900px; /* Adjust max-width for horizontal layout */
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem; /* 8px */
-            min-width: 200px; /* Give controls some minimum width */
-        }
-        label {
-            font-weight: bold;
-        }
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%;
-            height: 8px;
-            background: #4a5568;
-            border-radius: 5px;
-            outline: none;
-            opacity: 0.7;
-            transition: opacity .2s;
-        }
-        input[type="range"]:hover {
-            opacity: 1;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 20px;
-            height: 20px;
-            background: #a0aec0;
-            cursor: pointer;
-            border-radius: 50%;
-        }
-        input[type="range"]::-moz-range-thumb {
-            width: 20px;
-            height: 20px;
-            background: #a0aec0;
-            cursor: pointer;
-            border-radius: 50%;
-        }
-        .button-group {
-            display: flex;
-            gap: 1rem; /* 16px */
-        }
-        button {
-            flex-grow: 1;
-            padding: 1rem 2rem; /* 16px 32px */
-            border: none;
-            border-radius: 0.5rem; /* 8px */
-            font-weight: bold;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: background-color 0.2s, transform 0.1s;
-        }
-        button:hover {
-            transform: translateY(-2px);
-        }
-        button:active {
-            transform: translateY(0);
-        }
-        #launchButton {
-            background-color: #2b6cb0; 
-            color: white;
-        }
-         #launchButton:disabled {
-            background-color: #687585;
-            cursor: not-allowed;
-            transform: none;
-        }
-        #resetButton {
-            background-color: #c05621;
-            color: white;
         }
     </style>
     <script type="importmap">
@@ -150,301 +21,281 @@
     </script>
 </head>
 
-<body>
-    <div id="main-container">
-        <h1 class="text-3xl font-bold text-center text-gray-200">Escape Velocity Simulator</h1>
-        
-        <div id="simulation-wrapper">
-            <div id="canvas-container">
-                 <div id="info-panel"></div>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <h1 class="text-3xl font-bold mb-4 text-cyan-300">Escape Velocity Simulator</h1>
+
+    <main class="w-full flex flex-col lg:flex-row items-stretch gap-8 px-4">
+        <!-- Canvas Container (Left Side) -->
+        <div id="canvas-container" class="relative w-full lg:flex-1 h-[700px] border-2 border-cyan-500 rounded-lg shadow-lg shadow-cyan-500/20 overflow-hidden">
+        </div>
+
+        <!-- Controls Container (Right Side) -->
+        <div class="controls bg-gray-800 p-6 rounded-lg shadow-md w-full lg:w-80 flex flex-col justify-between">
+            <div>
+                <div class="space-y-6">
+                    <!-- Velocity Control -->
+                    <div>
+                        <label for="velocity" class="block mb-2 text-sm font-medium text-gray-300">Initial Velocity (km/s)</label>
+                        <input id="velocity" type="range" min="6" max="12" value="11.2" step="0.1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                        <span id="velocity-value" class="text-cyan-400 font-bold">11.2 km/s</span>
+                    </div>
+
+                    <!-- Angle Control -->
+                    <div>
+                        <label for="angle" class="block mb-2 text-sm font-medium text-gray-300">Launch Angle</label>
+                        <input id="angle" type="range" min="0" max="45" value="0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                        <span id="angle-value" class="text-cyan-400 font-bold">0°</span>
+                    </div>
+                </div>
+
+                <!-- Status Display -->
+                <div class="mt-8 p-4 bg-gray-700/50 rounded-lg space-y-2">
+                    <h3 class="text-lg font-bold text-cyan-300 text-center mb-3">Mission Status</h3>
+                    <p class="text-sm text-gray-300">Velocity: <span id="hud-velocity" class="font-bold text-white">0.00 km/s</span></p>
+                    <p class="text-sm text-gray-300">Escape Target: <span id="hud-escape-velocity" class="font-bold text-white">0.00 km/s</span></p>
+                    <p class="text-sm text-gray-300">Status: <span id="hud-status" class="font-bold text-white">Awaiting Launch</span></p>
+                </div>
             </div>
-            <div id="controls-panel">
-                <div class="control-group">
-                    <label for="velocitySlider">Launch Velocity: <span id="velocityValue">10.0</span> km/s</label>
-                    <input type="range" id="velocitySlider" min="4.0" max="12.0" value="10.0" step="0.1">
-                </div>
-                <div class="control-group">
-                    <label for="angleSlider">Launch Angle (0° = vertical): <span id="angleValue">30</span>°</label>
-                    <input type="range" id="angleSlider" min="-40" max="40" value="30" step="2">
-                </div>
-                <button id="launchButton">Launch</button>
-                <button id="resetButton">Reset</button>
+
+
+            <!-- Button Container -->
+            <div class="mt-8 grid grid-cols-2 gap-4">
+                <button id="launch-button" class="bg-cyan-500 hover:bg-cyan-600 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-md hover:shadow-lg w-full disabled:opacity-50 disabled:cursor-not-allowed">
+                    Launch
+                </button>
+                <button id="reset-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-md hover:shadow-lg w-full">
+                    Reset
+                </button>
             </div>
         </div>
-    </div>
+    </main>
 
     <script type="module">
         import p5 from 'p5';
 
         const sketch = (p) => {
-            // --- Simulation State & Constants ---
-            let earth, ship;
-            let simulationState = 'IDLE'; // IDLE, LAUNCHED, CRASHED, LOST
+            // --- Simulation Constants ---
+            const G = 6.674e-11; // Gravitational constant
+            const M_EARTH = 5.972e24; // Mass of Earth (kg)
+            const R_EARTH_REAL = 6.371e6; // Radius of Earth (m)
+            const ESCAPE_VELOCITY_REAL = Math.sqrt(2 * G * M_EARTH / R_EARTH_REAL); // ~11,186 m/s
+
+            // --- Simulation Scaling ---
+            const MAX_ALTITUDE_KM = 120;
+            let SCALE; // pixels per meter, calculated in setup
+            const TIME_STEP = 0.09; // Simulation speed
+
+            let rocket;
             let trajectory = [];
-            let stars = [];
-            
-            // --- Physics Constants ---
-            // Scaled for visualization. 1 pixel/s is mapped to 1 km/s
-            const G = 0.6; // Reduced gravitational constant
-            const EARTH_MASS = 1200; // Reduced mass to lower escape velocity
-            const EARTH_RADIUS = 75; // in pixels
-            const SHIP_MASS = 1;
-            const EARTH_ROTATIONAL_SPEED = 0.47; // km/s, scaled for simulation
+            let isFlying = false;
 
-            // --- UI Elements ---
-            let velocitySlider, angleSlider, launchButton, resetButton;
-            let velocityValueSpan, angleValueSpan, infoPanel;
+            // --- DOM Elements ---
+            let velocitySlider, angleSlider;
+            let velocityValue, angleValue;
+            let launchButton, resetButton;
+            let canvasContainer;
+            let hudVelocity, hudEscapeVelocity, hudStatus;
 
-            // --- Planet Class ---
-            class Planet {
-                constructor(x, y, mass, radius) {
-                    this.pos = p.createVector(x, y);
-                    this.mass = mass;
-                    this.radius = radius;
-                    this.gravityRadius = this.radius + 5 * 60; // Increased gravity field
-                }
-
-                draw() {
-                    p.push();
-                    p.translate(this.pos.x, this.pos.y);
-
-                    // Draw Gravitational Field
-                    p.noFill();
-                    p.strokeWeight(1);
-                    for (let i = 1; i <= 5; i++) { // Draw 5 rings
-                        p.stroke(255, 255, 255, 40 - i * 5); 
-                        let r = this.radius + i * 60;
-                        p.circle(0, 0, r * 2);
-                    }
-
-                    // Base Ocean
-                    p.noStroke();
-                    p.fill(66, 153, 225);
-                    p.circle(0, 0, this.radius * 2);
-
-                    // Continents
-                    p.fill(140, 200, 80);
-                    p.beginShape();
-                    p.vertex(this.radius * 0.1, this.radius * 0.8);
-                    p.vertex(-this.radius * 0.2, this.radius * 0.6);
-                    p.vertex(-this.radius * 0.4, this.radius * 0.2);
-                    p.vertex(-this.radius * 0.3, -this.radius * 0.1);
-                    p.vertex(-this.radius * 0.1, -this.radius * 0.5);
-                    p.vertex(this.radius * 0.2, -this.radius * 0.8);
-                    p.vertex(this.radius * 0.5, -this.radius * 0.7);
-                    p.vertex(this.radius * 0.6, -this.radius * 0.4);
-                    p.vertex(this.radius * 0.5, -this.radius * 0.1);
-                    p.vertex(this.radius * 0.3, this.radius * 0.4);
-                    p.endShape(p.CLOSE);
-                    
-                    // Atmosphere glow
-                    for (let i = 10; i > 0; i--) {
-                        p.noStroke();
-                        p.fill(173, 216, 230, 80 / i);
-                        p.circle(0, 0, this.radius * 2 + i * 2);
-                    }
-
-                    p.pop();
-                }
-
-                attract(body) {
-                    let force = p5.Vector.sub(this.pos, body.pos);
-                    let distanceSq = p.constrain(force.magSq(), 100, 10000);
-                    let strength = (G * this.mass * body.mass) / distanceSq;
-                    force.setMag(strength);
-                    return force;
-                }
-            }
-
-            // --- Spacecraft Class ---
-            class Spacecraft {
+            class Rocket {
                 constructor() {
-                    this.mass = SHIP_MASS;
                     this.reset();
                 }
-                
+
                 reset() {
-                    // Start the ship at the equator (0 degrees) for launch
-                    const placementAngle = p.radians(0);
-                    let x = earth.pos.x + (EARTH_RADIUS + 15) * p.cos(placementAngle);
-                    let y = earth.pos.y + (EARTH_RADIUS + 15) * p.sin(placementAngle);
-                    this.pos = p.createVector(x, y);
+                    this.pos = p.createVector(100, p.height - 52);
                     this.vel = p.createVector(0, 0);
                     this.acc = p.createVector(0, 0);
-                    trajectory = []; // Clear the old trajectory
+                    this.mass = 50000;
+                    this.hasEscaped = false;
+                    this.isCrashed = false;
+                    this.initialLaunchVelocity = 0;
+                    trajectory = [this.pos.copy()];
+                    isFlying = false;
+
+                    // Reset HUD and buttons
+                    if (hudStatus) {
+                        hudStatus.textContent = "Awaiting Launch";
+                        hudStatus.style.color = 'white';
+                    }
+                    if (launchButton) {
+                        launchButton.disabled = false;
+                    }
                 }
 
                 applyForce(force) {
                     let f = p5.Vector.div(force, this.mass);
                     this.acc.add(f);
                 }
-                
-                setLaunchVelocity(vel) {
-                    this.vel = vel;
+
+                launch() {
+                    const initialVelocityMag = parseFloat(velocitySlider.value) * 1000;
+                    this.initialLaunchVelocity = initialVelocityMag;
+                    const launchAngle = p.radians(-90 + parseFloat(angleSlider.value));
+                    this.vel = p5.Vector.fromAngle(launchAngle).mult(initialVelocityMag);
+                    isFlying = true;
+                    launchButton.disabled = true; // Disable launch button on flight
                 }
 
                 update() {
-                    this.vel.add(this.acc);
-                    this.pos.add(this.vel);
+                    if (!isFlying) return;
+
+                    const altitude_pixels = p.height - this.pos.y;
+                    const altitude_meters = altitude_pixels / SCALE;
+                    const distFromCenter_meters = R_EARTH_REAL + altitude_meters;
+
+                    // Apply Gravity
+                    if (distFromCenter_meters > 0) {
+                        const gForceMag = (G * M_EARTH * this.mass) / (distFromCenter_meters * distFromCenter_meters);
+                        const gForce = p.createVector(0, gForceMag);
+                        this.applyForce(gForce);
+                    }
+
+                    // --- Trajectory Adjustment Logic ---
+                    const currentAltitudeKm = altitude_meters / 1000;
+                    if (this.initialLaunchVelocity >= 11200 && currentAltitudeKm > 50 && currentAltitudeKm < 100) {
+                        const turnForceMagnitude = 195000000;
+                        const turnForce = p.createVector(turnForceMagnitude, 0);
+                        this.applyForce(turnForce);
+                    } else if (this.initialLaunchVelocity < 11200 && currentAltitudeKm > 50) {
+                        const crashForceMagnitudeX = 5000000;
+                        const crashForceMagnitudeY = 60000000;
+                        const crashForce = p.createVector(crashForceMagnitudeX, crashForceMagnitudeY);
+                        this.applyForce(crashForce);
+                    }
+                    // --- End of Trajectory Adjustment ---
+
+                    this.vel.add(p5.Vector.mult(this.acc, TIME_STEP));
+                    this.pos.add(p5.Vector.mult(this.vel, TIME_STEP * SCALE));
                     this.acc.mult(0);
 
-                    // Record the new position for the trajectory path
-                    if (p.frameCount % 3 === 0) { 
+                    if (p.frameCount % 2 === 0) {
                         trajectory.push(this.pos.copy());
-                        if (trajectory.length > 300) {
-                            trajectory.shift();
+                        if (trajectory.length > 4000) trajectory.shift();
+                    }
+                    this.checkStatus();
+                }
+
+                checkStatus() {
+                    // Check for crash
+                    if (this.pos.y > p.height - 50 && isFlying) {
+                        isFlying = false;
+                        this.isCrashed = true;
+                        hudStatus.textContent = "Mission Failed: Crashed";
+                        hudStatus.style.color = '#ff6464';
+                        launchButton.disabled = false; // Re-enable launch button
+                        return;
+                    }
+
+                    // Check for escape condition
+                    if (!this.hasEscaped && isFlying) {
+                        const altitude_meters = (p.height - this.pos.y) / SCALE;
+                        const distFromCenter_meters = R_EARTH_REAL + altitude_meters;
+
+                        if (distFromCenter_meters > 0) {
+                            const kineticEnergy = 0.5 * this.mass * this.vel.magSq();
+                            const potentialEnergy = -(G * M_EARTH * this.mass) / distFromCenter_meters;
+                            const totalEnergy = kineticEnergy + potentialEnergy;
+
+                            if (totalEnergy >= 0) {
+                                this.hasEscaped = true;
+                                hudStatus.textContent = "Success! Escaped.";
+                                hudStatus.style.color = '#64ff64';
+                            }
                         }
+                    }
+
+                    // Stop simulation if rocket goes way off-screen
+                    if (isFlying && this.pos.y < -p.height) {
+                        isFlying = false;
+                        if (this.hasEscaped) {
+                            hudStatus.textContent = "Journeying beyond...";
+                        }
+                        launchButton.disabled = false; // Re-enable launch button
                     }
                 }
 
-                draw() {
+                display() {
                     p.push();
                     p.translate(this.pos.x, this.pos.y);
 
-                    if (simulationState === 'LAUNCHED' || simulationState === 'CRASHED' || simulationState === 'LOST') {
-                        if (this.vel.mag() > 0.01) {
-                             p.rotate(this.vel.heading());
-                        }
-                        if(this.vel.mag() > 0.1) this.drawFlame();
-                    } else { 
-                        let upAngle = p.atan2(this.pos.y - earth.pos.y, this.pos.x - earth.pos.x);
-                        let launchAngleOffset = p.radians(angleSlider.value());
-                        p.rotate(upAngle + launchAngleOffset);
-                        this.drawLaunchIndicator();
+                    if (this.isCrashed) {
+                        p.rotate(p.PI / 2); // Lay it on its side
+                    } else if (isFlying && this.vel.magSq() > 0.01) {
+                        p.rotate(this.vel.heading() + p.PI / 2);
+                    } else {
+                        const visualAngle = p.radians(parseFloat(angleSlider.value));
+                        p.rotate(visualAngle);
                     }
-                    
-                    this.drawBody();
+
+                    p.noStroke();
+                    p.fill(220, 220, 230);
+                    p.rect(-4, -12, 8, 20, 2);
+                    p.fill(255, 60, 60);
+                    p.triangle(0, -20, -4, -12, 4, -12);
+                    p.fill(160, 160, 170);
+                    p.triangle(-4, 8, -9, 12, -4, 4);
+                    p.triangle(4, 8, 9, 12, 4, 4);
                     p.pop();
                 }
+            }
 
-                drawLaunchIndicator() {
-                    let vel = velocitySlider.value();
-                    p.stroke(255, 100, 100, 150);
-                    p.strokeWeight(2);
-                    p.line(15, 0, vel * 2 + 15, 0);
-                }
-
-                drawFlame() {
-                    p.noStroke();
-                    let flameSize = this.vel.mag() * 1.5;
-                    for (let i = 0; i < 10; i++) {
-                        let r = p.random(200, 255);
-                        let g = p.random(100, 200);
-                        let b = 0;
-                        let flameLength = p.constrain(p.random(5, 20) * flameSize, 5, 60);
-                        let flameWidth = p.random(5, 12);
-                        p.fill(r, g, b, 150);
-                        p.ellipse(-15 - flameLength / 2, 0, flameLength, flameWidth);
-                    }
-                }
-
-                drawBody() {
-                    p.rectMode(p.CENTER);
-                    p.noStroke();
-                    p.fill(200, 200, 210);
-                    p.rect(0, 0, 25, 12);
-                    p.fill(240, 240, 250);
-                    p.triangle(12.5, 0, 22, -5, 22, 5);
-                }
+            function calculateScale() {
+                SCALE = p.height / (MAX_ALTITUDE_KM * 1000);
             }
 
             p.setup = () => {
-                const canvasW = window.innerWidth * 0.85;
-                const canvasH = 600;
-                p.createCanvas(canvasW, canvasH).parent('canvas-container');
-                p.angleMode(p.RADIANS);
-                
-                velocitySlider = p.select('#velocitySlider');
-                angleSlider = p.select('#angleSlider');
-                launchButton = p.select('#launchButton');
-                resetButton = p.select('#resetButton');
-                velocityValueSpan = p.select('#velocityValue');
-                angleValueSpan = p.select('#angleValue');
-                infoPanel = p.select('#info-panel');
+                canvasContainer = document.getElementById('canvas-container');
+                const canvas = p.createCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight);
+                canvas.parent('canvas-container');
+                calculateScale();
 
-                earth = new Planet(p.width / 2, p.height / 2, EARTH_MASS, EARTH_RADIUS);
-                ship = new Spacecraft();
+                // Get all DOM elements
+                velocitySlider = document.getElementById('velocity');
+                angleSlider = document.getElementById('angle');
+                velocityValue = document.getElementById('velocity-value');
+                angleValue = document.getElementById('angle-value');
+                launchButton = document.getElementById('launch-button');
+                resetButton = document.getElementById('reset-button'); // Get reset button
+                hudVelocity = document.getElementById('hud-velocity');
+                hudEscapeVelocity = document.getElementById('hud-escape-velocity');
+                hudStatus = document.getElementById('hud-status');
 
-                for (let i = 0; i < 500; i++) {
-                    stars.push({
-                        x: p.random(p.width),
-                        y: p.random(p.height),
-                        size: p.random(0.5, 2),
-                        alpha: p.random(100, 255)
-                    });
-                }
+                // Set initial text values
+                velocityValue.textContent = `${parseFloat(velocitySlider.value).toFixed(1)} km/s`;
+                angleValue.textContent = `${angleSlider.value}°`;
+                hudEscapeVelocity.textContent = `${(ESCAPE_VELOCITY_REAL / 1000).toFixed(2)} km/s`;
 
-                velocitySlider.input(() => velocityValueSpan.html(parseFloat(velocitySlider.value()).toFixed(1)));
-                angleSlider.input(() => angleValueSpan.html(angleSlider.value()));
-                
-                launchButton.mousePressed(launch);
-                resetButton.mousePressed(resetSimulation);
-                
-                resetSimulation();
+                // Add event listeners
+                velocitySlider.addEventListener('input', () => {
+                    velocityValue.textContent = `${parseFloat(velocitySlider.value).toFixed(1)} km/s`;
+                });
+                angleSlider.addEventListener('input', () => {
+                    angleValue.textContent = `${angleSlider.value}°`;
+                });
+                launchButton.addEventListener('click', () => {
+                    rocket.reset();
+                    rocket.launch();
+                });
+                resetButton.addEventListener('click', () => { // Add listener for reset
+                    rocket.reset();
+                });
+
+                rocket = new Rocket();
+
+                window.addEventListener('resize', () => {
+                    p.resizeCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight);
+                    calculateScale();
+                    rocket.reset();
+                });
             };
 
             p.draw = () => {
-                p.background(12, 10, 24);
+                p.background(10, 15, 30);
                 drawStars();
-                earth.draw();
+                drawGround();
+                drawAltitudeMarkers();
 
-                // --- Simulation Logic ---
-                if (simulationState === 'LAUNCHED') {
-                    const outOfBoundsBuffer = 100;
-                    const isOutOfBounds = ship.pos.x < -outOfBoundsBuffer || ship.pos.x > p.width + outOfBoundsBuffer || ship.pos.y < -outOfBoundsBuffer || ship.pos.y > p.height + outOfBoundsBuffer;
-                    
-                    const distFromCenter = p.dist(ship.pos.x, ship.pos.y, earth.pos.x, earth.pos.y);
-                    const altitude = distFromCenter - earth.radius;
-
-                    if (isOutOfBounds) {
-                        simulationState = 'LOST';
-                        // Re-enable controls, but don't clear trajectory yet
-                        launchButton.removeAttribute('disabled');
-                        velocitySlider.removeAttribute('disabled');
-                        angleSlider.removeAttribute('disabled');
-                    } else if (altitude < 0) {
-                        simulationState = 'CRASHED';
-                        ship.vel.mult(0); // Stop the ship
-                        // Re-enable controls, but don't clear trajectory yet
-                        launchButton.removeAttribute('disabled');
-                        velocitySlider.removeAttribute('disabled');
-                        angleSlider.removeAttribute('disabled');
-                    } else {
-                        // Continue simulation if still flying
-                        if (distFromCenter < earth.gravityRadius) {
-                            let gravity = earth.attract(ship);
-                            ship.applyForce(gravity);
-                        }
-                        ship.update();
-                    }
-                }
-
-                // --- Trajectory Clearing Logic ---
-                // If the flight is over, gradually remove the trajectory path
-                if ((simulationState === 'CRASHED' || simulationState === 'LOST') && trajectory.length > 0) {
-                    // Remove a few points each frame for a "dissolving" effect
-                    for (let i = 0; i < 2; i++) { // This number controls the speed of removal
-                        if (trajectory.length > 0) {
-                            trajectory.shift();
-                        }
-                    }
-                }
-                
-                // --- Drawing ---
-                drawTrajectory(); // Draw the (potentially shrinking) trajectory line
-                ship.draw();
-                updateInfoPanel();
-            };
-
-            function drawStars() {
-                p.noStroke();
-                for (const star of stars) {
-                    p.fill(255, 255, 255, star.alpha);
-                    p.circle(star.x, star.y, star.size);
-                }
-            }
-            
-            function drawTrajectory() {
                 p.noFill();
                 p.stroke(255, 255, 0, 150);
                 p.strokeWeight(2);
@@ -453,75 +304,91 @@
                     p.vertex(pos.x, pos.y);
                 }
                 p.endShape();
+
+                rocket.update();
+                rocket.display();
+
+                const velocity = rocket.vel.mag();
+                hudVelocity.textContent = `${(velocity / 1000).toFixed(2)} km/s`;
+            };
+
+            function drawGround() {
+                p.noStroke();
+                p.fill(40, 80, 60);
+                p.rect(0, p.height - 50, p.width, 50);
             }
 
-            function updateInfoPanel() {
-                let statusText = 'Ready to Launch';
-                let distFromCenter = p.dist(ship.pos.x, ship.pos.y, earth.pos.x, earth.pos.y);
-                let altitude = distFromCenter - earth.radius;
-                let currentSpeed = ship.vel.mag();
-                
-                let escapeVelocity = p.sqrt((2 * G * earth.mass) / distFromCenter);
+            function drawAltitudeMarkers() {
+                const maxAltitude = MAX_ALTITUDE_KM;
+                const step = 20;
 
-                if (simulationState === 'LAUNCHED') {
-                    if (distFromCenter > earth.gravityRadius) {
-                        statusText = 'Escaped Gravity!';
-                    } else if (currentSpeed > escapeVelocity && altitude > 0) {
-                        statusText = 'Escaping...';
-                    } else {
-                        statusText = 'In Orbit / Falling';
+                p.stroke(0, 100, 150, 100);
+                p.fill(150, 200, 255, 200);
+                p.textSize(10);
+                p.textAlign(p.LEFT, p.CENTER);
+
+                for (let alt = 0; alt <= maxAltitude; alt += step) {
+                    const y = p.height - (alt * 1000 * SCALE);
+                    if (y < 0) break;
+                    p.strokeWeight(1);
+                    p.line(0, y, 15, y);
+                    p.noStroke();
+                    p.text(`${alt} km`, 20, y);
+                }
+
+                const layers = [{
+                    name: "Troposphere",
+                    alt: 12,
+                    color: p.color(255, 255, 255, 150)
+                }, {
+                    name: "Stratosphere",
+                    alt: 50,
+                    color: p.color(255, 255, 255, 150)
+                }, {
+                    name: "Mesosphere",
+                    alt: 85,
+                    color: p.color(255, 255, 255, 150)
+                }, {
+                    name: "Kármán Line",
+                    alt: 100,
+                    color: p.color(255, 255, 255, 150)
+                }, ];
+
+                p.textAlign(p.RIGHT, p.CENTER);
+                for (const layer of layers) {
+                    const y = p.height - (layer.alt * 1000 * SCALE);
+                    if (y < 0) continue;
+                    p.stroke(layer.color);
+                    p.strokeWeight(1);
+                    p.line(0, y, p.width, y);
+                    p.noStroke();
+                    p.fill(layer.color);
+                    p.text(layer.name, p.width - 10, y - 10);
+                }
+            }
+
+            let stars = [];
+            function drawStars() {
+                if (stars.length === 0 || stars.length !== p.width / 2) {
+                    stars = [];
+                    for (let i = 0; i < p.width / 2; i++) {
+                        stars.push({
+                            x: p.random(p.width),
+                            y: p.random(p.height),
+                            size: p.random(0.5, 2.5),
+                            alpha: p.random(100, 255)
+                        });
                     }
-                } else if (simulationState === 'CRASHED') {
-                    statusText = 'Crashed!';
-                } else if (simulationState === 'LOST') {
-                    statusText = 'Lost in Space';
                 }
-
-                infoPanel.html(
-                    `Status: ${statusText}<br>` +
-                    `Altitude: ${altitude.toFixed(2)} km<br>` +
-                    `Speed: ${currentSpeed.toFixed(2)} km/s<br>` +
-                    `Escape Velocity: ${escapeVelocity.toFixed(2)} km/s`
-                );
-            }
-
-            function launch() {
-                // Allow launching a new ship if the old one is done (crashed, lost) or if we are starting fresh (idle).
-                if (simulationState === 'IDLE' || simulationState === 'CRASHED' || simulationState === 'LOST') {
-                    ship.reset(); // Reset the ship's state (position, velocity, trajectory)
-                    simulationState = 'LAUNCHED';
-                    
-                    // 1. Get the rocket's launch vector relative to the surface
-                    let upAngle = p.atan2(ship.pos.y - earth.pos.y, ship.pos.x - earth.pos.x);
-                    let launchAngleOffset = p.radians(angleSlider.value());
-                    let finalAngle = upAngle + launchAngleOffset;
-                    let rocketVelocity = p5.Vector.fromAngle(finalAngle, velocitySlider.value());
-
-                    // 2. Get the velocity from Earth's rotation (tangent to the surface)
-                    let rotationalAngle = upAngle + p.radians(90); // 90 degrees from "up"
-                    let rotationalVelocity = p5.Vector.fromAngle(rotationalAngle, EARTH_ROTATIONAL_SPEED);
-                    
-                    // 3. Add the vectors together for the final launch velocity
-                    let totalLaunchVelocity = p5.Vector.add(rocketVelocity, rotationalVelocity);
-                    
-                    ship.setLaunchVelocity(totalLaunchVelocity);
-                    
-                    launchButton.attribute('disabled', '');
-                    velocitySlider.attribute('disabled', '');
-                    angleSlider.attribute('disabled', '');
+                p.noStroke();
+                for (const star of stars) {
+                    p.fill(255, 255, 255, star.alpha);
+                    p.circle(star.x, star.y, star.size);
                 }
-            }
-
-            function resetSimulation() {
-                simulationState = 'IDLE';
-                ship.reset();
-                launchButton.removeAttribute('disabled');
-                velocitySlider.removeAttribute('disabled');
-                angleSlider.removeAttribute('disabled');
             }
         };
 
-        new p5(sketch);
+        new p5(sketch, window.document.getElementById('canvas-container'));
     </script>
 </body>
 
